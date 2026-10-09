@@ -51,14 +51,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: region pin
-        run: |
-          if [ -f scripts/check-region-pin.sh ]; then
-            bash scripts/check-region-pin.sh
-            [ ! -f scripts/tests/test_check_region_pin.sh ] || bash scripts/tests/test_check_region_pin.sh
-          else
-            echo "::notice::scripts/check-region-pin.sh not here yet; ef#883 moves it in and removes this skip"
-          fi
+      - run: bash scripts/tests/test_check_region_pin.sh
+      - run: bash scripts/check-region-pin.sh
 
   workflow-guard:
     runs-on: ubuntu-latest

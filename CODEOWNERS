@@ -1,0 +1,9 @@
+# Surface paths. Merges touching these need `ARCHITECT APPROVED <sha>` via merge-reviewed-pr.sh (E6).
+# 'Require review from code owners' is deliberately OFF: every session is rosebud785.
+/.github/            @rosebud785
+/CODEOWNERS          @rosebud785
+/scripts/check-workflows.sh  @rosebud785
+/scripts/tests/test_check_workflows.sh  @rosebud785
+/policy/             @rosebud785
+/environments/prod/  @rosebud785
+/local-only/         @rosebud785

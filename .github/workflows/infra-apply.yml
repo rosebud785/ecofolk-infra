@@ -1,0 +1,135 @@
+name: Infra apply (Terraform dev)
+
+# ef#827 / ef#883 — keyless Terraform apply for the dev project (Architect design §6). The ONLY workflow
+# allowed `id-token: write` (scripts/check-workflows.sh's allowlist), and it runs on push to main only:
+# no pull_request trigger, so no PR path can obtain a token, and there is no PR-time `plan` (E4). A PR
+# gets fmt / validate / tflint / region-pin from ci.yml; the apply's own fresh plan is the first
+# real plan, and review is the merge gate.
+#
+# No GCP key exists anywhere. The job exchanges its GitHub OIDC token through Workload Identity
+# Federation for tf-apply's short-lived token. GCP trusts it only for THIS repo's refs/heads/main
+# AND the `gcp-dev` Environment (deployment branches: main) — the enforcement is on the GCP side,
+# not in this file.
+#
+# "No user-managed keys": tf-apply holds roles that can mint a service-account key, and a personal
+# GCP account has no org policy to forbid it, so every run lists user-managed keys on the apply
+# identity and FAILS if any exist (detection, not prevention). A listing that errors is a failure,
+# never a pass. Terraform never manages secret VALUES: secrets are containers only.
+#
+# Identifiers are repo VARIABLES (not secrets — none is a credential):
+#   GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_APPLY_SA, TF_STATE_BUCKET
+# and the gate TF_APPLY_ENABLED: until it is exactly 'true' this workflow can NOT apply. It plans with
+# -detailed-exitcode and FAILS on any change (exit 2), so the first run proves "No changes" against the
+# state the old repo left, and flipping the variable is a separate, deliberate step.
+#
+# This workflow never touches environments/prod.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'environments/**'
+      - 'modules/**'
+      - '.github/workflows/infra-apply.yml'
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: '0'
+  TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+  TF_DIR: environments/dev
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: gcp-dev
+    concurrency:
+      group: infra-dev
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # A missing variable is a failure with its name, not a skipped job: an apply that never ran must
+      # not read as an apply with no changes (ecofolk#151).
+      - name: Require the bootstrap variables
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_APPLY_SA: ${{ vars.GCP_APPLY_SA }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          missing=""
+          for v in GCP_PROJECT_ID GCP_WIF_PROVIDER GCP_APPLY_SA TF_STATE_BUCKET; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::repo variable(s) not set:$missing (ef#397 bootstrap output, ef#827)"
+            exit 1
+          fi
+
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_APPLY_SA }}
+
+      - name: No user-managed service-account keys
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          SAS: ${{ vars.GCP_APPLY_SA }}
+        run: |
+          bad=0
+          for sa in $SAS; do
+            if ! keys=$(gcloud iam service-accounts keys list --iam-account="$sa" --managed-by=user \
+              --project="$GCP_PROJECT_ID" --format='value(name)' 2>"$RUNNER_TEMP/keys.err"); then
+              echo "::error::could not list keys for $sa: $(tr '\n' ' ' < "$RUNNER_TEMP/keys.err")"
+              bad=1
+            elif [ -n "$keys" ]; then
+              echo "::error::$sa has $(printf '%s\n' "$keys" | grep -c .) user-managed key(s); there must be none"
+              bad=1
+            else
+              echo "ok: $sa has no user-managed keys"
+            fi
+          done
+          exit $bad
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.16.3
+          terraform_wrapper: false
+
+      - name: Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      # A fresh plan, saved. -detailed-exitcode: 0 = no changes, 2 = changes, 1 = error. Any change is a
+      # failure until TF_APPLY_ENABLED is 'true' (see the header): the first run cannot apply.
+      - name: Plan
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          TF_APPLY_ENABLED: ${{ vars.TF_APPLY_ENABLED }}
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -no-color -out="$RUNNER_TEMP/tfplan"
+          rc=$?
+          set -e
+          if [ "$rc" = 1 ]; then
+            echo "::error::terraform plan failed"
+            exit 1
+          fi
+          if [ "$rc" = 2 ] && [ "$TF_APPLY_ENABLED" != "true" ]; then
+            echo "::error::plan has changes and TF_APPLY_ENABLED is not 'true': refusing (this run cannot apply)"
+            exit 1
+          fi
+          echo "plan exit code: $rc (0 = No changes)"
+
+      # The SAVED plan, with the lock held: what runs is exactly what was just planned.
+      - name: Apply
+        if: vars.TF_APPLY_ENABLED == 'true'
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -no-color -auto-approve "$RUNNER_TEMP/tfplan"

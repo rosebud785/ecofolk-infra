@@ -16,7 +16,7 @@ policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / b
 
 **No GCP key exists anywhere.** `infra-apply.yml` (push to main only) exchanges the job's GitHub OIDC
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
-the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tflint`, `region-pin`, `workflow-guard` and
+the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `tflint`, `region-pin`, `workflow-guard` and
 `policy` and nothing that can reach GCP.
 
 ## Policy (cost and safety guards)
@@ -43,6 +43,21 @@ Every resource runs in `northamerica-northeast1` (Montréal): `modules/project/v
 the `region` variable, and `scripts/check-region-pin.sh` greps the committed `*.tf`/`*.tfvars` for any
 other region token or `global`. The app repo's own guard (`packages/scripts/src/lint-region-pin.ts`)
 covers application code there.
+
+## Module tests (every module PR adds its own)
+
+A PR can't run a real `plan` (no credentials), so each module proves itself with `terraform test`
+against `mock_provider "google"`: no credentials, no GCP calls (#8). The rule:
+
+- **every PR that adds a module adds `modules/<name>/tests/*.tftest.hcl` in the same PR**, and every
+  PR that changes a module updates its tests to cover the change;
+- the tests use `mock_provider "google" {}` and `command = plan` (or `apply`, which is mocked too),
+  and assert the region pin, the cost/safety-relevant arguments, the outputs, and that each
+  variable `validation` refuses a bad value (`expect_failures`);
+- PR CI's `tf-test` job runs `terraform test` in every `modules/*` directory and **fails a module that
+  has no `tests/*.tftest.hcl`**, so a module without tests can't merge green.
+
+`terraform test` needs Terraform 1.7 or later (`mock_provider`).
 
 ## Running the checks locally
 

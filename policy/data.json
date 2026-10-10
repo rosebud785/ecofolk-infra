@@ -1,0 +1,9 @@
+{
+  "ecofolk": {
+    "sql_tier_allowlist": [
+      "db-f1-micro",
+      "db-g1-small",
+      "db-custom-1-3840"
+    ]
+  }
+}

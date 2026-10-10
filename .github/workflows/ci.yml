@@ -38,6 +38,38 @@ jobs:
           done
           echo "validated $n dir(s)"
 
+  # ecofolk-infra#8: `terraform test` per module, against `mock_provider "google"` only (no credentials,
+  # no GCP). A module without a tests/*.tftest.hcl fails the job: every module PR adds its own tests.
+  tf-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_wrapper: false
+      - name: init + test each module
+        run: |
+          set -euo pipefail
+          n=0
+          fail=0
+          for d in modules/*; do
+            [ -d "$d" ] || continue
+            ls "$d"/*.tf >/dev/null 2>&1 || continue
+            if ! ls "$d"/tests/*.tftest.hcl >/dev/null 2>&1; then
+              echo "::error::$d has no tests/*.tftest.hcl (every module ships its own terraform test, #8)"
+              fail=1
+              continue
+            fi
+            n=$((n + 1))
+            echo "::group::$d"
+            terraform -chdir="$d" init -backend=false -input=false
+            terraform -chdir="$d" test -no-color || fail=1
+            echo "::endgroup::"
+          done
+          echo "tested $n module(s)"
+          exit $fail
+
   tflint:
     runs-on: ubuntu-latest
     timeout-minutes: 10

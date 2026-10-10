@@ -68,3 +68,33 @@ run "rejects_other_region" {
 
   expect_failures = [var.region]
 }
+
+# ecofolk-infra#8: the outputs callers build image paths from, and the repository_id guard.
+run "outputs_and_project" {
+  command = plan
+
+  assert {
+    condition     = google_artifact_registry_repository.docker.project == "ecofolk-dev"
+    error_message = "repository must be created in var.project_id"
+  }
+
+  assert {
+    condition     = output.docker_host == "northamerica-northeast1-docker.pkg.dev"
+    error_message = "docker_host must be the Montréal Docker host"
+  }
+
+  assert {
+    condition     = output.repository_id == "ecofolk-images"
+    error_message = "repository_id output must echo var.repository_id"
+  }
+}
+
+run "rejects_an_invalid_repository_id" {
+  command = plan
+
+  variables {
+    repository_id = "Ecofolk_Images"
+  }
+
+  expect_failures = [var.repository_id]
+}

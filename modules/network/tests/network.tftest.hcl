@@ -77,3 +77,33 @@ run "rejects_a_psa_range_larger_than_20" {
 
   expect_failures = [var.psa_prefix_length]
 }
+
+# ecofolk-infra#8: the subnet settings Cloud Run's Direct VPC egress relies on, and the CIDR guard.
+run "subnet_defaults" {
+  command = plan
+
+  assert {
+    condition     = google_compute_subnetwork.subnet.ip_cidr_range == "10.10.0.0/24"
+    error_message = "subnet must default to 10.10.0.0/24"
+  }
+
+  assert {
+    condition     = google_compute_subnetwork.subnet.private_ip_google_access == true
+    error_message = "subnet must have Private Google Access on"
+  }
+
+  assert {
+    condition     = google_compute_network.vpc.routing_mode == "REGIONAL"
+    error_message = "VPC routing mode must be REGIONAL"
+  }
+}
+
+run "rejects_a_non_cidr_subnet" {
+  command = plan
+
+  variables {
+    subnet_cidr = "10.10.0.0"
+  }
+
+  expect_failures = [var.subnet_cidr]
+}

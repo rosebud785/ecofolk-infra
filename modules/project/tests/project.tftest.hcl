@@ -52,3 +52,35 @@ run "rejects_another_region" {
 
   expect_failures = [var.region]
 }
+
+# ecofolk-infra#8: BUILD_PLAN §11.1's own list (Cloud Run, Cloud SQL, Cloud Build, Vertex AI, Firebase).
+run "enables_the_build_plan_apis" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for api in [
+        "run.googleapis.com",
+        "sqladmin.googleapis.com",
+        "cloudbuild.googleapis.com",
+        "aiplatform.googleapis.com",
+        "firebase.googleapis.com",
+      ] : contains(keys(google_project_service.apis), api)
+    ])
+    error_message = "every BUILD_PLAN §11.1 API must be enabled"
+  }
+}
+
+run "every_api_is_on_the_given_project_and_kept_on_destroy" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for s in google_project_service.apis : s.project == "ecofolk-dev" && s.disable_on_destroy == false])
+    error_message = "every API must be enabled on var.project_id and never disabled on destroy"
+  }
+
+  assert {
+    condition     = output.project_id == "ecofolk-dev"
+    error_message = "project_id output must echo var.project_id"
+  }
+}

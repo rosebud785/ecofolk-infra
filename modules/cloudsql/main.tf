@@ -33,10 +33,10 @@ resource "google_sql_database_instance" "postgres" {
   deletion_protection = var.deletion_protection
 
   settings {
-    # tier is a literal on purpose: C7 (policy/cloud_sql.rego) refuses a non-literal tier, and this keeps
-    # the cost bound mechanical from the first apply. #39 (C7b) brings back a tier variable.
+    # tier is exactly var.tier: C7b (#39, policy/module_vars.rego) checks its literal default and every
+    # call site's value against the tier allowlist, so the cost bound stays mechanical.
     edition           = "ENTERPRISE"
-    tier              = "db-f1-micro"
+    tier              = var.tier
     availability_type = "ZONAL"
 
     # GCP-side guard, from the same variable: the instance can't be deleted from the console or API either.

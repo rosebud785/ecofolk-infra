@@ -30,12 +30,26 @@ run "is_postgres_16_enterprise_in_the_pinned_region" {
 
   assert {
     condition     = google_sql_database_instance.postgres.settings[0].tier == "db-f1-micro"
-    error_message = "tier must be db-f1-micro (C7's allowlist)"
+    error_message = "tier must default to db-f1-micro (C7's allowlist)"
   }
 
   assert {
     condition     = google_sql_database_instance.postgres.settings[0].availability_type == "ZONAL"
     error_message = "HA/REGIONAL is out of scope"
+  }
+}
+
+# #39: tier is a variable again, and the instance takes it.
+run "tier_follows_the_variable" {
+  command = plan
+
+  variables {
+    tier = "db-g1-small"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.postgres.settings[0].tier == "db-g1-small"
+    error_message = "settings.tier must come from var.tier"
   }
 }
 

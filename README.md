@@ -32,9 +32,14 @@ a tracked `*.tf.json` fails the job, because the HCL parser can't read it):
   `deletion_protection = true`;
 - buckets: `public_access_prevention = "enforced"` and `uniform_bucket_level_access = true`;
 - no `google_service_account_key` anywhere, and no `*_iam_*` resource outside a `local-only/` path;
-- every `module` source is a local path (`./` or `../`), so no remote module hides resources from the rules.
+- every `module` source is a local path (`./` or `../`) that resolves to a directory with tracked `*.tf`,
+  so no remote or unresolvable module hides resources from the rules.
 
 A constrained argument must be a literal: `var.x` can't be checked without a plan, so the rule refuses it.
+One exception (#39, `policy/module_vars.rego`): a Cloud SQL `tier` or Cloud Run `max_instance_count`
+written as exactly `var.X` in a file directly under `modules/<m>/` is accepted when `variable "X"` has a
+literal default that passes the dev limits **and** every `module` block calling `modules/<m>` omits X or
+passes a literal that passes under that call site's limits (prod limits under `environments/prod/`).
 Everything outside `environments/prod/`, `modules/` included, gets the dev limits. Each rule has a passing and a failing fixture in `policy/tests/`.
 
 ## Region pin

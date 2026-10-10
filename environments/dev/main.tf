@@ -39,3 +39,14 @@ module "network" {
 
   depends_on = [module.project]
 }
+
+# Cloud SQL Postgres 16, private IP only (issue #18). Region is the module's own pinned default, per the
+# #18 spec; depends_on so sqladmin is enabled and the PSA peering exists before the instance asks for a
+# private IP.
+module "cloudsql" {
+  source          = "../../modules/cloudsql"
+  project_id      = var.project_id
+  private_network = module.network.network_self_link
+
+  depends_on = [module.project, module.network]
+}

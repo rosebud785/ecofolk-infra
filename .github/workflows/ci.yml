@@ -62,9 +62,11 @@ jobs:
       - run: bash scripts/tests/test_check_workflows.sh
       - run: bash scripts/check-workflows.sh
 
-  # #33: content secret scan over FULL history (catches a secret added in one PR commit and removed in
-  # a later one). The gitleaks binary, not gitleaks/gitleaks-action: the action wants GITHUB_TOKEN, and
-  # this job holds no token and no secrets. The tarball is checked against a sha256 copied from that
+  # #33: content secret scan over HEAD's full history. On pull_request HEAD is the merge commit, so that
+  # is all of main plus every PR commit (catches a secret added in one PR commit and removed in a later
+  # one). --log-opts=HEAD, not the default `git log --all`: fetch-depth: 0 fetches every branch, and
+  # other PRs' branches must not fail this one. The gitleaks binary, not gitleaks/gitleaks-action: the
+  # action wants GITHUB_TOKEN, and this job holds no token and no secrets. The tarball is checked against a sha256 copied from that
   # release's checksums file, hardcoded here, never fetched at run time. --redact keeps a hit out of
   # the public log. Allowlist only via .gitleaksignore (CODEOWNERS surface).
   secret-scan:
@@ -88,4 +90,4 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP/bin" gitleaks
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: bash scripts/tests/test_secret_scan.sh
-      - run: gitleaks git --config .gitleaks.toml --redact --exit-code 1 .
+      - run: gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .

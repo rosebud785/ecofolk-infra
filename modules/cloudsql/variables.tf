@@ -32,13 +32,6 @@ variable "instance_name" {
   }
 }
 
-# db-f1-micro is C7's allowlisted tier: shared-core, ENTERPRISE edition only.
-variable "tier" {
-  type        = string
-  default     = "db-f1-micro"
-  description = "Cloud SQL machine tier."
-}
-
 variable "deletion_protection" {
   type        = bool
   default     = true

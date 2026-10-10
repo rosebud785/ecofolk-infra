@@ -30,7 +30,7 @@ run "is_postgres_16_enterprise_in_the_pinned_region" {
 
   assert {
     condition     = google_sql_database_instance.postgres.settings[0].tier == "db-f1-micro"
-    error_message = "tier must default to db-f1-micro (C7's allowlist)"
+    error_message = "tier must be db-f1-micro (C7's allowlist)"
   }
 
   assert {

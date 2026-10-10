@@ -17,8 +17,9 @@
 # Needs sqladmin.googleapis.com (modules/project) and the PSA peering (modules/network); callers order
 # them with `depends_on` (see environments/dev/main.tf).
 #
-# LOCAL FOLLOW-UP: the tf-apply service account needs roles/cloudsql.admin on the project before the
-# first apply of this module. IAM is not managed in this public repo.
+# LOCAL FOLLOW-UP (conditional, Architect ruling on PR #38): no role is granted up front. tf-apply has
+# roles/editor, which is expected to cover cloudsql.instances.*; the first apply is the measurement. If it
+# returns a 403, that goes to the Architect and the narrowest role is added locally (same route as #35).
 # LOCAL FOLLOW-UP (L-SQL): the app's DB user (password into Secret Manager, never into Terraform), and
 # the IAM DB user for the Cloud Run runtime service account (with roles/cloudsql.client and
 # roles/cloudsql.instanceUser on the project).
@@ -32,8 +33,10 @@ resource "google_sql_database_instance" "postgres" {
   deletion_protection = var.deletion_protection
 
   settings {
+    # tier is a literal on purpose: C7 (policy/cloud_sql.rego) refuses a non-literal tier, and this keeps
+    # the cost bound mechanical from the first apply. #39 (C7b) brings back a tier variable.
     edition           = "ENTERPRISE"
-    tier              = var.tier
+    tier              = "db-f1-micro"
     availability_type = "ZONAL"
 
     # GCP-side guard, from the same variable: the instance can't be deleted from the console or API either.

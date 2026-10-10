@@ -1,0 +1,68 @@
+# gitleaks config for ecofolk-infra (#33). Run by the `secret-scan` job in .github/workflows/ci.yml
+# over full history on every PR and push to main, and locally per CONTRIBUTING.md before a copy-in.
+#
+# THIS FILE IS PUBLIC. Every pattern here is generic: never write a real hostname, address, email,
+# project number or other private literal into it, because naming it here is the leak.
+#
+# Allowlisting a finding: add its fingerprint to .gitleaksignore with a comment saying why. Do not
+# loosen a rule here instead. Both files are surface (CODEOWNERS) and need ARCHITECT APPROVED.
+
+title = "ecofolk-infra"
+
+[extend]
+# gitleaks' built-in provider and generic rules (incl. generic-api-key, which catches password = "...").
+useDefault = true
+
+# Private (RFC1918) IPv4 addresses: 10/8, 172.16/12, 192.168/16.
+[[rules]]
+id = "rfc1918-ipv4"
+description = "Private (RFC1918) IPv4 address"
+regex = '''(?:^|[^0-9.])((?:10\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])|172\.(?:1[6-9]|2[0-9]|3[01])|192\.168)\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9]))(?:[^0-9.]|\.?$)'''
+secretGroup = 1
+keywords = ["10.", "172.", "192.168."]
+
+# LAN hostnames: anything under .home.arpa (RFC 8375) or mDNS .local.
+[[rules]]
+id = "lan-hostname"
+description = "LAN hostname (*.home.arpa or *.local)"
+regex = '''(?i)\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:home\.arpa|local))\b'''
+secretGroup = 1
+keywords = [".home.arpa", ".local"]
+
+# Email addresses. GitHub noreply and noreply@ addresses are deliberately public.
+[[rules]]
+id = "email-address"
+description = "Email address"
+regex = '''\b([A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b'''
+secretGroup = 1
+keywords = ["@"]
+[[rules.allowlists]]
+description = "GitHub noreply and generic noreply@ senders"
+regexTarget = "secret"
+regexes = ['''(?i)@users\.noreply\.github\.com$''', '''(?i)^noreply@''']
+
+# Literal GCP service-account addresses. Interpolated forms (${var.x}@${var.project}...) are fine.
+[[rules]]
+id = "gcp-service-account-address"
+description = "Literal GCP service-account address"
+regex = '''([A-Za-z0-9${}._-]+@[A-Za-z0-9${}._-]+\.iam\.gserviceaccount\.com)'''
+secretGroup = 1
+keywords = ["gserviceaccount.com"]
+[[rules.allowlists]]
+description = "Terraform/shell interpolation, not a literal address"
+regexTarget = "secret"
+regexes = ['''\$\{[^}]*\}''']
+
+# Bare 12-digit GCP project numbers in quotes.
+[[rules]]
+id = "gcp-project-number"
+description = "Quoted 12-digit GCP project number"
+regex = '''["']([0-9]{12})["']'''
+secretGroup = 1
+
+# Any PEM private-key header, with or without a body (the built-in private-key rule needs a body).
+[[rules]]
+id = "pem-private-key-header"
+description = "PEM private-key header in any shape"
+regex = '''-----BEGIN[A-Z0-9 _-]*PRIVATE KEY[A-Z ]*-----'''
+keywords = ["private key"]

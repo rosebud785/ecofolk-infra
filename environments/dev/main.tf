@@ -29,3 +29,13 @@ module "project" {
   source     = "../../modules/project"
   project_id = var.project_id
 }
+
+# VPC + Private Service Access (issue #1). Region comes from module.project, the single source of the
+# pin; depends_on so the compute and servicenetworking APIs are enabled first.
+module "network" {
+  source     = "../../modules/network"
+  project_id = var.project_id
+  region     = module.project.region
+
+  depends_on = [module.project]
+}

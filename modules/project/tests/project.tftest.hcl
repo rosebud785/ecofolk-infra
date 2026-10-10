@@ -20,6 +20,20 @@ run "enables_the_network_apis" {
   }
 }
 
+run "enables_artifact_registry_api" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(google_project_service.apis), "artifactregistry.googleapis.com")
+    error_message = "artifactregistry.googleapis.com must be enabled (ecofolk-infra#4)"
+  }
+
+  assert {
+    condition     = google_project_service.apis["artifactregistry.googleapis.com"].disable_on_destroy == false
+    error_message = "APIs must not be disabled on destroy"
+  }
+}
+
 run "region_defaults_to_the_pin" {
   command = plan
 

@@ -7,6 +7,7 @@ secret, and no pull-request path may obtain cloud credentials (`scripts/check-wo
 environments/dev/    root module, project ecofolk-dev; applied keyless from main (.github/workflows/infra-apply.yml)
 environments/prod/   root module, project ecofolk-prod; never applied by CI
 modules/project/     reusable: enables the §11.1 APIs on one project
+modules/artifact_registry/  reusable: region-pinned Docker repo with cleanup policies (#4)
 modules/network/     reusable: VPC, subnet, Private Service Access for Cloud SQL private IP (#1)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4) and their tests
 ```

@@ -36,3 +36,14 @@ test_iam_lookalike_path_fail if {
 	msgs := deny with input as tf("environments/dev/not-local-only/iam.tf", "google_project_iam_member", member)
 	denied_with(msgs, "IAM resources belong under a local-only/ path")
 }
+
+# R1: the top-level local-only/ (CODEOWNERS) is scanned too, and "anywhere" holds there.
+test_sa_key_toplevel_local_only_fail if {
+	msgs := deny with input as tf("local-only/sa.tf", "google_service_account_key", {"service_account_id": "worker"})
+	denied_with(msgs, "google_service_account_key is forbidden everywhere")
+}
+
+test_iam_toplevel_dir_fail if {
+	msgs := deny with input as tf("foo/iam.tf", "google_project_iam_member", member)
+	denied_with(msgs, "IAM resources belong under a local-only/ path")
+}

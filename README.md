@@ -20,16 +20,20 @@ the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tflint`, `region-pin`, `w
 ## Policy (cost and safety guards)
 
 Budget is not a cap, so PR CI refuses the expensive or unsafe config in the HCL itself
-(`policy/*.rego`, run by conftest on every `*.tf` under `environments/` and `modules/`):
+(`policy/*.rego`, run by conftest on every tracked `*.tf` in the repo, listed by `scripts/policy-files.sh`;
+a tracked `*.tf.json` fails the job, because the HCL parser can't read it):
 
-- Cloud Run v2: `min_instance_count` 0, `max_instance_count` set and at most 3 (5 under `environments/prod/`);
+- Cloud Run: only `google_cloud_run_v2_service` and `google_cloud_run_v2_job`; on services,
+  `min_instance_count` 0, `max_instance_count` set and at most 3 (5 under `environments/prod/`), no
+  `manual_instance_count`, and `scaling_mode` (if set) is `"AUTOMATIC"`;
 - Cloud SQL: `tier` on the allowlist in `policy/data.json`, no `REGIONAL` outside prod, prod has
   `deletion_protection = true`;
 - buckets: `public_access_prevention = "enforced"` and `uniform_bucket_level_access = true`;
-- no `google_service_account_key` anywhere, and no `*_iam_*` resource outside a `local-only/` path.
+- no `google_service_account_key` anywhere, and no `*_iam_*` resource outside a `local-only/` path;
+- every `module` source is a local path (`./` or `../`), so no remote module hides resources from the rules.
 
 A constrained argument must be a literal: `var.x` can't be checked without a plan, so the rule refuses it.
-`modules/` gets the dev limits. Each rule has a passing and a failing fixture in `policy/tests/`.
+Everything outside `environments/prod/`, `modules/` included, gets the dev limits. Each rule has a passing and a failing fixture in `policy/tests/`.
 
 ## Region pin
 
@@ -47,7 +51,8 @@ cd environments/dev && terraform init -backend=false -input=false && terraform v
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
 conftest verify --policy policy --data policy/data.json
-conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(find environments modules -name '*.tf' -not -path '*/.terraform/*')
+bash scripts/tests/test_policy_files.sh
+conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)
 ```
 
 History and rationale: ecofolk#827, #828, #883; design DESIGN-ecofolk-infra-guardrails-E4.

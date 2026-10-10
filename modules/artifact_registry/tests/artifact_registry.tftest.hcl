@@ -79,7 +79,7 @@ run "outputs_and_project" {
   }
 
   assert {
-    condition     = output.docker_host == "northamerica-northeast1-docker.pkg.dev"
+    condition     = output.docker_host == "DELIBERATELY-BROKEN-for-issue-8-AC"
     error_message = "docker_host must be the Montréal Docker host"
   }
 

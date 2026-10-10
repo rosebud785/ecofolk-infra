@@ -4,6 +4,9 @@
 # Only the shapes the cap can read are allowed: v2 services (autoscaled) and v2 jobs (billed per
 # execution). v1 services, worker pools and any other google_cloud_run* type are refused, and so is
 # manual scaling on a v2 service (fixed instances, billed always-on). *_iam_* types belong to the IAM rule.
+#
+# Inside modules/<m>/, max_instance_count may be exactly var.X, judged by its default (dev cap) and every
+# call site (that call site's cap) in module_vars.rego (#39).
 package main
 
 allowed_run_types := {"google_cloud_run_v2_service", "google_cloud_run_v2_job"}
@@ -44,6 +47,7 @@ deny contains msg if {
 	some s in run_scaling(r)
 	v := s.max_instance_count
 	not is_number(v)
+	not module_var_name(r, v)
 	msg := sprintf("%s: max_instance_count must be a literal number, got %v", [label(r), v])
 }
 
@@ -76,3 +80,16 @@ deny contains msg if {
 	s.scaling_mode != "AUTOMATIC"
 	msg := sprintf("%s: scaling_mode must be the literal \"AUTOMATIC\", got %v", [label(r), s.scaling_mode])
 }
+
+constrained contains {"r": r, "kind": "run_max", "arg": "max_instance_count", "value": s.max_instance_count} if {
+	some r in run_services
+	some s in run_scaling(r)
+	"max_instance_count" in object.keys(s)
+}
+
+limit_ok("run_max", v, path) if {
+	is_number(v)
+	v <= max_instances(path)
+}
+
+limit_text("run_max", path) := sprintf("the cap of %v instances", [max_instances(path)])

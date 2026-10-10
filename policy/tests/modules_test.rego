@@ -1,11 +1,12 @@
 package main
 
+# A local source must resolve to a directory with tracked *.tf (#39), so each pass fixture includes one.
 test_module_local_dot_pass if {
-	count(deny) == 0 with input as tfmod("environments/dev/main.tf", {"source": "./net"})
+	count(deny) == 0 with input as array.concat(tfmod("environments/dev/main.tf", {"source": "./net"}), [var_file("environments/dev/net/variables.tf", "cidr", {})])
 }
 
 test_module_local_parent_pass if {
-	count(deny) == 0 with input as tfmod("environments/dev/main.tf", {"source": "../../modules/project", "project_id": "ecofolk-dev"})
+	count(deny) == 0 with input as array.concat(tfmod("environments/dev/main.tf", {"source": "../../modules/project", "project_id": "ecofolk-dev"}), [var_file("modules/project/variables.tf", "project_id", {})])
 }
 
 test_module_registry_fail if {

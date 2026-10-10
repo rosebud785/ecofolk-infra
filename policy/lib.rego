@@ -11,7 +11,9 @@
 # the dev/prod limits and the local-only/ IAM exemption are decided by path.
 #
 # An argument a rule constrains must be a literal. "${var.x}" cannot be checked before a plan, so it is
-# refused, not trusted.
+# refused, not trusted. The one exception (#39): a Cloud SQL tier or Cloud Run max_instance_count written
+# as exactly var.X directly under modules/<m>/ is judged by X's literal default and by every call site of
+# modules/<m> (module_vars.rego).
 #
 # Surface path (CODEOWNERS): weakening any rule here needs ARCHITECT APPROVED.
 package main

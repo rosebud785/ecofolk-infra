@@ -37,3 +37,11 @@ variable "deletion_protection" {
   default     = true
   description = "Sets both Terraform's deletion_protection and the instance's settings.deletion_protection_enabled."
 }
+
+# The policy (policy/module_vars.rego, #39) accepts var.tier only while this default is a literal on the
+# tier allowlist (policy/data.json) and every caller omits tier or passes a literal on it.
+variable "tier" {
+  type        = string
+  default     = "db-f1-micro"
+  description = "Machine tier. Must be on the policy allowlist (policy/data.json); callers pass a literal or omit it."
+}

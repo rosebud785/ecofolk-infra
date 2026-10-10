@@ -8,6 +8,13 @@ tf(path, rtype, body) := [{"path": path, "contents": {"resource": {rtype: {"fixt
 # The same, for one module block: module.<name> = [<body>].
 tfmod(path, body) := [{"path": path, "contents": {"module": {"fixture": [body]}}}]
 
+# Single files, for multi-file inputs ([file, file, ...]) where a rule follows one file into another.
+res_file(path, rtype, body) := {"path": path, "contents": {"resource": {rtype: {"fixture": [body]}}}}
+
+var_file(path, name, body) := {"path": path, "contents": {"variable": {name: [body]}}}
+
+call_file(path, name, body) := {"path": path, "contents": {"module": {name: [body]}}}
+
 denied_with(msgs, fragment) if {
 	some m in msgs
 	contains(m, fragment)

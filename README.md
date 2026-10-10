@@ -8,13 +8,15 @@ environments/dev/    root module, project ecofolk-dev; applied keyless from main
 environments/prod/   root module, project ecofolk-prod; never applied by CI
 modules/project/     reusable: enables the §11.1 APIs on one project
 modules/network/     reusable: VPC, subnet, Private Service Access for Cloud SQL private IP (#1)
-scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4) and their tests
+scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
+.gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
+CONTRIBUTING.md      copy-in checklist for anything coming from a private repo
 ```
 
 **No GCP key exists anywhere.** `infra-apply.yml` (push to main only) exchanges the job's GitHub OIDC
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
-the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tflint`, `region-pin` and `workflow-guard`
-and nothing that can reach GCP.
+the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tflint`, `region-pin`, `workflow-guard` and
+`secret-scan` and nothing that can reach GCP.
 
 ## Region pin
 
@@ -31,6 +33,7 @@ for m in modules/*/; do [ -d "$m/tests" ] && terraform -chdir="$m" init -backend
 cd environments/dev && terraform init -backend=false -input=false && terraform validate
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
+bash scripts/tests/test_secret_scan.sh && gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .
 ```
 
 History and rationale: ecofolk#827, #828, #883; design DESIGN-ecofolk-infra-guardrails-E4.

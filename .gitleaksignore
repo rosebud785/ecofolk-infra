@@ -1,0 +1,8 @@
+# Finding fingerprints the secret-scan job (#33) deliberately accepts. Every entry needs a comment
+# saying why. Surface path (CODEOWNERS): adding one needs ARCHITECT APPROVED.
+# Format (git scan): <commit>:<file>:<rule-id>:<line>
+
+# modules/network (#1, PR #35): the default Cloud VPC subnet range and its validation example.
+# A GCP VPC range is deliberately public network design, not a LAN host address.
+39ebd99f2e0a5404df6f3394686796cabfebd1e8:modules/network/variables.tf:rfc1918-ipv4:28
+39ebd99f2e0a5404df6f3394686796cabfebd1e8:modules/network/variables.tf:rfc1918-ipv4:33

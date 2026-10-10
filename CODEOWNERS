@@ -7,3 +7,6 @@
 /policy/             @rosebud785
 /environments/prod/  @rosebud785
 /local-only/         @rosebud785
+/.gitleaks.toml      @rosebud785
+/.gitleaksignore     @rosebud785
+/scripts/tests/test_secret_scan.sh  @rosebud785

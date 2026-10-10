@@ -61,3 +61,31 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: bash scripts/tests/test_check_workflows.sh
       - run: bash scripts/check-workflows.sh
+
+  # #33: content secret scan over FULL history (catches a secret added in one PR commit and removed in
+  # a later one). The gitleaks binary, not gitleaks/gitleaks-action: the action wants GITHUB_TOKEN, and
+  # this job holds no token and no secrets. The tarball is checked against a sha256 copied from that
+  # release's checksums file, hardcoded here, never fetched at run time. --redact keeps a hit out of
+  # the public log. Allowlist only via .gitleaksignore (CODEOWNERS surface).
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (pinned, sha256-verified)
+        run: |
+          set -euo pipefail
+          tgz="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tgz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP/bin" gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: bash scripts/tests/test_secret_scan.sh
+      - run: gitleaks git --config .gitleaks.toml --redact --exit-code 1 .

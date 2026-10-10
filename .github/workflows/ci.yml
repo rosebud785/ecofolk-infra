@@ -61,3 +61,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: bash scripts/tests/test_check_workflows.sh
       - run: bash scripts/check-workflows.sh
+
+  # ecofolk-infra#7: cost and safety guards as conftest policy over the HCL (no credentials, no plan).
+  # conftest comes from `go install` at a fixed version: the Go checksum database (sum.golang.org)
+  # verifies the module, and no third-party action is needed.
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: install conftest v0.70.1
+        run: |
+          go install github.com/open-policy-agent/conftest@v0.70.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: conftest verify --policy policy --data policy/data.json
+      - name: conftest test (environments/** and modules/**)
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find environments modules -name .terraform -prune -o -type f -name '*.tf' -print | sort)
+          [ ${#files[@]} -gt 0 ] || { echo "::error::no *.tf files found"; exit 1; }
+          conftest test --parser hcl2 --combine --policy policy --data policy/data.json "${files[@]}"

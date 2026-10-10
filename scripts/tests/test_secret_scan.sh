@@ -4,7 +4,7 @@
 # green was never tested.
 #
 # Fixtures are written into a mktemp -d at run time, NEVER into the repo: a committed fixture would
-# trip the real full-history scan. For the same reason this file never holds a fake as a literal;
+# trip the real scan of HEAD's history. For the same reason this file never holds a fake as a literal;
 # each one is assembled from pieces, so the source itself does not match any rule.
 #
 # Usage: bash scripts/tests/test_secret_scan.sh   (needs `gitleaks` on PATH, or GITLEAKS=/path)
@@ -81,6 +81,40 @@ locals {
 TF
 )")
 check "clean fixture: gitleaks passes" "[ $(scan "$f") -eq 0 ]"
+
+# Reserved example domains (RFC 2606 / 6761) are allowlisted in the email rule; each passes alone.
+# A lookalike that merely ends in "example.com" is not reserved and must still fail.
+for d in "example${dot}com" "example${dot}net" "example${dot}org" \
+         "acme${dot}example" "mail${dot}invalid" "ci${dot}test"; do
+  f=$(plant "reserved-$d" "owner = \"jane${dot}doe${at}$d\"")
+  check "reserved-domain email @$d: gitleaks passes" "[ $(scan "$f") -eq 0 ]"
+done
+f=$(plant lookalike "owner = \"jane${dot}doe${at}notexample${dot}com\"")
+check "lookalike email @notexample.com: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
+
+# The CI scan is `gitleaks git --log-opts=HEAD`: it must catch a leak added and then removed in
+# HEAD's own history, and must ignore a leak that lives only on another branch.
+gitscan() {
+  "$GITLEAKS" git --log-opts="HEAD" --config "$CONFIG" --redact --exit-code 1 --no-banner \
+    --log-level error "$1" >/dev/null 2>&1
+  echo $?
+}
+REPO="$WORK/repo"
+git init -q -b main "$REPO"
+g() { git -C "$REPO" -c user.name=t -c user.email="t${at}users${dot}noreply${dot}github${dot}com" "$@"; }
+printf 'region = "northamerica-northeast1"\n' > "$REPO/main.tf"
+g add main.tf && g commit -q -m clean
+check "git scan of a clean HEAD: passes" "[ $(gitscan "$REPO") -eq 0 ]"
+
+g checkout -q -b other-pr
+printf 'host_ip = "192%s168%s1%s%s"\n' "$dot" "$dot" "$dot" "$((RANDOM % 250 + 1))" > "$REPO/leak.tf"
+g add leak.tf && g commit -q -m leak
+g checkout -q main
+check "git scan ignores a leak on another branch only" "[ $(gitscan "$REPO") -eq 0 ]"
+
+g merge -q --no-ff -m merge other-pr
+g rm -q leak.tf && g commit -q -m remove
+check "git scan catches a leak added then removed in HEAD's history" "[ $(gitscan "$REPO") -eq 1 ]"
 
 echo "---"
 echo "passed: $pass  failed: $fail"

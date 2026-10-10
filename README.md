@@ -74,7 +74,7 @@ for m in modules/*/; do [ -d "$m/tests" ] && terraform -chdir="$m" init -backend
 cd environments/dev && terraform init -backend=false -input=false && terraform validate
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
-bash scripts/tests/test_secret_scan.sh && gitleaks git --config .gitleaks.toml --redact --exit-code 1 .
+bash scripts/tests/test_secret_scan.sh && gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .
 conftest verify --policy policy --data policy/data.json
 bash scripts/tests/test_policy_files.sh
 conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)

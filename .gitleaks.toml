@@ -1,11 +1,12 @@
 # gitleaks config for ecofolk-infra (#33). Run by the `secret-scan` job in .github/workflows/ci.yml
-# over full history on every PR and push to main, and locally per CONTRIBUTING.md before a copy-in.
+# over HEAD's full history (main plus the PR's commits) on every PR and push to main, and locally per CONTRIBUTING.md before a copy-in.
 #
 # THIS FILE IS PUBLIC. Every pattern here is generic: never write a real hostname, address, email,
 # project number or other private literal into it, because naming it here is the leak.
 #
 # Allowlisting a finding: add its fingerprint to .gitleaksignore with a comment saying why. Do not
-# loosen a rule here instead. Both files are surface (CODEOWNERS) and need ARCHITECT APPROVED.
+# loosen a rule here instead; the one exception is an Architect-approved generic allowlist like the
+# reserved example domains below, which can never be a real address. Both files are surface (CODEOWNERS) and need ARCHITECT APPROVED.
 
 title = "ecofolk-infra"
 
@@ -40,6 +41,13 @@ keywords = ["@"]
 description = "GitHub noreply and generic noreply@ senders"
 regexTarget = "secret"
 regexes = ['''(?i)@users\.noreply\.github\.com$''', '''(?i)^noreply@''']
+[[rules.allowlists]]
+description = "Reserved example domains (RFC 2606 / RFC 6761): can never be a real address"
+regexTarget = "secret"
+regexes = [
+  '''(?i)@example\.(?:com|net|org)$''',
+  '''(?i)@(?:[a-z0-9-]+\.)*(?:example|invalid|test)$''',
+]
 
 # Literal GCP service-account addresses. Interpolated forms (${var.x}@${var.project}...) are fine.
 [[rules]]

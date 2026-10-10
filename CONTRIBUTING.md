@@ -7,8 +7,9 @@ before you push.
 ## Copying anything in from a private repo
 
 Use this checklist whenever a file, or part of one, comes from a private repo into this one. CI's
-`secret-scan` job (gitleaks over full history, config in [`.gitleaks.toml`](.gitleaks.toml)) is the
-backstop, not the check.
+`secret-scan` job (gitleaks over the full history of what the PR will merge: all of `main` plus every
+commit in the PR, not other branches; config in [`.gitleaks.toml`](.gitleaks.toml)) is the backstop,
+not the check.
 
 1. **Copy files, never history.** No `git subtree`, no cherry-picks from a private repo, and no
    `git push` of a private branch to this remote. Write or copy the files fresh and commit them here.

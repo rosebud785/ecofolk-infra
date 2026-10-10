@@ -8,6 +8,7 @@ environments/dev/    root module, project ecofolk-dev; applied keyless from main
 environments/prod/   root module, project ecofolk-prod; never applied by CI
 modules/project/     reusable: enables the §11.1 APIs on one project
 modules/artifact_registry/  reusable: region-pinned Docker repo with cleanup policies (#4)
+modules/network/     reusable: VPC, subnet, Private Service Access for Cloud SQL private IP (#1)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4) and their tests
 ```
 
@@ -27,6 +28,7 @@ covers application code there.
 
 ```bash
 terraform fmt -check -recursive
+for m in modules/*/; do [ -d "$m/tests" ] && terraform -chdir="$m" init -backend=false -input=false && terraform -chdir="$m" test; done
 cd environments/dev && terraform init -backend=false -input=false && terraform validate
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh

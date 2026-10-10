@@ -42,12 +42,14 @@ variable "project_id" {
 variable "enabled_apis" {
   type = list(string)
   default = [
-    "run.googleapis.com",              # Cloud Run
-    "sqladmin.googleapis.com",         # Cloud SQL
-    "cloudbuild.googleapis.com",       # Cloud Build
-    "aiplatform.googleapis.com",       # Vertex AI
-    "firebase.googleapis.com",         # Firebase
-    "artifactregistry.googleapis.com", # Artifact Registry (ecofolk-infra#4)
+    "run.googleapis.com",               # Cloud Run
+    "sqladmin.googleapis.com",          # Cloud SQL
+    "cloudbuild.googleapis.com",        # Cloud Build
+    "aiplatform.googleapis.com",        # Vertex AI
+    "firebase.googleapis.com",          # Firebase
+    "compute.googleapis.com",           # VPC + subnet (modules/network, issue #1)
+    "servicenetworking.googleapis.com", # Private Service Access for Cloud SQL private IP (issue #1)
+    "artifactregistry.googleapis.com",  # Artifact Registry (ecofolk-infra#4)
   ]
   description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4)."
 }

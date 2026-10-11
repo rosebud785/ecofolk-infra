@@ -34,6 +34,21 @@ run "enables_artifact_registry_api" {
   }
 }
 
+# ecofolk-infra#20: modules/auth needs Identity Toolkit, and Firebase.
+run "enables_the_auth_apis" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(google_project_service.apis), "identitytoolkit.googleapis.com")
+    error_message = "identitytoolkit.googleapis.com must be enabled (ecofolk-infra#20)"
+  }
+
+  assert {
+    condition     = contains(keys(google_project_service.apis), "firebase.googleapis.com")
+    error_message = "firebase.googleapis.com must be enabled (ecofolk-infra#20)"
+  }
+}
+
 run "region_defaults_to_the_pin" {
   command = plan
 

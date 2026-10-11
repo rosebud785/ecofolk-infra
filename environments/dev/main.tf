@@ -50,3 +50,18 @@ module "cloudsql" {
 
   depends_on = [module.project, module.network]
 }
+
+# Firebase Auth / Identity Platform config (issue #20): email + password on, no anonymous, no IdP
+# configs (OAuth providers are local follow-up L-AUTH). depends_on so identitytoolkit is enabled first.
+module "auth" {
+  source     = "../../modules/auth"
+  project_id = var.project_id
+  web_host   = var.web_host
+
+  depends_on = [module.project]
+}
+
+output "auth_domain" {
+  value       = module.auth.auth_domain
+  description = "Firebase auth domain for the web build's config."
+}

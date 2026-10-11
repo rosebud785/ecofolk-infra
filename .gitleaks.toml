@@ -5,8 +5,10 @@
 # project number or other private literal into it, because naming it here is the leak.
 #
 # Allowlisting a finding: add its fingerprint to .gitleaksignore with a comment saying why. Do not
-# loosen a rule here instead; the one exception is an Architect-approved generic allowlist like the
-# reserved example domains below, which can never be a real address. Both files are surface (CODEOWNERS) and need ARCHITECT APPROVED.
+# loosen a rule here instead. The only exceptions are two Architect-approved generic allowlists: the
+# reserved example domains in the email rule (can never be a real address), and 10/8 network
+# addresses ending in .0 in the RFC1918 rule (cloud VPC ranges, not LAN hosts). Both files are
+# surface (CODEOWNERS) and need ARCHITECT APPROVED.
 
 title = "ecofolk-infra"
 
@@ -21,6 +23,10 @@ description = "Private (RFC1918) IPv4 address"
 regex = '''(?:^|[^0-9.])((?:10\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])|172\.(?:1[6-9]|2[0-9]|3[01])|192\.168)\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9]))(?:[^0-9.]|\.?$)'''
 secretGroup = 1
 keywords = ["10.", "172.", "192.168."]
+[[rules.allowlists]]
+description = "Network address (.0) of a 10/8 range: cloud VPC design, not a LAN host"
+regexTarget = "secret"
+regexes = ['''^10\.[0-9]{1,3}\.[0-9]{1,3}\.0$''']
 
 # LAN hostnames: anything under .home.arpa (RFC 8375) or mDNS .local.
 [[rules]]

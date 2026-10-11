@@ -51,6 +51,17 @@ dot="."
 f=$(plant rfc1918 "host_ip = \"192${dot}168${dot}$((RANDOM % 250 + 1))${dot}$((RANDOM % 250 + 1))\"")
 check "RFC1918 IPv4 fixture: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
 
+# The rfc1918-ipv4 rule allowlists only network addresses (.0) in 10/8, where cloud VPC ranges live.
+# A 10/8 host address, and 192.168/16 or 172.16/12 (.0 included), must still fail.
+f=$(plant vpc-net "network = \"10${dot}20${dot}0${dot}0\"")
+check "10/8 network address (.0) probe: gitleaks passes" "[ $(scan "$f") -eq 0 ]"
+f=$(plant vpc-host "host_ip = \"10${dot}20${dot}0${dot}5\"")
+check "10/8 host address probe: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
+f=$(plant lan-net-192 "network = \"192${dot}168${dot}50${dot}0\"")
+check "192.168/16 network address (.0) probe: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
+f=$(plant lan-net-172 "network = \"172${dot}16${dot}4${dot}0\"")
+check "172.16/12 network address (.0) probe: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
+
 f=$(plant lan-host "endpoint = \"nas-$(rand 4 | tr 'A-Z' 'a-z')${dot}home${dot}arpa\"")
 check ".home.arpa host fixture: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
 

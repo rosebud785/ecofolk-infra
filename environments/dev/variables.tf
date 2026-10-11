@@ -5,3 +5,12 @@ variable "project_id" {
   type        = string
   description = "GCP project id of the dev project (ecofolk-dev, or its suffixed form). Set from repo variable GCP_PROJECT_ID."
 }
+
+# The runtime SA is created locally (L-RUN), not here; only its account id is named, so the email follows
+# whatever project id the bootstrap produced. The default is this PR's proposal; L-RUN creates the SA
+# under this id, or overrides it here.
+variable "api_service_account_id" {
+  type        = string
+  default     = "ecofolk-api"
+  description = "Account id (the part before @) of the Cloud Run API's runtime service account in the dev project."
+}

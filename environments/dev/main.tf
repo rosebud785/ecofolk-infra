@@ -51,6 +51,25 @@ module "cloudsql" {
   depends_on = [module.project, module.network]
 }
 
+# The API on Cloud Run v2, scale-to-zero (issue #19). Region from module.project, egress into the subnet
+# from module.network; depends_on so run.googleapis.com is enabled and the subnet exists first. The image
+# stays the module's placeholder: deploys (ef#408) own it.
+#
+# LOCAL FOLLOW-UP (L-RUN): the runtime service account var.api_service_account_id must exist (with
+# roles/cloudsql.client, and roles/secretmanager.secretAccessor on the named secrets) before the first
+# apply of this block; and the `allUsers` -> roles/run.invoker binding on the service. IAM is not
+# managed in this public repo.
+module "cloudrun_api" {
+  source          = "../../modules/cloudrun_api"
+  project_id      = var.project_id
+  region          = module.project.region
+  service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+  network         = module.network.network_self_link
+  subnetwork      = module.network.subnet_self_link
+
+  depends_on = [module.project, module.network]
+}
+
 # Firebase Auth / Identity Platform config (issue #20): email + password on, no anonymous, no IdP
 # configs (OAuth providers are local follow-up L-AUTH). depends_on so identitytoolkit is enabled first.
 module "auth" {

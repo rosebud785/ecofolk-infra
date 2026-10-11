@@ -10,6 +10,7 @@ modules/project/     reusable: enables the §11.1 APIs on one project
 modules/artifact_registry/  reusable: region-pinned Docker repo with cleanup policies (#4)
 modules/network/     reusable: VPC, subnet, Private Service Access for Cloud SQL private IP (#1)
 modules/cloudsql/    reusable: Cloud SQL Postgres 16, private IP only, backups on, IAM auth flag (#18)
+modules/cloudrun_api/ reusable: the API on Cloud Run v2, scale-to-zero, Direct VPC egress (#19)
 modules/auth/        reusable: Firebase Auth config, email + password on, no IdP secrets (#20)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4) and their tests
 policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / bucket limits, IAM boundary

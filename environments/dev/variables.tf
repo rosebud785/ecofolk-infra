@@ -14,3 +14,12 @@ variable "api_service_account_id" {
   default     = "ecofolk-api"
   description = "Account id (the part before @) of the Cloud Run API's runtime service account in the dev project."
 }
+
+# Issue #20: the dev web app's bare hostname, added to the auth config's authorized domains next to
+# localhost. Default null (localhost only) so the keyless apply, which sets only TF_VAR_project_id, still
+# runs; set TF_VAR_web_host once the dev web host is fixed.
+variable "web_host" {
+  type        = string
+  default     = null
+  description = "Bare hostname of the dev web app, for the auth config's authorized domains. Null: localhost only."
+}

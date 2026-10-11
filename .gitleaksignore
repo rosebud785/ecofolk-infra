@@ -6,3 +6,10 @@
 # A GCP VPC range is deliberately public network design, not a LAN host address.
 39ebd99f2e0a5404df6f3394686796cabfebd1e8:modules/network/variables.tf:rfc1918-ipv4:28
 39ebd99f2e0a5404df6f3394686796cabfebd1e8:modules/network/variables.tf:rfc1918-ipv4:33
+
+# modules/cloudrun_api tests (#19, PR #42, merged before the scanner existed): a mock-provider fixture.
+# :8 is a service-account identifier in a test variables block, not a credential.
+# :19 is a generic-api-key false positive on a region string in an assert.
+67ab5fbc04b27357781a7b4fc4b262160ba89778:modules/cloudrun_api/tests/cloudrun_api.tftest.hcl:email-address:8
+67ab5fbc04b27357781a7b4fc4b262160ba89778:modules/cloudrun_api/tests/cloudrun_api.tftest.hcl:gcp-service-account-address:8
+67ab5fbc04b27357781a7b4fc4b262160ba89778:modules/cloudrun_api/tests/cloudrun_api.tftest.hcl:generic-api-key:19

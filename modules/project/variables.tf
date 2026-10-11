@@ -50,6 +50,7 @@ variable "enabled_apis" {
     "compute.googleapis.com",           # VPC + subnet (modules/network, issue #1)
     "servicenetworking.googleapis.com", # Private Service Access for Cloud SQL private IP (issue #1)
     "artifactregistry.googleapis.com",  # Artifact Registry (ecofolk-infra#4)
+    "identitytoolkit.googleapis.com",   # Firebase Auth / Identity Platform (modules/auth, ecofolk-infra#20)
   ]
-  description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4)."
+  description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4 and Identity Toolkit for ecofolk-infra#20)."
 }

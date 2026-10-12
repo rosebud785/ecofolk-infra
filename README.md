@@ -12,14 +12,16 @@ modules/network/     reusable: VPC, subnet, Private Service Access for Cloud SQL
 modules/cloudsql/    reusable: Cloud SQL Postgres 16, private IP only, backups on, IAM auth flag (#18)
 modules/cloudrun_api/ reusable: the API on Cloud Run v2, scale-to-zero, Direct VPC egress (#19)
 modules/auth/        reusable: Firebase Auth config, email + password on, no IdP secrets (#20)
-scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4) and their tests
+scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
+.gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
+CONTRIBUTING.md      copy-in checklist for anything coming from a private repo
 policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / bucket limits, IAM boundary
 ```
 
 **No GCP key exists anywhere.** `infra-apply.yml` (push to main only) exchanges the job's GitHub OIDC
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
-the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `tflint`, `region-pin`, `workflow-guard` and
-`policy` and nothing that can reach GCP.
+the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `tflint`, `region-pin`, `workflow-guard`,
+`secret-scan` and `policy` and nothing that can reach GCP.
 
 ## Policy (cost and safety guards)
 
@@ -74,6 +76,7 @@ for m in modules/*/; do [ -d "$m/tests" ] && terraform -chdir="$m" init -backend
 cd environments/dev && terraform init -backend=false -input=false && terraform validate
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
+bash scripts/tests/test_secret_scan.sh && gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .
 conftest verify --policy policy --data policy/data.json
 bash scripts/tests/test_policy_files.sh
 conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)

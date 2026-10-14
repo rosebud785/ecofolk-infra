@@ -58,6 +58,21 @@ run "outputs_are_the_self_links" {
   }
 }
 
+# #45: Cloud Run v2 takes the relative resource names (.id), not the self-links.
+run "outputs_are_the_ids" {
+  command = apply
+
+  assert {
+    condition     = output.network_id == google_compute_network.vpc.id && output.network_id != ""
+    error_message = "network_id must be the VPC's .id"
+  }
+
+  assert {
+    condition     = output.subnet_id == google_compute_subnetwork.subnet.id && output.subnet_id != ""
+    error_message = "subnet_id must be the subnet's .id"
+  }
+}
+
 run "rejects_another_region" {
   command = plan
 

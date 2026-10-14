@@ -51,7 +51,8 @@ Everything outside `environments/prod/`, `modules/` included, gets the dev limit
 
 Every resource runs in `northamerica-northeast1` (Montréal): `modules/project/variables.tf` validates
 the `region` variable, and `scripts/check-region-pin.sh` greps the committed `*.tf`/`*.tfvars` for any
-other region token or `global`. The app repo's own guard (`packages/scripts/src/lint-region-pin.ts`)
+other region token or `global`, in any case (#26: GCS reports `NORTHAMERICA-NORTHEAST1`, and an
+upper-case `US-CENTRAL1` is caught like lower case). The app repo's own guard (`packages/scripts/src/lint-region-pin.ts`)
 covers application code there.
 
 ## Module tests (every module PR adds its own)

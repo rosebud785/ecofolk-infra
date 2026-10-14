@@ -55,17 +55,24 @@ module "cloudsql" {
 # from module.network; depends_on so run.googleapis.com is enabled and the subnet exists first. The image
 # stays the module's placeholder: deploys (ef#408) own it.
 #
-# LOCAL FOLLOW-UP (L-RUN): the runtime service account var.api_service_account_id must exist (with
-# roles/cloudsql.client, and roles/secretmanager.secretAccessor on the named secrets) before the first
-# apply of this block; and the `allUsers` -> roles/run.invoker binding on the service. IAM is not
-# managed in this public repo.
+# network/subnetwork are the relative resource names (.id), not the self-links: Cloud Run v2 400s on an
+# https self-link (ecofolk-infra#45). Cloud SQL above stays on network_self_link, which its API accepts.
+#
+# LOCAL FOLLOW-UP (L-RUN), in this order; IAM is not managed in this public repo (ecofolk-infra#44):
+#   1. Create the runtime service account var.api_service_account_id with NO roles at this stage: for now
+#      it is only the identity the service runs as (the placeholder image touches no database or secret).
+#   2. Grant the apply identity (tf-apply) roles/iam.serviceAccountUser ON THAT ONE SERVICE ACCOUNT only,
+#      never project-wide. Without it the first apply of this block 403s on iam.serviceaccounts.actAs
+#      (main's Infra apply was red for that from 10-11 to 10-13, #19).
+#   3. Deferred: the `allUsers` -> roles/run.invoker binding on the service to ef#408 (first real deploy);
+#      roles/cloudsql.client and roles/secretmanager.secretAccessor (per named secret) to ef#399.
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = var.project_id
   region          = module.project.region
   service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
-  network         = module.network.network_self_link
-  subnetwork      = module.network.subnet_self_link
+  network         = module.network.network_id
+  subnetwork      = module.network.subnet_id
 
   depends_on = [module.project, module.network]
 }

@@ -6,7 +6,8 @@ mock_provider "google" {}
 variables {
   project_id      = "ecofolk-dev"
   service_account = "ecofolk-api@ecofolk-dev.iam.gserviceaccount.com"
-  # Self-link shaped, as module.network's outputs are.
+  # Relative resource names (.id), as module.network's network_id/subnet_id outputs are; Cloud Run v2
+  # rejects an https self-link here (#45).
   # (.tftest.hcl files are outside scripts/check-region-pin.sh's *.tf/*.tfvars scan.)
   network    = "projects/ecofolk-dev/global/networks/ecofolk"
   subnetwork = "projects/ecofolk-dev/regions/northamerica-northeast1/subnetworks/ecofolk-northamerica-northeast1"
@@ -205,4 +206,25 @@ run "rejects_a_non_service_account_email" {
   }
 
   expect_failures = [var.service_account]
+}
+
+# #45: an https self-link 400s at the Cloud Run v2 API, so the validations must refuse one at plan.
+run "rejects_a_network_self_link" {
+  command = plan
+
+  variables {
+    network = "https://www.googleapis.com/compute/v1/projects/ecofolk-dev/global/networks/ecofolk"
+  }
+
+  expect_failures = [var.network]
+}
+
+run "rejects_a_subnetwork_self_link" {
+  command = plan
+
+  variables {
+    subnetwork = "https://www.googleapis.com/compute/v1/projects/ecofolk-dev/regions/northamerica-northeast1/subnetworks/ecofolk-northamerica-northeast1"
+  }
+
+  expect_failures = [var.subnetwork]
 }

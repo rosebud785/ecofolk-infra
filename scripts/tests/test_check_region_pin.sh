@@ -105,6 +105,50 @@ OUT7=$(cd "$DRIFT" && bash scripts/check-region-pin.sh 2>&1); RC7=$?
 check "drifted Terraform default: exits 2" "[ $RC7 -eq 2 ]"
 check "drifted Terraform default: names the drift" "echo \"\$OUT7\" | grep -qi 'drifted apart'"
 
+# 8. Case-insensitive matching (#26). GCS reports a bucket's `location` in
+#    upper case, so the pattern must see region tokens in any case. Before
+#    #26 an upper-case US-CENTRAL1 slipped through: the known-wrong case.
+UPPER_VIOLATION="$WORK/upper-violation"
+mkdir -p "$UPPER_VIOLATION"
+cat > "$UPPER_VIOLATION/main.tf" <<'EOF'
+resource "google_storage_bucket" "media" {
+  location = "US-CENTRAL1"
+}
+EOF
+OUT8=$(bash "$CHK" "$UPPER_VIOLATION" 2>&1); RC8=$?
+check "upper-case US-CENTRAL1 fixture: exits 1" "[ $RC8 -eq 1 ]"
+check "upper-case US-CENTRAL1 fixture: names the token as written" "echo \"\$OUT8\" | grep -q 'main.tf.*US-CENTRAL1'"
+
+# 9. Mixed case and an upper-case GLOBAL are caught the same way.
+MIXED_VIOLATION="$WORK/mixed-violation"
+mkdir -p "$MIXED_VIOLATION"
+cat > "$MIXED_VIOLATION/main.tf" <<'EOF'
+resource "google_storage_bucket" "media" {
+  location = "Europe-West4"
+}
+resource "google_vertex_ai_endpoint" "main" {
+  location = "GLOBAL"
+}
+EOF
+OUT9=$(bash "$CHK" "$MIXED_VIOLATION" 2>&1); RC9=$?
+check "mixed-case fixture: exits 1" "[ $RC9 -eq 1 ]"
+check "mixed-case fixture: names Europe-West4" "echo \"\$OUT9\" | grep -q 'Europe-West4'"
+check "mixed-case fixture: names GLOBAL" "echo \"\$OUT9\" | grep -q 'GLOBAL'"
+check "mixed-case fixture: counts both tokens" "echo \"\$OUT9\" | grep -q '2 disallowed'"
+
+# 10. The allowed region in upper case (the form GCS reports for a bucket
+#     `location`) is the allowed region, matched like lower case: it passes.
+UPPER_CLEAN="$WORK/upper-clean"
+mkdir -p "$UPPER_CLEAN"
+cat > "$UPPER_CLEAN/main.tf" <<'EOF'
+resource "google_storage_bucket" "media" {
+  location = "NORTHAMERICA-NORTHEAST1"
+}
+EOF
+OUT10=$(bash "$CHK" "$UPPER_CLEAN" 2>&1); RC10=$?
+check "upper-case NORTHAMERICA-NORTHEAST1 fixture: exits 0" "[ $RC10 -eq 0 ]"
+check "upper-case NORTHAMERICA-NORTHEAST1 fixture: reports REGION_PIN_OK" "echo \"\$OUT10\" | grep -q REGION_PIN_OK"
+
 echo ""
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

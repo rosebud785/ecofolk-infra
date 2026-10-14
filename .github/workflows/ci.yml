@@ -125,17 +125,28 @@ jobs:
       - run: gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .
 
   # ecofolk-infra#7: cost and safety guards as conftest policy over the HCL (no credentials, no plan).
-  # conftest comes from `go install` at a fixed version: the Go checksum database (sum.golang.org)
-  # verifies the module, and no third-party action is needed.
+  # conftest is the pinned v0.70.1 Linux x86_64 release tarball, checked against a sha256 copied from
+  # that release's checksums.txt and hardcoded here (never fetched at run time), before it is extracted
+  # into $RUNNER_TEMP/bin. A mismatch fails the install step. No Go toolchain, no third-party action.
+  # #49: the former `go install` hit Go module proxy / sum.golang.org stream errors and gave false reds.
   policy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CONFTEST_VERSION: 0.70.1
+      CONFTEST_SHA256: 613d124b8f6c1f3cee890491f7ab19114cca5a2102ca47cb2e6c35b4c23f9c8a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: install conftest v0.70.1
+      - name: Install conftest (pinned, sha256-verified)
         run: |
-          go install github.com/open-policy-agent/conftest@v0.70.1
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          tgz="conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tgz" \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/$tgz"
+          echo "${CONFTEST_SHA256}  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP/bin" conftest
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: bash scripts/tests/test_policy_files.sh
       - run: conftest verify --policy policy --data policy/data.json
       - name: conftest test (every tracked *.tf; fails on any tracked *.tf.json)

@@ -57,7 +57,7 @@ Both options put DNS on Cloudflare. They differ only in **who is the registrar**
 
 ### Option B: another registrar, with Cloudflare DNS
 
-- **Cost and renewal:** set by the other registrar's terms, which this draft hasn't checked because no
+- **Cost and renewal:** set by the other registrar's terms, which this record hasn't checked because no
   registrar has been named. Andy fills it in under §4.
 - **DNS:** Cloudflare DNS still works. You point the nameservers at the other registrar to the ones
   Cloudflare assigns [CF-NS]. The registrar and the DNS provider can then change independently: you can
@@ -103,8 +103,8 @@ changes it.
 - **Renewal:** Universal SSL certificates are free and issued automatically for proxied hostnames, and
   Cloudflare handles issuance, renewal and deployment [CF-USSL]. They're valid for 90 days, and
   auto-renewal starts 30 days before expiry [CF-VALIDITY].
-  - Note for the Documenter: the Pages page doesn't name the certificate type it issues. The Universal
-    SSL renewal figures above are the zone-level behaviour.
+  - Note: the Pages page doesn't name the certificate type it issues. The Universal SSL renewal
+    figures above are the zone-level behaviour.
 - **If renewal fails:** Cloudflare keeps trying until 24 hours before expiry. If another valid
   certificate exists for the hostname, Cloudflare deploys that one in the last 24 hours [CF-VALIDITY].
 
@@ -157,13 +157,19 @@ production-ready anyway. That leaves the two alternatives in the spec.
 - **Monthly cost:** $0 within the Workers Free allowance. $5/month minimum on Workers Paid
   [CF-WORKERS-PRICING].
 - **Data residency (Architect's note):** a proxied API hostname means every API request and response,
-  including auth tokens and media proxied through `GET /media`, is **decrypted at Cloudflare's edge,
-  which can be outside Canada**. The region pin covers GCP resources, not the transit path, so this is
-  a fact for Andy to weigh, not a pin violation. 2.2b terminates TLS in Montréal.
+  including auth tokens and media proxied through `GET /media`, passes through Cloudflare and is
+  decrypted there. **Limiting that to a chosen region is Regional Services, an Enterprise add-on**
+  [CF-REGIONAL]; without it, Cloudflare's own page describes traffic as accepted "at any Cloudflare
+  data center worldwide" [CF-REGIONAL], so on the Free plan the decrypting location can be outside
+  Canada. The Data Localization Suite is the product family for choosing where Cloudflare inspects
+  and stores data [CF-DLS]. The region pin covers GCP resources, not the transit path, so this is a
+  fact for Andy to weigh, not a pin violation. Under 2.2b the load balancer sits in the same region as
+  the service [GCP-LB-REGIONAL], so TLS terminates there.
 - **Upload size:** Cloudflare's proxied request-body limit is set by the account plan: **100 MB on
   Free and Pro, 200 MB on Business**, and 413 above that [CF-LIMITS]. The app's largest upload is the
   **20 MiB** audio cap (`AUDIO_MAX_BYTES` in `packages/shared/src/media.ts`; images 10 MiB), so
-  the Free plan has room. 2.2b has no such edge limit.
+  the Free plan has room. **Cloud Run's own request limit applies on both paths:** 32 MiB per
+  request on an HTTP/1 server, no limit on HTTP/2 [GCP-RUN-QUOTAS]; 20 MiB fits under both.
 
 #### 2.2b Google load balancer (regional external Application Load Balancer + serverless NEG)
 
@@ -172,20 +178,23 @@ production-ready anyway. That leaves the two alternatives in the spec.
   load balancer keeps everything in `northamerica-northeast1`.
   - Google's custom-domain page recommends the *global* external Application Load Balancer
     [GCP-RUN-MAP]. A global load balancer is outside this repo's Montréal-only region pin. Using it
-    would need an explicit exception from the Architect, and this draft doesn't propose one.
+    would need an explicit exception from the Architect, and this record doesn't propose one.
 - **Certificates:** Certificate Manager issues and renews Google-managed certificates automatically,
   and its overview lists the regional external Application Load Balancer as a supported target
   [GCP-CERTMGR]. We renew nothing.
 - **Ingress:** Cloud Run ingress can then be limited to internal and Cloud Load Balancing traffic, so
   `run.app` stops being directly reachable [GCP-LB-REGIONAL].
-- **Monthly cost:** at least about **$18.25/month** before traffic, from **forwarding rules**:
-  - Google charges $0.025/hour for the first five forwarding rules, which is $0.025 × 730 h ≈ $18.25
-    [GCP-LB-PRICE];
-  - **data processing** is charged per GiB by region on top of that. The excerpts show
-    $0.008–$0.012/GiB, but the Montréal row hasn't been confirmed [GCP-LB-PRICE] [GCP-LB-PRICE-ANN];
-  - whether a separate **proxy-instance** charge applies to the regional external ALB hasn't been
-    confirmed. The excerpt only showed one ($0.025/hour, three-instance minimum) for the *internal*
-    ALB [GCP-NET-PRICE]. Both are still unconfirmed (see Verification gaps); confirm them before Andy compares costs.
+- **Monthly cost, Montréal (`northamerica-northeast1`), measured 2026-10-14 by cloud QA from the
+  region-specific JSON embedded in Google's pricing pages [GCP-LB-PRICE] [GCP-NET-PRICE]:**
+  - **forwarding rule:** $0.0275/hour for the first five, ≈ **$20.08/month** ($0.0275 × 730 h). The
+    earlier $0.025/hour ≈ $18.25 was the global/US rate, so it was a true lower bound but understated
+    the Montréal floor;
+  - **data processing:** $0.009/GiB inbound and $0.009/GiB outbound;
+  - **proxy instances:** neither page lists a proxy-instance charge for external Application Load
+    Balancers. The proxy-instance table ($0.025/hour each, three-instance minimum) sits only under
+    the *internal* Application Load Balancer [GCP-LB-PRICE].
+  - So the regional external ALB floor in Montréal reads as **≈ $20.08/month plus $0.009/GiB in and
+    out**. An in-use forwarding-rule IP may bill differently; not checked.
 - This option would be Terraform plus IAM later, and is out of scope here.
 
 #### API options at a glance
@@ -195,9 +204,9 @@ production-ready anyway. That leaves the two alternatives in the spec.
 | Works in `northamerica-northeast1` | yes; it's just HTTPS to `run.app` | yes, in-region [GCP-LB-REGIONAL] |
 | Visitor certificate | Cloudflare, automatic [CF-USSL] | Google-managed, automatic [GCP-CERTMGR] |
 | `run.app` still public | yes | can be closed [GCP-LB-REGIONAL] |
-| Where TLS terminates | Cloudflare's edge, possibly outside Canada | Montréal |
-| Request-body limit | 100 MB on Free [CF-LIMITS]; app max is 20 MiB, so it fits | none at the edge |
-| Monthly cost | $0 (Free, ≤100k req/day) or $5 min [CF-WORKERS-PRICING] | ≥ ~$18.25 + data processing (+ proxy charge, unconfirmed) [GCP-LB-PRICE] |
+| Where TLS terminates | Cloudflare; region-limiting is an Enterprise add-on [CF-REGIONAL] | the regional LB, in the service's region [GCP-LB-REGIONAL] |
+| Request-body limit | 100 MB on Free [CF-LIMITS], then Cloud Run's 32 MiB on HTTP/1 [GCP-RUN-QUOTAS]; app max 20 MiB fits | Cloud Run's 32 MiB on HTTP/1 [GCP-RUN-QUOTAS]; app max 20 MiB fits |
+| Monthly cost | $0 (Free, ≤100k req/day) or $5 min [CF-WORKERS-PRICING] | ≈ $20.08 + $0.009/GiB in and out; no external-ALB proxy charge listed [GCP-LB-PRICE] |
 | New moving part | a Worker | LB + NEG + certificate (Terraform) |
 
 ---
@@ -287,15 +296,19 @@ that drafted this. How each source was read instead:
 3. **[GCP-CERTMGR]: confirmed**, with a limit: the page lists the regional external Application Load
    Balancer as supported and says Google-managed certificates are issued and renewed automatically,
    but gives **no validity period or renewal window** (see §3).
-4. **[CF-LIMITS]: new source** for the proxied request-body limit (§2.2a).
+4. **New sources, read directly:** [CF-LIMITS] (proxied request-body limit), [CF-REGIONAL] and
+   [CF-DLS] (where Cloudflare decrypts; Regional Services is an Enterprise add-on), and
+   [GCP-RUN-QUOTAS] (Cloud Run's 32 MiB HTTP/1 request limit), all for §2.2a/§2.2b.
 
-**Still open, so §2.2b's price is not final:**
+**§2.2b's price:** now measured, but by cloud QA, not by this pass. The Documenter could not read
+Google's pricing pages through the fetch tool (title-only); cloud QA parsed the per-region JSON in the
+pages' HTML on 2026-10-14 and validated the mapping against `us-central1`. Treat the Montréal figures as
+QA-measured; re-check them on the live page when Andy is ready to compare costs, since pricing changes.
 
-- **[GCP-LB-PRICE] / [GCP-NET-PRICE]:** the Montréal data-processing rate, and whether the regional
-  external ALB has a separate proxy-instance charge. Google's pricing pages returned only a title
-  and a truncation marker through the fetch tool (2026-10-14), so neither figure could be read.
-  Someone needs to open the Cloud Load Balancing section of the live page in a browser, then restate
-  the monthly figure. The $18.25/month floor is the forwarding-rule charge only.
+**Still open:**
+
+- **[GCP-LB-PRICE-ANN]:** not needed for the Montréal figures; kept as a source for the earlier
+  excerpt only.
 - **[CF-TLD-POLICY]:** confirm the chosen TLD once Andy names the domain.
 
 ---
@@ -320,14 +333,17 @@ that drafted this. How each source was read instead:
 | CF-WORKERS-FETCH | https://developers.cloudflare.com/workers/runtime-apis/fetch/ | docs source |
 | CF-WORKERS-PRICING | https://developers.cloudflare.com/workers/platform/pricing/ | docs source |
 | CF-LIMITS | https://developers.cloudflare.com/workers/platform/limits/ | read directly 2026-10-14 |
+| CF-REGIONAL | https://developers.cloudflare.com/data-localization/regional-services/ | read directly 2026-10-14 |
+| CF-DLS | https://developers.cloudflare.com/data-localization/ | read directly 2026-10-14 |
+| GCP-RUN-QUOTAS | https://docs.cloud.google.com/run/quotas | read directly 2026-10-14 |
 | GCP-RUN-LOC | https://docs.cloud.google.com/run/docs/locations | search excerpt |
 | GCP-RUN-MAP | https://docs.cloud.google.com/run/docs/mapping-custom-domains | read directly 2026-10-14 |
 | GCP-RUN-SEC | https://docs.cloud.google.com/run/docs/securing/security | search excerpt |
 | GCP-RUN-HTTPS | https://docs.cloud.google.com/run/docs/triggering/https-request | search excerpt |
 | GCP-LB-REGIONAL | https://docs.cloud.google.com/load-balancing/docs/https/setting-up-reg-ext-https-serverless | search excerpt |
 | GCP-CERTMGR | https://docs.cloud.google.com/certificate-manager/docs/overview | read directly 2026-10-14 |
-| GCP-LB-PRICE | https://cloud.google.com/load-balancing/pricing | search excerpt |
+| GCP-LB-PRICE | https://cloud.google.com/load-balancing/pricing | measured by cloud QA 2026-10-14 (per-region JSON) |
 | GCP-LB-PRICE-ANN | https://cloud.google.com/load-balancing/pricing-announce | search excerpt |
-| GCP-NET-PRICE | https://cloud.google.com/vpc/network-pricing | search excerpt |
+| GCP-NET-PRICE | https://cloud.google.com/vpc/network-pricing | measured by cloud QA 2026-10-14 (per-region JSON) |
 | GCP-UPTIME | https://docs.cloud.google.com/monitoring/uptime-checks | read directly 2026-10-14 |
 | GCP-UPTIME-CHARTS | https://docs.cloud.google.com/monitoring/charts/uptime-charts | search excerpt (page title only); not relied on |

@@ -80,6 +80,20 @@ module "auth" {
   depends_on = [module.project]
 }
 
+# Private GCS bucket for user media, photos and audio (issue #21, Architect re-spec 2026-10-09: GCS in
+# Montréal, not Cloudflare R2). Applied by this root's keyless CI apply like everything else here. Location
+# is the module's own pinned default; depends_on so storage.googleapis.com is enabled first.
+#
+# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectAdmin for the API's runtime service account
+# (var.api_service_account_id) on this bucket only. IAM is not managed in this public repo.
+module "media_bucket" {
+  source     = "../../modules/media_bucket"
+  project_id = var.project_id
+  env        = "dev"
+
+  depends_on = [module.project]
+}
+
 output "auth_domain" {
   value       = module.auth.auth_domain
   description = "Firebase auth domain for the web build's config."

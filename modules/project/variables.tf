@@ -51,6 +51,7 @@ variable "enabled_apis" {
     "servicenetworking.googleapis.com", # Private Service Access for Cloud SQL private IP (issue #1)
     "artifactregistry.googleapis.com",  # Artifact Registry (ecofolk-infra#4)
     "identitytoolkit.googleapis.com",   # Firebase Auth / Identity Platform (modules/auth, ecofolk-infra#20)
+    "storage.googleapis.com",           # Cloud Storage, the media bucket (modules/media_bucket, ecofolk-infra#21)
   ]
-  description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4 and Identity Toolkit for ecofolk-infra#20)."
+  description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4, Identity Toolkit for ecofolk-infra#20 and Cloud Storage for ecofolk-infra#21)."
 }

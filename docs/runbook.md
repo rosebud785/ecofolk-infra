@@ -175,6 +175,8 @@ as), `<old-version>` and `<new-version>` (version numbers).
      gcloud secrets versions add <secret-id> --data-file=- --project=<project-id>
    ```
 
+   `--no-newline` matters: without it the stored secret ends in a newline.
+
    Expected: gcloud reports the new version number. Record it as `<new-version>`. Don't run
    `gcloud secrets versions access`: it prints the value.
 

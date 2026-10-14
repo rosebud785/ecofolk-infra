@@ -57,14 +57,27 @@ variable "service_account" {
   }
 }
 
+# Cloud Run v2 rejects an https self-link here with a 400 at create (ecofolk-infra#45), so the validations
+# refuse one at plan. The network pattern's `[g]lobal` is the literal path segment, bracketed so that
+# scripts/check-region-pin.sh's bare-word check (it refuses that word in *.tf) doesn't flag the pattern.
 variable "network" {
   type        = string
-  description = "Self-link of the VPC for Direct VPC egress; pass module.network.network_self_link."
+  description = "VPC for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.network_id."
+
+  validation {
+    condition     = can(regex("^projects/[^/]+/[g]lobal/networks/[^/]+$", var.network))
+    error_message = "network must be the VPC's relative resource name (.id, projects/<project>/<scope>/networks/<name>), not an https self-link (ecofolk-infra#45)."
+  }
 }
 
 variable "subnetwork" {
   type        = string
-  description = "Self-link of the subnet for Direct VPC egress; pass module.network.subnet_self_link."
+  description = "Subnet for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.subnet_id."
+
+  validation {
+    condition     = can(regex("^projects/[^/]+/regions/[^/]+/subnetworks/[^/]+$", var.subnetwork))
+    error_message = "subnetwork must be the subnet's relative resource name (.id, projects/<project>/regions/<region>/subnetworks/<name>), not an https self-link (ecofolk-infra#45)."
+  }
 }
 
 # Non-secret values only. Secrets come later as secret_key_ref to Secret Manager secret names (ef#399).

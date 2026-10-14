@@ -49,6 +49,16 @@ run "enables_the_auth_apis" {
   }
 }
 
+# ecofolk-infra#21: modules/media_bucket needs Cloud Storage.
+run "enables_the_storage_api" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(google_project_service.apis), "storage.googleapis.com")
+    error_message = "storage.googleapis.com must be enabled (ecofolk-infra#21)"
+  }
+}
+
 run "region_defaults_to_the_pin" {
   command = plan
 

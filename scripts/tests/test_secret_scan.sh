@@ -74,8 +74,17 @@ f=$(plant pem "$(printf '%sBEGIN RSA %s%s\n%s\n%sEND RSA %s%s' \
   "$dashes" "PRIVATE KEY" "$dashes" "$(rand 64)" "$dashes" "PRIVATE KEY" "$dashes")")
 check "PEM private-key fixture: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
 
-f=$(plant password "password = \"$(rand 24)\"")
-check "password = \"<random>\" fixture: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
+# #58: a FIXED fake, not $(rand 24). gitleaks' built-in generic-api-key rule drops a value that is
+# letters only (allowlist ^[a-zA-Z_.-]+$) or holds a stopword substring (e.g. "book", "yaml", "vpn"),
+# so a random 24-char draw slipped through ~2.5% of runs. This one has mixed case and digits, entropy
+# 4.585 (threshold 3.5) and no stopword. Assembled from pieces, so the source never holds it whole.
+pw1="Q7vX2m"; pw2="Kp9Rz4"; pw3="Tw3Nj8"; pw4="Hy6Lc5"
+f=$(plant password "password = \"${pw1}${pw2}${pw3}${pw4}\"")
+check "password = \"<fixed fake>\" fixture: gitleaks fails" "[ $(scan "$f") -eq 1 ]"
+
+# Near-miss control: a Terraform reference, not a value, must not trip generic-api-key.
+f=$(plant password-ref "password = var.db_password")
+check "password = var.db_password control: gitleaks passes" "[ $(scan "$f") -eq 0 ]"
 
 # Clean: ordinary Terraform, an allowlisted GitHub noreply address, and an interpolated SA address.
 f=$(plant clean "$(cat <<TF

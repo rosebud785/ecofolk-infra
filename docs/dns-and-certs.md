@@ -158,11 +158,11 @@ production-ready anyway. That leaves the two alternatives in the spec.
   [CF-WORKERS-PRICING].
 - **Data residency (Architect's note):** a proxied API hostname means every API request and response,
   including auth tokens and media proxied through `GET /media`, passes through Cloudflare and is
-  decrypted there. **Limiting that to a chosen region is Regional Services, an Enterprise add-on**
-  [CF-REGIONAL]; without it, Cloudflare's own page describes traffic as accepted "at any Cloudflare
-  data center worldwide" [CF-REGIONAL], so on the Free plan the decrypting location can be outside
-  Canada. The Data Localization Suite is the product family for choosing where Cloudflare inspects
-  and stores data [CF-DLS]. The region pin covers GCP resources, not the transit path, so this is a
+  decrypted there. **Regional Services is what lets a customer choose "which subset of data centers
+  decrypt" HTTPS traffic**, and it is an Enterprise add-on [CF-REGIONAL]: with it, TLS termination
+  "only occurs inside the configured region" [CF-REGIONAL]. Nothing in this record's plan has it, so
+  nothing limits where Cloudflare decrypts to Canada. The Data Localization Suite is the product
+  family for choosing where Cloudflare inspects and stores data [CF-DLS]. The region pin covers GCP resources, not the transit path, so this is a
   fact for Andy to weigh, not a pin violation. Under 2.2b the load balancer sits in the same region as
   the service [GCP-LB-REGIONAL], so TLS terminates there.
 - **Upload size:** Cloudflare's proxied request-body limit is set by the account plan: **100 MB on
@@ -264,10 +264,9 @@ Left blank on purpose. Nothing in §1–§3 is final until these are filled.
 | Registrar: A (Cloudflare Registrar) or B (name the registrar) | | Andy | |
 | API path (2.2a or 2.2b) | | Architect recommends; Andy approves any recurring spend | |
 
-**API path.** The spec did not reserve this choice, but 2.2b costs roughly $18+/month recurring and
-recurring spend is Andy's call, so it has a row. **Architect's recommendation: 2.2a for pre-launch dev,
-revisited at go-live**, once the residency and upload-size facts above and the 2.2b price (still
-unconfirmed, see Verification gaps) are in hand.
+**API path.** The spec did not reserve this choice, but 2.2b costs roughly $20/month recurring (about $20.08
+plus $0.009/GiB, measured, see §2.2b) and recurring spend is Andy's call, so it has a row. **Architect's recommendation: 2.2a for pre-launch dev,
+revisited at go-live**, once the residency and upload-size facts above and the 2.2b price are in hand.
 
 ---
 

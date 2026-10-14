@@ -8,8 +8,8 @@
 # (ef#408, local) set the real image, and a later apply must not roll it back.
 #
 # What is deliberately NOT here (Architect spec on #19):
-#   - no IAM of any kind: the `allUsers` -> roles/run.invoker binding that makes the API callable, and the
-#     runtime service account and its roles, are local follow-up L-RUN;
+#   - no IAM of any kind: the runtime service account, the apply identity's actAs on it, and the
+#     `allUsers` -> roles/run.invoker binding that makes the API callable are local follow-up (L-RUN below);
 #   - no secrets: `env` takes non-secret values only. Secrets come later as secret_key_ref to Secret
 #     Manager secret names (ef#399, local);
 #   - no custom domain or domain mapping (ef#404/#670), and no deploy CI (ef#408).
@@ -17,16 +17,20 @@
 # Needs run.googleapis.com (modules/project) and the subnet (modules/network); callers order them with
 # `depends_on` (see environments/dev/main.tf).
 #
-# LOCAL FOLLOW-UP (L-RUN): create the runtime service account (environments/dev passes its email) with
-# roles/cloudsql.client on the project and roles/secretmanager.secretAccessor on the named secrets only;
-# add the `allUsers` -> roles/run.invoker binding on this service; then measure the cold start
-# (first-request latency after scale-to-zero, 5 runs, report the median) once a real image is deployed.
+# LOCAL FOLLOW-UP (L-RUN), in this order (ecofolk-infra#44):
+#   1. Create the runtime service account (environments/dev passes its email) with NO roles at this stage.
+#   2. Grant the apply identity (tf-apply) roles/iam.serviceAccountUser ON THAT ONE SERVICE ACCOUNT only,
+#      never project-wide; without it the first apply 403s on iam.serviceaccounts.actAs (#19).
+#   3. Deferred: the `allUsers` -> roles/run.invoker binding on this service to ef#408 (first real deploy),
+#      then the cold start measurement (first-request latency after scale-to-zero, 5 runs, report the
+#      median) once the real image is deployed; roles/cloudsql.client and
+#      roles/secretmanager.secretAccessor (per named secret) to ef#399.
 resource "google_cloud_run_v2_service" "api" {
   project  = var.project_id
   name     = var.name
   location = var.region
 
-  # The public API: reachable from the internet once L-RUN grants allUsers the invoker role.
+  # The public API: reachable from the internet once allUsers gets the invoker role (L-RUN, ef#408).
   ingress = "INGRESS_TRAFFIC_ALL"
 
   template {

@@ -1,12 +1,12 @@
 # DNS and certificates: who holds the domain, and what happens when the cert expires
 
-**Status: DECISION DRAFT (#23).** Written for Andy, who decides, and for the Documenter, who finalises it.
-Nothing is decided until Andy fills in [§4](#4-andy-decides). Nothing here buys anything, creates a DNS
+**Status: FINALISED for Andy's decision (#23, 2026-10-14).** Finalised by the Documenter from the
+reviewed draft (PR #50). Nothing is decided until Andy fills in [§4](#4-andy-decides). Nothing here buys anything, creates a DNS
 record or adds Terraform.
 
 Facts were checked on 2026-10-14. Every factual claim cites a vendor page. The [Sources](#sources) table
-says how each page was read, because some Google pages could only be read through search excerpts from
-this session (see [Verification gaps](#verification-gaps)).
+says how each page was read; a few Google pages are still only search excerpts (see
+[Verification gaps](#verification-gaps)).
 
 What this record covers:
 
@@ -156,6 +156,14 @@ production-ready anyway. That leaves the two alternatives in the spec.
   directly reachable alongside the custom domain.
 - **Monthly cost:** $0 within the Workers Free allowance. $5/month minimum on Workers Paid
   [CF-WORKERS-PRICING].
+- **Data residency (Architect's note):** a proxied API hostname means every API request and response,
+  including auth tokens and media proxied through `GET /media`, is **decrypted at Cloudflare's edge,
+  which can be outside Canada**. The region pin covers GCP resources, not the transit path, so this is
+  a fact for Andy to weigh, not a pin violation. 2.2b terminates TLS in Montréal.
+- **Upload size:** Cloudflare's proxied request-body limit is set by the account plan: **100 MB on
+  Free and Pro, 200 MB on Business**, and 413 above that [CF-LIMITS]. The app's largest upload is the
+  **20 MiB** audio cap (`AUDIO_MAX_BYTES` in `packages/shared/src/media.ts`; images 10 MiB), so
+  the Free plan has room. 2.2b has no such edge limit.
 
 #### 2.2b Google load balancer (regional external Application Load Balancer + serverless NEG)
 
@@ -177,7 +185,7 @@ production-ready anyway. That leaves the two alternatives in the spec.
     $0.008–$0.012/GiB, but the Montréal row hasn't been confirmed [GCP-LB-PRICE] [GCP-LB-PRICE-ANN];
   - whether a separate **proxy-instance** charge applies to the regional external ALB hasn't been
     confirmed. The excerpt only showed one ($0.025/hour, three-instance minimum) for the *internal*
-    ALB [GCP-NET-PRICE]. The Documenter must confirm both before Andy compares costs.
+    ALB [GCP-NET-PRICE]. Both are still unconfirmed (see Verification gaps); confirm them before Andy compares costs.
 - This option would be Terraform plus IAM later, and is out of scope here.
 
 #### API options at a glance
@@ -187,6 +195,8 @@ production-ready anyway. That leaves the two alternatives in the spec.
 | Works in `northamerica-northeast1` | yes; it's just HTTPS to `run.app` | yes, in-region [GCP-LB-REGIONAL] |
 | Visitor certificate | Cloudflare, automatic [CF-USSL] | Google-managed, automatic [GCP-CERTMGR] |
 | `run.app` still public | yes | can be closed [GCP-LB-REGIONAL] |
+| Where TLS terminates | Cloudflare's edge, possibly outside Canada | Montréal |
+| Request-body limit | 100 MB on Free [CF-LIMITS]; app max is 20 MiB, so it fits | none at the edge |
 | Monthly cost | $0 (Free, ≤100k req/day) or $5 min [CF-WORKERS-PRICING] | ≥ ~$18.25 + data processing (+ proxy charge, unconfirmed) [GCP-LB-PRICE] |
 | New moving part | a Worker | LB + NEG + certificate (Terraform) |
 
@@ -218,8 +228,9 @@ The risk isn't a forgotten renewal. It's a renewal that **fails silently**, for 
 - **Alert:** an alerting policy on that metric when it drops **below 14 days**.
   - Cloudflare starts renewing at 30 days [CF-VALIDITY], so a 14-day alert means automatic renewal has
     been failing for over two weeks. That's a real signal, with time left to fix it.
-  - Google-managed certificates are also 90-day by the same reasoning, but Google's renewal window
-    isn't confirmed here, so the 14-day alert is the safety net either way.
+  - Google-managed certificates: Certificate Manager says it can automatically issue and renew them
+    [GCP-CERTMGR], but the page states **no validity period or renewal window**, so this record does
+    not claim 90 days for them. The 14-day alert is the safety net either way.
 - **What the check actually sees:** an uptime check sees the certificate the **visitor** sees.
   - Under 2.2a, that's Cloudflare's edge certificate, not `run.app`'s.
   - `run.app` is Google's own certificate on Google's own domain, so watching it is optional.
@@ -242,9 +253,12 @@ Left blank on purpose. Nothing in §1–§3 is final until these are filled.
 | - | - | - | - |
 | Domain name (ecofolk#670) | | Andy | |
 | Registrar: A (Cloudflare Registrar) or B (name the registrar) | | Andy | |
+| API path (2.2a or 2.2b) | | Architect recommends; Andy approves any recurring spend | |
 
-The API path (2.2a or 2.2b) depends on the cost figures the Documenter still has to confirm (§2.2b). It's
-not one of the two decisions the spec reserves for Andy, so it isn't in this table.
+**API path.** The spec did not reserve this choice, but 2.2b costs roughly $18+/month recurring and
+recurring spend is Andy's call, so it has a row. **Architect's recommendation: 2.2a for pre-launch dev,
+revisited at go-live**, once the residency and upload-size facts above and the 2.2b price (still
+unconfirmed, see Verification gaps) are in hand.
 
 ---
 
@@ -257,19 +271,34 @@ that drafted this. How each source was read instead:
   Cloudflare's public `cloudflare-docs` repository, 2026-10-14). That's the same text as the URLs
   cited.
 - **Google pages, and Cloudflare's TLD policies page:** read **only through search-engine excerpts**.
-  The URLs are the right pages, but the Documenter should open each one and confirm the quoted claim.
+  The Documenter's finalisation pass below re-read the pages that mattered.
 
-Before this is final, the Documenter needs to:
+**Finalisation pass, 2026-10-14 (Documenter).** Pages fetched directly this time:
 
-1. **[GCP-RUN-LOC] and [GCP-RUN-MAP]:** re-read the domain-mapping region list, and confirm
-   `northamerica-northeast1` is still absent.
-2. **[GCP-LB-PRICE]:**
-   - confirm the Montréal data-processing rate;
-   - confirm whether the regional external ALB has a proxy-instance charge;
-   - then restate the monthly figure.
-3. **[GCP-UPTIME]:** confirm the SSL-validation option and the metric name on Google's own page. The
-   excerpts that name the metric were third-party.
-4. **[CF-TLD-POLICY]:** confirm the chosen TLD once Andy names the domain.
+1. **[GCP-RUN-MAP]: confirmed.** The page lists the same ten domain-mapping regions, and
+   `northamerica-northeast1` is absent. It still says the feature is *Limited availability and
+   Preview*, "not production-ready and … not supported at General Availability", and "not
+   recommended for production services". **[GCP-RUN-LOC]** was not re-fetched; its claim is the
+   same region list and rests on [GCP-RUN-MAP].
+2. **[GCP-UPTIME]: confirmed.** Google's own page says the check "attempts to connect over HTTPS
+   and validate the SSL certificate", that checks fail on an invalid certificate, and that
+   `monitoring.googleapis.com/uptime_check/time_until_ssl_cert_expires` can drive an alerting
+   policy. [GCP-UPTIME-CHARTS] stays a title-only excerpt and is no longer relied on for the metric.
+3. **[GCP-CERTMGR]: confirmed**, with a limit: the page lists the regional external Application Load
+   Balancer as supported and says Google-managed certificates are issued and renewed automatically,
+   but gives **no validity period or renewal window** (see §3).
+4. **[CF-LIMITS]: new source** for the proxied request-body limit (§2.2a).
+
+**Still open, so §2.2b's price is not final:**
+
+- **[GCP-LB-PRICE] / [GCP-NET-PRICE]:** the Montréal data-processing rate, and whether the regional
+  external ALB has a separate proxy-instance charge. Google's pricing pages returned only a title
+  and a truncation marker through the fetch tool (2026-10-14), so neither figure could be read.
+  Someone needs to open the Cloud Load Balancing section of the live page in a browser, then restate
+  the monthly figure. The $18.25/month floor is the forwarding-rule charge only.
+- **[CF-TLD-POLICY]:** confirm the chosen TLD once Andy names the domain.
+
+---
 
 ## Sources
 
@@ -290,14 +319,15 @@ Before this is final, the Documenter needs to:
 | CF-SNIPPETS | https://developers.cloudflare.com/rules/snippets/ | docs source |
 | CF-WORKERS-FETCH | https://developers.cloudflare.com/workers/runtime-apis/fetch/ | docs source |
 | CF-WORKERS-PRICING | https://developers.cloudflare.com/workers/platform/pricing/ | docs source |
+| CF-LIMITS | https://developers.cloudflare.com/workers/platform/limits/ | read directly 2026-10-14 |
 | GCP-RUN-LOC | https://docs.cloud.google.com/run/docs/locations | search excerpt |
-| GCP-RUN-MAP | https://docs.cloud.google.com/run/docs/mapping-custom-domains | search excerpt |
+| GCP-RUN-MAP | https://docs.cloud.google.com/run/docs/mapping-custom-domains | read directly 2026-10-14 |
 | GCP-RUN-SEC | https://docs.cloud.google.com/run/docs/securing/security | search excerpt |
 | GCP-RUN-HTTPS | https://docs.cloud.google.com/run/docs/triggering/https-request | search excerpt |
 | GCP-LB-REGIONAL | https://docs.cloud.google.com/load-balancing/docs/https/setting-up-reg-ext-https-serverless | search excerpt |
-| GCP-CERTMGR | https://docs.cloud.google.com/certificate-manager/docs/overview | search excerpt |
+| GCP-CERTMGR | https://docs.cloud.google.com/certificate-manager/docs/overview | read directly 2026-10-14 |
 | GCP-LB-PRICE | https://cloud.google.com/load-balancing/pricing | search excerpt |
 | GCP-LB-PRICE-ANN | https://cloud.google.com/load-balancing/pricing-announce | search excerpt |
 | GCP-NET-PRICE | https://cloud.google.com/vpc/network-pricing | search excerpt |
-| GCP-UPTIME | https://docs.cloud.google.com/monitoring/uptime-checks | not read; named page for the Documenter to confirm |
-| GCP-UPTIME-CHARTS | https://docs.cloud.google.com/monitoring/charts/uptime-charts | search excerpt (page title only) |
+| GCP-UPTIME | https://docs.cloud.google.com/monitoring/uptime-checks | read directly 2026-10-14 |
+| GCP-UPTIME-CHARTS | https://docs.cloud.google.com/monitoring/charts/uptime-charts | search excerpt (page title only); not relied on |

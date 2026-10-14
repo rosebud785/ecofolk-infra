@@ -165,15 +165,14 @@ as), `<old-version>` and `<new-version>` (version numbers).
 
    Expected: `<old-version>` is `enabled`. Record its number.
 
-2. **Add the new version without displaying the value.** Write it to a file outside the repo that only
-   you can read, add it from the file, then remove the file. Never put the value on the command line,
-   since it would land in shell history.
+2. **Add the new version without displaying the value or writing it to disk.** Pipe it from your
+   password manager straight into `gcloud` on stdin. Never put the value on the command line, since it
+   would land in shell history, and don't stage it in a file: `shred` isn't on stock macOS and doesn't
+   securely erase on APFS or SSD anyway.
 
    ```bash
-   umask 077
-   # put the new value in <path-outside-repo> (for example from your password manager), then:
-   gcloud secrets versions add <secret-id> --data-file=<path-outside-repo> --project=<project-id>
-   shred -u <path-outside-repo>
+   op read "op://<vault>/<item>/<field>" | \
+     gcloud secrets versions add <secret-id> --data-file=- --project=<project-id>
    ```
 
    Expected: gcloud reports the new version number. Record it as `<new-version>`. Don't run

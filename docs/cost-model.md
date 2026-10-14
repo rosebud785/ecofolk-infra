@@ -6,25 +6,25 @@ the price depends on region. The line-by-line data, with every unit price, sourc
 
 ## The number
 
-**About $12.30 a month without C14's off-hours stop, about $9 with it, for 20 active users.** Nearly all of
+**About $10.50 a month without C14's off-hours stop, about $7.80 with it, for 20 active users.** Nearly all of
 it is the Cloud SQL instance, which bills by the hour whether anyone uses the app or not.
 
 | Monthly cost after the credit (USD) | Idle (0 users) | 20 active users | 2× headroom (40-user load) |
 | --- | ---: | ---: | ---: |
-| Without C14 (SQL up 24 h) | 12.18 | **12.26** | 12.48 |
-| With C14 (SQL up 16 h/day) | 8.87 | **8.95** | 9.17 |
-| Before free tiers, without C14 (gross) | 51.96 | 53.50 | 55.19 |
+| Without C14 (SQL up 24 h) | 10.43 | **10.51** | 10.73 |
+| With C14 (SQL up 16 h/day) | 7.71 | **7.79** | 8.01 |
+| Before free tiers, without C14 (gross) | 50.21 | 51.75 | 53.44 |
 
 - **Against the $25 dev budget (#15):** fits in every scenario, with or without C14. Headroom is about
-  $12.74 without C14 and about $16 with it.
+  $14.49 without C14 and about $17.21 with it.
 - **Against the $100–150 MVP budget:** well under it, at about a tenth of the low end. Everything this
-  page does *not* model (see [Not modelled](#not-modelled)) has to fit in the remaining roughly $88–138.
+  page does *not* model (see [Not modelled](#not-modelled)) has to fit in the remaining roughly $89–139.
 - **Usage barely moves the total.** Going from idle to 2× headroom adds about $0.30. The bill is set by
   what runs, not by how many people use it.
-- **The free tiers carry about $40 a month.** The gross row is what these same lines would cost with no
+- **The free tiers carry about $41 a month.** The gross row is what these same lines would cost with no
   free allowance. Almost all of the difference is the uptime check (see
   [Lines where a free tier is doing the work](#lines-where-a-free-tier-is-doing-the-work)).
-- **The credit runs out by date, not by spend.** At about $12 a month, 90 days uses roughly $37 of the
+- **The credit runs out by date, not by spend.** At about $10.50 a month, 90 days uses roughly $32 of the
   $300. The figures above are what each month costs once the credit has expired.
 
 ## Line by line
@@ -34,7 +34,7 @@ and each total is the sum of the rounded lines.
 
 | Line | Configured in this repo? | Idle | Idle, C14 | 20 users | 20 users, C14 | 2× | 2×, C14 | Free tier doing the work? |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Cloud SQL instance (db-f1-micro, zonal) | yes, `modules/cloudsql` | 10.22 | 6.81 | 10.22 | 6.81 | 10.22 | 6.81 | no |
+| Cloud SQL instance (db-f1-micro, zonal) | yes, `modules/cloudsql` | 8.47 | 5.65 | 8.47 | 5.65 | 8.47 | 5.65 | no |
 | Cloud SQL storage (10 GiB SSD) | yes, `disk_size` unset | 1.87 | 1.87 | 1.87 | 1.87 | 1.87 | 1.87 | no |
 | Cloud SQL backups | yes, `backup_configuration` | 0.04 | 0.04 | 0.09 | 0.09 | 0.18 | 0.18 | no |
 | Cloud SQL public IPv4 | yes, `ipv4_enabled = false` | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | no (no public IP) |
@@ -53,7 +53,7 @@ and each total is the sum of the rounded lines.
 | Cloudflare R2 Class A ops | no (Cloudflare) | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
 | Cloudflare R2 Class B ops | no (Cloudflare) | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
 | Cloudflare Pages (#22) | no (Cloudflare) | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** (static is free) |
-| **Total** | | **12.18** | **8.87** | **12.26** | **8.95** | **12.48** | **9.17** | |
+| **Total** | | **10.43** | **7.71** | **10.51** | **7.79** | **10.73** | **8.01** | |
 
 C14 moves two lines: the SQL instance falls to 16 of 24 hours, and Scheduler gains C14's two jobs (stop
 and start). Those make 4 jobs against a free allowance of 3, so with C14 one job costs $0.10. Storage and
@@ -90,7 +90,7 @@ Every number above comes from one of these. Each one is also on its line in the 
 
 1. **One environment, as configured in `environments/dev`.** That is the only root that creates
    resources. `environments/prod` only enables APIs today. A prod copy of the same stack would add the
-   three Cloud SQL lines again, about $12.18 a month without C14. Free tiers per billing account would
+   three Cloud SQL lines again, about $10.43 a month without C14. Free tiers per billing account would
    then be shared, not doubled. That copy is **not** in the totals.
 2. **A month is 730 hours**, which is Google's own conversion.
 3. **C14's schedule:** C14 isn't defined in this repo, so this assumes Cloud SQL runs 07:00–23:00
@@ -133,10 +133,10 @@ Every number above comes from one of these. Each one is also on its line in the 
 
 | Line | Unit price (USD) | Source |
 | --- | --- | --- |
-| Cloud SQL db-f1-micro, Montréal | $0.014 / hour | <https://cloud.google.com/sql/pricing> |
+| Cloud SQL db-f1-micro, Montréal | $0.0116 / hour ($8.468 / month) | <https://cloud.google.com/sql/pricing> |
 | Cloud SQL SSD storage, Montréal | $0.187 / GiB-month | <https://cloud.google.com/sql/pricing> |
 | Cloud SQL backups, Montréal | $0.088 / GiB-month | <https://cloud.google.com/sql/pricing> |
-| Cloud SQL idle public IPv4, Montréal | $0.012 / hour | <https://cloud.google.com/sql/pricing> |
+| Cloud SQL idle public IPv4, Montréal | $0.011 / hour | <https://cloud.google.com/sql/pricing> |
 | Cloud Run CPU, request-based, Montréal | $0.0000336 / vCPU-s | <https://cloud.google.com/run/pricing> |
 | Cloud Run memory, request-based, Montréal | $0.0000035 / GiB-s | <https://cloud.google.com/run/pricing> |
 | Cloud Run requests | $0.40 / million | <https://cloud.google.com/run/pricing> |
@@ -151,17 +151,13 @@ Every number above comes from one of these. Each one is also on its line in the 
 | R2 Class A / Class B operations | $4.50 / $0.36 per million after 1M / 10M | <https://developers.cloudflare.com/r2/pricing/> |
 | Pages static requests | free, unlimited | <https://developers.cloudflare.com/pages/functions/pricing/> |
 
-**Google's Cloud SQL page disagrees with itself for Montréal.** The hourly db-f1-micro price is $0.014,
-which is $10.22 over 730 h, but the same page's monthly view says $8.468, about $0.0116 an hour. This
-model uses the higher, hourly figure. If the billing export shows about $8.47, the SQL instance line
-is $1.75 high, or about $1.17 with C14.
-
 ## Check against live billing first
 
 When #5176's billing feed exists, compare these lines first, biggest risk first:
 
-1. **Cloud SQL instance (SKU: db-f1-micro, Montréal).** The largest line, and the price discrepancy
-   above. With C14 running, also confirm the instance-hours are close to 487, not 730.
+1. **Cloud SQL instance (SKU: db-f1-micro, Montréal).** The largest line. Confirm it bills at
+   about $0.0116 an hour ($8.47 over 730 h). With C14 running, also confirm the instance-hours are
+   close to 487, not 730.
 2. **Cloud SQL storage.** Confirm the disk is still 10 GiB, and that autoresize hasn't grown it.
 3. **Cloud Run CPU.** Billed vCPU-seconds against the 0.3 s/request assumption. This is the first
    usage-driven line to outgrow its free tier.

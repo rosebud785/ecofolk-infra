@@ -77,17 +77,20 @@ fi
 # GCP region-shaped token: <continent-ish>-<direction><digit>, e.g.
 # us-central1, europe-west4, asia-southeast1, northamerica-northeast1. Also
 # flags the bare word "global" (BUILD_PLAN.md §11.6: Vertex AI must use the
-# regional endpoint, never global).
+# regional endpoint, never global). Matched case-insensitively (grep -i,
+# #26): GCS reports a bucket `location` in upper case (NORTHAMERICA-NORTHEAST1),
+# and an upper-case US-CENTRAL1 must not slip past a lower-case pattern. The
+# allowed-region comparison below is case-insensitive to match.
 PATTERN='\b(us|europe|asia|australia|southamerica|northamerica|me|africa)-[a-z]+[0-9]\b|\bglobal\b'
 
 violations=0
 while IFS= read -r -d '' file; do
     while IFS=: read -r lineno match; do
         [ -n "$match" ] || continue
-        [ "$match" = "$ALLOWED_REGION" ] && continue
+        [ "${match,,}" = "$ALLOWED_REGION" ] && continue
         echo "${RED}FAIL${RST} $file:$lineno — disallowed region/endpoint token: $match"
         violations=$((violations + 1))
-    done < <(grep -noE "$PATTERN" "$file")
+    done < <(grep -noiE "$PATTERN" "$file")
 done < <(find "$TARGET_DIR" -name .terraform -prune -o -type f \( -name '*.tf' -o -name '*.tfvars' \) -print0)
 
 echo

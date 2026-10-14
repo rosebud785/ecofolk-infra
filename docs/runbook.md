@@ -171,7 +171,7 @@ as), `<old-version>` and `<new-version>` (version numbers).
    securely erase on APFS or SSD anyway.
 
    ```bash
-   op read "op://<vault>/<item>/<field>" | \
+   op read --no-newline "op://<vault>/<item>/<field>" | \
      gcloud secrets versions add <secret-id> --data-file=- --project=<project-id>
    ```
 

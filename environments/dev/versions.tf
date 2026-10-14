@@ -6,5 +6,10 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    # Firebase project + Hosting site (modules/web_hosting, ecofolk-infra#22).
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 5.0"
+    }
   }
 }

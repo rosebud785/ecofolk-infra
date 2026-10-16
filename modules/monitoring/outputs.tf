@@ -14,3 +14,12 @@ output "log_metric_names" {
   }
   description = "Names of the two log-based metrics (logging.googleapis.com/user/<name>)."
 }
+
+# Issue #5: for ef#406's alert policies to reference (metric.label.check_id in an uptime_check filter).
+output "uptime_check_ids" {
+  value = {
+    api_health = google_monitoring_uptime_check_config.api_health.uptime_check_id
+    web_root   = google_monitoring_uptime_check_config.web_root.uptime_check_id
+  }
+  description = "Uptime check IDs of the API /health and web root checks."
+}

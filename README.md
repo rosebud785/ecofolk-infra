@@ -13,6 +13,7 @@ modules/cloudsql/    reusable: Cloud SQL Postgres 16, private IP only, backups o
 modules/cloudrun_api/ reusable: the API on Cloud Run v2, scale-to-zero, Direct VPC egress (#19)
 modules/auth/        reusable: Firebase Auth config, email + password on, no IdP secrets (#20)
 modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multipart lifecycle only (#21)
+modules/monitoring/  reusable: alerts on API 5xx rate, DB connection and media write failures; channels by ID only (#24)
 modules/web_hosting/ reusable: Firebase Hosting site for the web build, <project>-web.web.app (#22)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore

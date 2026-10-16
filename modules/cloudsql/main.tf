@@ -2,12 +2,12 @@
 #
 # What is here: one ENTERPRISE-edition Postgres 16 instance with no public IP, attached to the VPC from
 # modules/network through its Private Service Access range; automated backups on; IAM database
-# authentication on; and one database, `ecofolk`.
+# authentication on; and one database, `ecofolk`. C2 (#2) adds the ops settings below (maintenance and
+# backup windows, PITR) and, in export.tf, a nightly export to a bucket that outlives the instance.
 #
 # What is deliberately NOT here (Architect spec on #18):
 #   - no google_sql_user and no random_password: Terraform never manages secret values. App and IAM
 #     database users are local follow-up L-SQL;
-#   - no backup window and no point-in-time recovery: those are C2 (#2);
 #   - the `postgis` and `vector` extensions: the app's migrations create them, and Cloud SQL needs no
 #     flag for either;
 #   - no HA (availability_type stays ZONAL).
@@ -47,8 +47,21 @@ resource "google_sql_database_instance" "postgres" {
       private_network = var.private_network
     }
 
+    # C2 (#2): Sunday 05:00 CT. Cloud SQL takes the hour in UTC and has no time zone, so see the locals.
+    maintenance_window {
+      day  = local.maintenance_day
+      hour = local.maintenance_hour_utc
+    }
+
     backup_configuration {
       enabled = true
+      # C2 (#2): 05:30 CT, in UTC (see the locals).
+      start_time = local.backup_start_time_utc
+
+      # C2 (#2), Architect ruling 2026-10-13: PITR on with 7 days of logs, in dev and prod alike. Not
+      # variables, so no caller can turn it off.
+      point_in_time_recovery_enabled = true
+      transaction_log_retention_days = local.transaction_log_retention_days
     }
 
     database_flags {
@@ -66,4 +79,14 @@ resource "google_sql_database" "ecofolk" {
 
 locals {
   database_name = "ecofolk"
+
+  # C2 (#2) windows. "CT" is America/Chicago (the zone #14's AC names). Cloud SQL's maintenance hour and
+  # backup start are UTC with no DST, so they are pinned to CST (UTC-6): 05:00 CT = 11:00 UTC. Under CDT
+  # the same UTC times read 06:00 and 06:30 CT. That still falls after dev's 04:45 CT start (#14) and
+  # before ops hours (07:00 CT). A CDT pin (10:00 UTC) would put the winter backup at 04:30 CST, while dev
+  # is still stopped, and Cloud SQL skips the backups of a stopped instance.
+  maintenance_day                = 7 # Cloud SQL counts 1 = Monday ... 7 = Sunday
+  maintenance_hour_utc           = 11
+  backup_start_time_utc          = "11:30"
+  transaction_log_retention_days = 7
 }

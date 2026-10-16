@@ -45,3 +45,14 @@ variable "tier" {
   default     = "db-f1-micro"
   description = "Machine tier. Must be on the policy allowlist (policy/data.json); callers pass a literal or omit it."
 }
+
+# C2 (#2): the identity the export job's OAuth token is minted for. Created locally (L1(a)), never here.
+variable "export_service_account_email" {
+  type        = string
+  description = "Email of the service account the nightly export job runs as (the ops-scheduler account in the dev project). Created locally, never here."
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", var.export_service_account_email))
+    error_message = "export_service_account_email must be a service account email (<id>@<project>.iam.gserviceaccount.com)."
+  }
+}

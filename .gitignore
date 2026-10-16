@@ -5,3 +5,4 @@
 !*.tfvars.example
 crash.log
 # .terraform.lock.hcl is NOT ignored: commit it.
+__pycache__/

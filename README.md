@@ -16,6 +16,7 @@ modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multi
 modules/monitoring/  reusable: alerts on API 5xx rate, DB connection and media write failures; channels by ID only (#24)
 modules/web_hosting/ reusable: Firebase Hosting site for the web build, <project>-web.web.app (#22)
 modules/secrets/     reusable: Secret Manager secret containers (no versions), one replica in Montréal (#32)
+modules/billing_killswitch/ dev only: budget topic + function that unlinks ecofolk-dev's billing at 100% (#15)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
 .github/dependabot.yml weekly Dependabot PRs: terraform per env/module dir, plus github-actions (#10)
@@ -27,6 +28,20 @@ policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / b
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
 the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `tflint`, `region-pin`, `workflow-guard`,
 `secret-scan` and `policy` and nothing that can reach GCP.
+
+## Dev billing kill-switch (#15)
+
+A budget only alerts. `modules/billing_killswitch` (called from `environments/dev` only, never prod) is the
+cap: budget `ecofolk-dev-killswitch` publishes to topic `ecofolk-dev-killswitch`, and a function unlinks
+billing from `ecofolk-dev` once actual spend reaches 100% of the $25/month budget. It ignores every other
+budget's messages and every project not on its allowlist (default `["ecofolk-dev"]`).
+
+- **The budget counts gross cost, with credits excluded.** Otherwise the $300 trial credit nets each
+  month to about $0, and the switch could never fire while the credit lasts. The budget is created locally
+  (ecofolk#885), with `--credit-types-treatment=exclude-all-credits`.
+- **Unlinking `ecofolk-dev` also takes the QA namespace (#13) down.** That's accepted.
+
+Details: [modules/billing_killswitch/README.md](modules/billing_killswitch/README.md).
 
 ## Policy (cost and safety guards)
 
@@ -43,6 +58,8 @@ a tracked `*.tf.json` fails the job, because the HCL parser can't read it):
 - no `google_service_account_key` anywhere, and no `*_iam_*` resource outside a `local-only/` path;
 - Secret Manager: no `google_secret_manager_secret_version` (a secret's value) and no
   `google_secret_manager_secret_iam_*` outside a `local-only/` path; secrets here are empty containers (#32);
+- billing kill-switch: every `project_allowlist` (variable default or module argument) is a literal list
+  with no `*-prod` id (#15);
 - every `module` source is a local path (`./` or `../`) that resolves to a directory with tracked `*.tf`,
   so no remote or unresolvable module hides resources from the rules.
 
@@ -86,6 +103,7 @@ bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
 bash scripts/tests/test_secret_scan.sh && gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .
 conftest verify --policy policy --data policy/data.json
+python3 -m unittest discover -s modules/billing_killswitch/tests -p 'test_*.py'
 bash scripts/tests/test_policy_files.sh
 conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)
 ```

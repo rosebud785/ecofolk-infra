@@ -81,15 +81,30 @@ jobs:
       - uses: actions/checkout@$SHA
 EOF2
 
-run_case rule2_id_token_allowlisted_push_ok pass - infra-apply.yml <<EOF2
+run_case rule2_id_token_allowlisted_push_job_level_ok pass - infra-apply.yml <<EOF2
 on:
   push:
     branches: [main]
 permissions:
-  id-token: write
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule2_id_token_job_level_outside_allowlist fail 'outside the allowlist' bad2c.yml <<EOF2
+on:
+  push:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@$SHA
 EOF2
@@ -149,6 +164,205 @@ jobs:
     steps:
       - uses: actions/checkout@main # 0123456789abcdef0123456789abcdef01234567
 EOF2
+
+# ecofolk-infra#31 -- the permissions rules read the PARSED workflow. One known-wrong per evasion.
+run_case rule5_workflow_level_id_token_in_allowlisted_file fail 'id-token: write at workflow level' infra-apply.yml <<EOF2
+on:
+  push:
+    branches: [main]
+permissions:
+  id-token: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_write_all_workflow_level fail 'write-all' bad5a.yml <<EOF2
+on:
+  push:
+permissions: write-all
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_write_all_job_level fail 'write-all' bad5b.yml <<EOF2
+on:
+  push:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_quoted_key_double fail 'id-token: write' bad5c.yml <<EOF2
+on:
+  push:
+permissions:
+  "id-token": write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_quoted_key_and_value_single fail 'id-token: write' bad5d.yml <<EOF2
+on:
+  push:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      'id-token': 'write'
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_alias_value fail 'id-token: write' bad5e.yml <<EOF2
+on:
+  push:
+x-w: &w write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: *w
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_alias_whole_permissions fail 'id-token: write' bad5f.yml <<EOF2
+on:
+  push:
+x-p: &p
+  id-token: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions: *p
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_merge_key fail 'id-token: write' bad5g.yml <<EOF2
+on:
+  push:
+x-p: &p
+  id-token: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      <<: *p
+      contents: read
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_flow_style_mapping fail 'id-token: write' bad5h.yml <<EOF2
+on:
+  push:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_write_permission fail 'triggered by pull_request \(read or none only\)' bad5i.yml <<EOF2
+on:
+  pull_request:
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_job_level_pull_requests_write fail 'pull-requests: write' bad5j.yml <<EOF2
+on: [pull_request]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_alias_write fail 'pull_request' bad5k.yml <<EOF2
+on:
+  pull_request:
+x-p: &p
+  contents: write
+permissions: *p
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_read_and_none_ok pass - ok5b.yml <<EOF2
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: none
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions: read-all
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_push_write_permission_ok pass - ok5c.yml <<EOF2
+on:
+  push:
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_unparseable_workflow_fails fail 'parse failure' bad5l.yml <<EOF2
+on:
+  push:
+jobs:
+  a: [unclosed
+EOF2
+
+run_case rule5_tabs_unparseable_fails fail 'parse failure' bad5m.yml <<EOF2
+on: push
+jobs:
+	a: {}
+EOF2
+
+run_case rule5_non_mapping_fails fail 'not a YAML mapping' bad5n.yml <<EOF2
+- just
+- a list
+EOF2
+
+# The live workflows must pass (infra-apply.yml is job-level only and push-triggered).
+live=$(cd "$here/../.." && bash scripts/check-workflows.sh .github/workflows 2>&1) \
+  && echo "ok   live_workflows_pass" || { echo "FAIL live_workflows_pass: $live"; failures=$((failures + 1)); }
 
 run_case comment_mentions_do_not_count pass - ok5.yml <<EOF2
 # pull_request_target would be bad; id-token: write too

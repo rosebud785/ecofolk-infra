@@ -18,6 +18,9 @@ name: Infra apply (Terraform dev)
 #
 # Identifiers are repo VARIABLES (not secrets — none is a credential):
 #   GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_APPLY_SA, TF_STATE_BUCKET
+# plus ALERT_CHANNEL_IDS (ecofolk-infra#24): the alert notification channel resource names, as an HCL list,
+# e.g. ["projects/<project>/notificationChannels/<n>"]. Channel IDs only, never an address: the channels
+# are made by hand (L-ALERT) and modules/monitoring creates none.
 # and the gate TF_APPLY_ENABLED: until it is exactly 'true' this workflow can NOT apply. It plans with
 # -detailed-exitcode and FAILS on any change (exit 2), so the first run proves "No changes" against the
 # state the old repo left, and flipping the variable is a separate, deliberate step.
@@ -39,6 +42,9 @@ env:
   TF_IN_AUTOMATION: 'true'
   TF_INPUT: '0'
   TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+  # #24: read by environments/dev's alert_notification_channels once L-ALERT wires modules/monitoring in;
+  # Terraform ignores a TF_VAR_ for a variable the root doesn't declare yet.
+  TF_VAR_alert_notification_channels: ${{ vars.ALERT_CHANNEL_IDS }}
   TF_DIR: environments/dev
 
 jobs:

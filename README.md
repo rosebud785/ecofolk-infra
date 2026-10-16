@@ -15,6 +15,7 @@ modules/auth/        reusable: Firebase Auth config, email + password on, no IdP
 modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multipart lifecycle only (#21)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
+.github/dependabot.yml weekly Dependabot PRs: terraform per env/module dir, plus github-actions (#10)
 CONTRIBUTING.md      copy-in checklist for anything coming from a private repo
 policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / bucket limits, IAM boundary
 ```

@@ -16,6 +16,7 @@ modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multi
 modules/monitoring/  reusable: alerts on API 5xx rate, DB connection and media write failures; channels by ID only (#24); HTTPS uptime checks on API /health and web root (#5)
 modules/web_hosting/ reusable: Firebase Hosting site for the web build, <project>-web.web.app (#22)
 modules/secrets/     reusable: Secret Manager secret containers (no versions), one replica in Montréal (#32)
+modules/sql_off_hours/ dev only: Cloud Scheduler stops dev Cloud SQL at 22:15 CT and starts it at 04:45 CT (#14)
 modules/billing_killswitch/ dev only: budget topic + function that unlinks ecofolk-dev's billing at 100% (#15)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore

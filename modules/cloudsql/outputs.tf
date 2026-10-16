@@ -3,6 +3,11 @@ output "connection_name" {
   description = "Instance connection name (<project>:<region>:<instance>), for the Cloud SQL connector."
 }
 
+output "instance_name" {
+  value       = google_sql_database_instance.postgres.name
+  description = "The instance's name, for modules/sql_off_hours' stop and start jobs (#14)."
+}
+
 output "private_ip_address" {
   value       = google_sql_database_instance.postgres.private_ip_address
   description = "The instance's private IP inside the PSA range. There is no public IP."

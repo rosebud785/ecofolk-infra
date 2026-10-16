@@ -30,5 +30,5 @@ variable "web_host" {
 variable "ops_scheduler_service_account_id" {
   type        = string
   default     = "ops-scheduler"
-  description = "Account id (the part before @) of the ops scheduler service account in the dev project; runs the nightly Cloud SQL export."
+  description = "Account id (the part before @) of the ops scheduler service account in the dev project; runs the nightly Cloud SQL export (#2) and the off-hours stop and start (#14)."
 }

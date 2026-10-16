@@ -18,6 +18,7 @@ updates:
       - /modules/monitoring
       - /modules/network
       - /modules/project
+      - /modules/secrets
       - /modules/web_hosting
     schedule:
       interval: weekly

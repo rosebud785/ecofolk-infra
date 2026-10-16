@@ -122,6 +122,15 @@ module "web_hosting" {
   depends_on = [module.project]
 }
 
+# Firebase is already attached to ecofolk-dev (Andy, 2026-10-15: GET firebase.googleapis.com/v1beta1/
+# projects/ecofolk-dev returned 200), so the project is adopted into state rather than created; a create
+# would fail with ALREADY_EXISTS. No import for google_firebase_hosting_site.web: attaching Firebase
+# makes a default site named "ecofolk-dev", while this one is "ecofolk-dev-web", a genuine create.
+import {
+  to = module.web_hosting.google_firebase_project.this
+  id = "projects/ecofolk-dev"
+}
+
 output "auth_domain" {
   value       = module.auth.auth_domain
   description = "Firebase auth domain for the web build's config."

@@ -1,0 +1,41 @@
+# ecofolk-infra#10: keep the Terraform provider pins and the SHA-pinned GitHub Actions from going stale.
+# Dependabot only opens PRs; they run the same PR CI as any other change, and nothing here merges them.
+# Actions stay pinned to a full 40-hex SHA (scripts/check-workflows.sh); Dependabot bumps the SHA and
+# its trailing `# vX.Y.Z` comment together.
+#
+# One terraform directory per root and module. A new module or environment must be added here.
+version: 2
+updates:
+  - package-ecosystem: terraform
+    directories:
+      - /environments/dev
+      - /environments/prod
+      - /modules/artifact_registry
+      - /modules/auth
+      - /modules/cloudrun_api
+      - /modules/cloudsql
+      - /modules/media_bucket
+      - /modules/monitoring
+      - /modules/network
+      - /modules/project
+      - /modules/secrets
+      - /modules/web_hosting
+    schedule:
+      interval: weekly
+    groups:
+      terraform-providers:
+        patterns: ['*']
+    commit-message:
+      prefix: 'chore(deps)'
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci(deps)'
+    open-pull-requests-limit: 5

@@ -23,3 +23,12 @@ variable "web_host" {
   default     = null
   description = "Bare hostname of the dev web app, for the auth config's authorized domains. Null: the Hosting site's <site>.web.app."
 }
+
+# Issue #2 (Architect name default, 2026-10-16): the ops scheduler SA is created locally (L1(a), ef#885)
+# under exactly this id; only the id is named here, so the email follows the project id. #14's start/stop
+# jobs use the same account.
+variable "ops_scheduler_service_account_id" {
+  type        = string
+  default     = "ops-scheduler"
+  description = "Account id (the part before @) of the ops scheduler service account in the dev project; runs the nightly Cloud SQL export."
+}

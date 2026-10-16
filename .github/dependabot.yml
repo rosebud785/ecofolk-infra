@@ -15,8 +15,10 @@ updates:
       - /modules/cloudrun_api
       - /modules/cloudsql
       - /modules/media_bucket
+      - /modules/monitoring
       - /modules/network
       - /modules/project
+      - /modules/web_hosting
     schedule:
       interval: weekly
     groups:

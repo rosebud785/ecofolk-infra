@@ -25,6 +25,11 @@ provider "google" {
   project = var.project_id
 }
 
+# Same keyless ADC as `google`, no credentials argument; used only by modules/web_hosting (#22).
+provider "google-beta" {
+  project = var.project_id
+}
+
 module "project" {
   source     = "../../modules/project"
   project_id = var.project_id
@@ -79,10 +84,11 @@ module "cloudrun_api" {
 
 # Firebase Auth / Identity Platform config (issue #20): email + password on, no anonymous, no IdP
 # configs (OAuth providers are local follow-up L-AUTH). depends_on so identitytoolkit is enabled first.
+# web_host falls back to the Hosting site's <site>.web.app (#22) while var.web_host is unset.
 module "auth" {
   source     = "../../modules/auth"
   project_id = var.project_id
-  web_host   = var.web_host
+  web_host   = coalesce(var.web_host, module.web_hosting.default_host)
 
   depends_on = [module.project]
 }
@@ -101,7 +107,36 @@ module "media_bucket" {
   depends_on = [module.project]
 }
 
+# Firebase Hosting site for the web build (issue #22, Architect re-spec 2026-10-09: Firebase Hosting, not
+# Cloudflare Pages). Static files only, served from the CDN, so no region (modules/web_hosting/README.md).
+# Deploys, firebase.json and the custom domain are not here (ecofolk#408, ecofolk#670). depends_on so
+# firebase and firebasehosting are enabled first.
+module "web_hosting" {
+  source     = "../../modules/web_hosting"
+  project_id = var.project_id
+
+  providers = {
+    google-beta = google-beta
+  }
+
+  depends_on = [module.project]
+}
+
+# Firebase is already attached to ecofolk-dev (Andy, 2026-10-15: GET firebase.googleapis.com/v1beta1/
+# projects/ecofolk-dev returned 200), so the project is adopted into state rather than created; a create
+# would fail with ALREADY_EXISTS. No import for google_firebase_hosting_site.web: attaching Firebase
+# makes a default site named "ecofolk-dev", while this one is "ecofolk-dev-web", a genuine create.
+import {
+  to = module.web_hosting.google_firebase_project.this
+  id = "projects/ecofolk-dev"
+}
+
 output "auth_domain" {
   value       = module.auth.auth_domain
   description = "Firebase auth domain for the web build's config."
+}
+
+output "web_default_url" {
+  value       = module.web_hosting.default_url
+  description = "The dev web app's Hosting URL (https://<site>.web.app), for the API's CORS allowlist."
 }

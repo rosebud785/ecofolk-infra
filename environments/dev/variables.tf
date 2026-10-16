@@ -16,10 +16,10 @@ variable "api_service_account_id" {
 }
 
 # Issue #20: the dev web app's bare hostname, added to the auth config's authorized domains next to
-# localhost. Default null (localhost only) so the keyless apply, which sets only TF_VAR_project_id, still
-# runs; set TF_VAR_web_host once the dev web host is fixed.
+# localhost. Default null: the Hosting site's <site>.web.app (#22) is used instead, so the keyless apply,
+# which sets only TF_VAR_project_id, still runs; set TF_VAR_web_host once a custom dev domain exists.
 variable "web_host" {
   type        = string
   default     = null
-  description = "Bare hostname of the dev web app, for the auth config's authorized domains. Null: localhost only."
+  description = "Bare hostname of the dev web app, for the auth config's authorized domains. Null: the Hosting site's <site>.web.app."
 }

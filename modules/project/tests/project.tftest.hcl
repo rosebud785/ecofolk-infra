@@ -59,6 +59,16 @@ run "enables_the_storage_api" {
   }
 }
 
+# ecofolk-infra#22: modules/web_hosting needs Firebase Hosting (and Firebase, asserted above).
+run "enables_the_hosting_api" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(google_project_service.apis), "firebasehosting.googleapis.com")
+    error_message = "firebasehosting.googleapis.com must be enabled (ecofolk-infra#22)"
+  }
+}
+
 run "region_defaults_to_the_pin" {
   command = plan
 

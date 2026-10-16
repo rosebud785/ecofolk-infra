@@ -12,6 +12,7 @@ updates:
       - /environments/prod
       - /modules/artifact_registry
       - /modules/auth
+      - /modules/billing_killswitch
       - /modules/cloudrun_api
       - /modules/cloudsql
       - /modules/media_bucket

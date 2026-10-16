@@ -48,10 +48,16 @@ module "network" {
 # Cloud SQL Postgres 16, private IP only (issue #18). Region is the module's own pinned default, per the
 # #18 spec; depends_on so sqladmin is enabled and the PSA peering exists before the instance asks for a
 # private IP.
+#
+# Issue #2 adds the maintenance and backup windows, PITR (7 days), and the nightly export to
+# <project>-sql-exports, run by Cloud Scheduler as the ops-scheduler service account.
+# LOCAL FOLLOW-UP (L1(a), ef#885): create ops-scheduler and its bindings; the list is in
+# modules/cloudsql/export.tf. IAM is not managed in this public repo.
 module "cloudsql" {
-  source          = "../../modules/cloudsql"
-  project_id      = var.project_id
-  private_network = module.network.network_self_link
+  source                       = "../../modules/cloudsql"
+  project_id                   = var.project_id
+  private_network              = module.network.network_self_link
+  export_service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 
   depends_on = [module.project, module.network]
 }
@@ -140,6 +146,24 @@ module "web_hosting" {
   depends_on = [module.project]
 }
 
+# Dev billing kill-switch (issue #15): the ecofolk-dev-killswitch topic and a Cloud Functions (2nd gen)
+# function that unlinks billing from ecofolk-dev once the dedicated dev budget's gross spend reaches 100%.
+# Dev only, never prod: there is no call in environments/prod, and C7 (policy/billing_killswitch.rego)
+# refuses a *-prod id on the allowlist. Names, the allowlist, the budget name and the threshold are the
+# module's defaults (Architect, #15). depends_on so run, cloudbuild, artifactregistry and storage are on.
+#
+# LOCAL FOLLOW-UP (ecofolk#885, L1(b)): create budget ecofolk-dev-killswitch ($25/month, scoped to ecofolk-dev,
+# --credit-types-treatment=exclude-all-credits) and point it at this topic; create the runtime SA
+# ecofolk-killswitch; grant it roles/billing.projectManager on ecofolk-dev only, and the trigger grants listed
+# in modules/billing_killswitch/main.tf. IAM is not managed in this public repo.
+module "billing_killswitch" {
+  source     = "../../modules/billing_killswitch"
+  project_id = var.project_id
+  region     = module.project.region
+
+  depends_on = [module.project]
+}
+
 # Firebase is already attached to ecofolk-dev (Andy, 2026-10-15: GET firebase.googleapis.com/v1beta1/
 # projects/ecofolk-dev returned 200), so the project is adopted into state rather than created; a create
 # would fail with ALREADY_EXISTS. No import for google_firebase_hosting_site.web: attaching Firebase
@@ -157,4 +181,9 @@ output "auth_domain" {
 output "web_default_url" {
   value       = module.web_hosting.default_url
   description = "The dev web app's Hosting URL (https://<site>.web.app), for the API's CORS allowlist."
+}
+
+output "billing_killswitch_topic" {
+  value       = module.billing_killswitch.topic_id
+  description = "The budget topic the local ef#885 script points budget ecofolk-dev-killswitch at (#15)."
 }

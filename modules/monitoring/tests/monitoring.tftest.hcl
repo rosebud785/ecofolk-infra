@@ -9,6 +9,8 @@ variables {
   notification_channels            = ["projects/ecofolk-dev/notificationChannels/1234567890"]
   db_connection_failure_log_filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.db_connect_failed\""
   media_write_failure_log_filter   = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""
+  api_host                         = "api.example.test"
+  web_host                         = "web.example.test"
 }
 
 run "three_policies_exist_and_notify_the_channels" {

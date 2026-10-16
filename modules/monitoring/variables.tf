@@ -60,3 +60,28 @@ variable "media_write_failure_log_filter" {
     error_message = "media_write_failure_log_filter must be a non-empty Cloud Logging filter (L-ALERT supplies it)."
   }
 }
+
+# Issue #5: the uptime checks' hosts are inputs. Bare hostnames only (no scheme, port or path): the
+# check adds https:// and the path itself. No default: the API's Cloud Run hostname isn't knowable here,
+# and a guessed host would probe the wrong thing.
+variable "api_host" {
+  type        = string
+  nullable    = false
+  description = "Hostname of the EcoFolk API (e.g. its Cloud Run run.app host), probed at https://<api_host>/health."
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.api_host))
+    error_message = "api_host must be a bare lowercase hostname: no scheme, port or path."
+  }
+}
+
+variable "web_host" {
+  type        = string
+  nullable    = false
+  description = "Hostname of the EcoFolk web build (modules/web_hosting: <project>-web.web.app), probed at https://<web_host>/."
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.web_host))
+    error_message = "web_host must be a bare lowercase hostname: no scheme, port or path."
+  }
+}

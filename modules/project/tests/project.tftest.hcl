@@ -69,6 +69,16 @@ run "enables_the_hosting_api" {
   }
 }
 
+# ecofolk-infra#32: modules/secrets needs Secret Manager.
+run "enables_the_secret_manager_api" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(google_project_service.apis), "secretmanager.googleapis.com")
+    error_message = "secretmanager.googleapis.com must be enabled (ecofolk-infra#32)"
+  }
+}
+
 run "region_defaults_to_the_pin" {
   command = plan
 

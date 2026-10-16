@@ -15,6 +15,7 @@ modules/auth/        reusable: Firebase Auth config, email + password on, no IdP
 modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multipart lifecycle only (#21)
 modules/monitoring/  reusable: alerts on API 5xx rate, DB connection and media write failures; channels by ID only (#24)
 modules/web_hosting/ reusable: Firebase Hosting site for the web build, <project>-web.web.app (#22)
+modules/secrets/     reusable: Secret Manager secret containers (no versions), one replica in Montréal (#32)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
 .github/dependabot.yml weekly Dependabot PRs: terraform per env/module dir, plus github-actions (#10)
@@ -40,6 +41,8 @@ a tracked `*.tf.json` fails the job, because the HCL parser can't read it):
   `deletion_protection = true`;
 - buckets: `public_access_prevention = "enforced"` and `uniform_bucket_level_access = true`;
 - no `google_service_account_key` anywhere, and no `*_iam_*` resource outside a `local-only/` path;
+- Secret Manager: no `google_secret_manager_secret_version` (a secret's value) and no
+  `google_secret_manager_secret_iam_*` outside a `local-only/` path; secrets here are empty containers (#32);
 - every `module` source is a local path (`./` or `../`) that resolves to a directory with tracked `*.tf`,
   so no remote or unresolvable module hides resources from the rules.
 

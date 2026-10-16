@@ -53,6 +53,7 @@ variable "enabled_apis" {
     "identitytoolkit.googleapis.com",   # Firebase Auth / Identity Platform (modules/auth, ecofolk-infra#20)
     "storage.googleapis.com",           # Cloud Storage, the media bucket (modules/media_bucket, ecofolk-infra#21)
     "firebasehosting.googleapis.com",   # Firebase Hosting, the web build (modules/web_hosting, ecofolk-infra#22)
+    "secretmanager.googleapis.com",     # Secret Manager, the API's secret containers (modules/secrets, ecofolk-infra#32)
   ]
-  description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4, Identity Toolkit for ecofolk-infra#20, Cloud Storage for ecofolk-infra#21 and Firebase Hosting for ecofolk-infra#22)."
+  description = "GCP APIs to enable on the project (BUILD_PLAN.md §11.1, plus Artifact Registry for ecofolk-infra#4, Identity Toolkit for ecofolk-infra#20, Cloud Storage for ecofolk-infra#21, Firebase Hosting for ecofolk-infra#22 and Secret Manager for ecofolk-infra#32)."
 }

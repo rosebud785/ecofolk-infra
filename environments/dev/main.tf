@@ -70,7 +70,8 @@ module "cloudsql" {
 #      never project-wide. Without it the first apply of this block 403s on iam.serviceaccounts.actAs
 #      (main's Infra apply was red for that from 10-11 to 10-13, #19).
 #   3. Deferred: the `allUsers` -> roles/run.invoker binding on the service to ef#408 (first real deploy);
-#      roles/cloudsql.client and roles/secretmanager.secretAccessor (per named secret) to ef#399.
+#      roles/cloudsql.client and roles/secretmanager.secretAccessor (per named secret, see module.secrets
+#      below) to ef#399 / ecofolk#890.
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = var.project_id
@@ -80,6 +81,23 @@ module "cloudrun_api" {
   subnetwork      = module.network.subnet_id
 
   depends_on = [module.project, module.network]
+}
+
+# Secret Manager secret CONTAINERS only, no values (issue #32, Architect ruling on ecofolk#399): the four
+# default names in modules/secrets, one user-managed replica each in Montréal. Region is module.project's
+# pin; depends_on so secretmanager.googleapis.com is enabled first.
+#
+# LOCAL FOLLOW-UP (ecofolk#936): add each secret's value (a version) by hand. Never in this repo: C7 refuses
+# google_secret_manager_secret_version outside local-only/.
+# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/secretmanager.secretAccessor for the API's runtime service
+# account (var.api_service_account_id) on each of these secrets only. IAM is not managed in this public repo.
+module "secrets" {
+  source     = "../../modules/secrets"
+  project_id = var.project_id
+  region     = module.project.region
+  env        = "dev"
+
+  depends_on = [module.project]
 }
 
 # Firebase Auth / Identity Platform config (issue #20): email + password on, no anonymous, no IdP

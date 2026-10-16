@@ -48,10 +48,16 @@ module "network" {
 # Cloud SQL Postgres 16, private IP only (issue #18). Region is the module's own pinned default, per the
 # #18 spec; depends_on so sqladmin is enabled and the PSA peering exists before the instance asks for a
 # private IP.
+#
+# Issue #2 adds the maintenance and backup windows, PITR (7 days), and the nightly export to
+# <project>-sql-exports, run by Cloud Scheduler as the ops-scheduler service account.
+# LOCAL FOLLOW-UP (L1(a), ef#885): create ops-scheduler and its bindings; the list is in
+# modules/cloudsql/export.tf. IAM is not managed in this public repo.
 module "cloudsql" {
-  source          = "../../modules/cloudsql"
-  project_id      = var.project_id
-  private_network = module.network.network_self_link
+  source                       = "../../modules/cloudsql"
+  project_id                   = var.project_id
+  private_network              = module.network.network_self_link
+  export_service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 
   depends_on = [module.project, module.network]
 }

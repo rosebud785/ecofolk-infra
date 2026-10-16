@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Makes "no credentials on a PR path" mechanical. Fails, naming file:line, if any workflow:
 #   1. contains pull_request_target;
-#   2. has `id-token: write` while triggered by pull_request, or in any file not on the allowlist below;
+#   2. permissions, on the PARSED workflow (check-workflow-permissions.py): `write-all` anywhere; `id-token: write`
+#      at workflow level, in a pull_request workflow, or in a job of a file not on the allowlist below; any
+#      permission other than read/none in a pull_request workflow; a workflow that does not parse;
 #   3. references secrets.* (other than secrets.GITHUB_TOKEN) while triggered by pull_request;
 #   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt).
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
@@ -22,6 +24,22 @@ if [ ${#files[@]} -eq 0 ]; then
   exit 1
 fi
 
+# 2. permissions (ecofolk-infra#31): parsed, not grepped, so anchors / merge keys / flow style / quoted keys
+# cannot hide a write. Rules are in check-workflow-permissions.py's header. A parse failure fails the guard.
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -I -c 'import yaml' 2>/dev/null; then
+  echo "check-workflows: python3 with PyYAML is required (the permissions rules parse the workflow)" >&2
+  exit 1
+fi
+allow_csv=$(IFS=,; echo "${ALLOW_ID_TOKEN[*]}")
+set +e
+perm_out=$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/check-workflow-permissions.py" "$allow_csv" "${files[@]}")
+perm_rc=$?
+set -e
+if [ "$perm_rc" -ne 0 ]; then
+  printf '%s\n' "$perm_out"
+  fail=1
+fi
+
 for f in "${files[@]}"; do
   base=$(basename "$f")
   # Comments stripped (line numbers preserved) so a `# pull_request` remark or a `# v4` tag never counts.
@@ -35,17 +53,6 @@ for f in "${files[@]}"; do
   # Triggered by pull_request? (the bare word, not pull_request_target / pull_request_review)
   on_pr=0
   if printf '%s\n' "$stripped" | grep -qE '(^|[^A-Za-z_])pull_request([^A-Za-z_]|$)'; then on_pr=1; fi
-
-  # 2. id-token: write
-  while IFS=: read -r n _; do
-    allowed=0
-    for a in "${ALLOW_ID_TOKEN[@]}"; do [ "$base" = "$a" ] && allowed=1; done
-    if [ "$on_pr" = 1 ]; then
-      report "$f" "$n" "id-token: write in a workflow triggered by pull_request"
-    elif [ "$allowed" = 0 ]; then
-      report "$f" "$n" "id-token: write outside the allowlist (${ALLOW_ID_TOKEN[*]})"
-    fi
-  done < <(printf '%s\n' "$stripped" | grep -nE 'id-token:[[:space:]]*write' || true)
 
   # 3. secrets.* on a PR path
   if [ "$on_pr" = 1 ]; then

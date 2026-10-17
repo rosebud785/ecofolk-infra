@@ -148,6 +148,12 @@ run "outputs_and_database" {
     error_message = "connection_name must be the instance's connection name"
   }
 
+  # #14: modules/sql_off_hours stops and starts the instance by this name.
+  assert {
+    condition     = output.instance_name == "ecofolk-pg"
+    error_message = "instance_name must be the instance's name"
+  }
+
   assert {
     condition     = output.private_ip_address == google_sql_database_instance.postgres.private_ip_address
     error_message = "private_ip_address must be the instance's private IP"

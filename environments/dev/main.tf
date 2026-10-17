@@ -62,6 +62,24 @@ module "cloudsql" {
   depends_on = [module.project, module.network]
 }
 
+# Dev Cloud SQL off-hours stop and start (issue #14, Architect SPEC OK 2026-10-16, amended): two Cloud
+# Scheduler jobs PATCH activationPolicy, NEVER at 22:15 CT and ALWAYS at 04:45 CT, before #2's 05:00 CT
+# maintenance window. They run as ops-scheduler, the same account as #2's export. Dev only: there is no call
+# in environments/prod, and the module refuses a *-prod project. enable_off_hours stays at its default (true).
+# This also stops the QA namespace (#13 shares the instance); that's intended.
+#
+# LOCAL FOLLOW-UP (L1(a), ef#885): grant ops-scheduler roles/cloudsql.editor on ecofolk-dev only. IAM is not
+# managed in this public repo.
+module "sql_off_hours" {
+  source                = "../../modules/sql_off_hours"
+  project_id            = var.project_id
+  region                = module.project.region
+  instance_name         = module.cloudsql.instance_name
+  service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+
+  depends_on = [module.project]
+}
+
 # The API on Cloud Run v2, scale-to-zero (issue #19). Region from module.project, egress into the subnet
 # from module.network; depends_on so run.googleapis.com is enabled and the subnet exists first. The image
 # stays the module's placeholder: deploys (ef#408) own it.

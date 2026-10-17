@@ -12,7 +12,7 @@
 #     flag for either;
 #   - no HA (availability_type stays ZONAL).
 #
-# The instance bills while idle; C14 (#14) stops it out of hours.
+# The instance bills while idle; C14 (#14, modules/sql_off_hours) stops it out of hours in dev.
 #
 # Needs sqladmin.googleapis.com (modules/project) and the PSA peering (modules/network); callers order
 # them with `depends_on` (see environments/dev/main.tf).
@@ -68,6 +68,13 @@ resource "google_sql_database_instance" "postgres" {
       name  = "cloudsql.iam_authentication"
       value = "on"
     }
+  }
+
+  # C14 (#14): modules/sql_off_hours' Scheduler jobs flip settings.activationPolicy (NEVER at 22:15 CT,
+  # ALWAYS at 04:45 CT) outside Terraform. Without this, an apply from main while dev is stopped would
+  # plan activation_policy back to its default and start the instance again.
+  lifecycle {
+    ignore_changes = [settings[0].activation_policy]
   }
 }
 

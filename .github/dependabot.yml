@@ -20,6 +20,7 @@ updates:
       - /modules/network
       - /modules/project
       - /modules/secrets
+      - /modules/sql_off_hours
       - /modules/web_hosting
     schedule:
       interval: weekly

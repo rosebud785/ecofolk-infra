@@ -23,3 +23,9 @@ output "uptime_check_ids" {
   }
   description = "Uptime check IDs of the API /health and web root checks."
 }
+
+# Issue #6: the dashboard's resource id (projects/<number>/dashboards/<id>).
+output "dashboard_id" {
+  value       = google_monitoring_dashboard.ecofolk.id
+  description = "Resource id of the EcoFolk dashboard."
+}

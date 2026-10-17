@@ -85,3 +85,29 @@ variable "web_host" {
     error_message = "web_host must be a bare lowercase hostname: no scheme, port or path."
   }
 }
+
+# Issue #6: the Cloud SQL instance the dashboard's database tiles watch. Default is modules/cloudsql's
+# own instance_name default; the dashboard filters on database_id "<project_id>:<instance>".
+variable "sql_instance_name" {
+  type        = string
+  default     = "ecofolk-pg"
+  description = "Name of the Cloud SQL instance the dashboard's database tiles watch (modules/cloudsql's instance_name)."
+
+  validation {
+    condition     = can(regex("^[a-z]([a-z0-9-]{0,96}[a-z0-9])?$", var.sql_instance_name))
+    error_message = "sql_instance_name must be a Cloud SQL instance name (lowercase letters, digits and hyphens, max 98 chars)."
+  }
+}
+
+# Issue #6: the threshold line on the connections tile. Cloud SQL sets Postgres max_connections from the
+# tier; 25 is db-f1-micro's, modules/cloudsql's default tier. Change both together.
+variable "db_max_connections" {
+  type        = number
+  default     = 25
+  description = "The Cloud SQL tier's max_connections, drawn as the connections tile's threshold. 25 = db-f1-micro."
+
+  validation {
+    condition     = var.db_max_connections > 0 && floor(var.db_max_connections) == var.db_max_connections
+    error_message = "db_max_connections must be a positive whole number."
+  }
+}

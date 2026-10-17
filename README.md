@@ -13,12 +13,14 @@ modules/cloudsql/    reusable: Cloud SQL Postgres 16, private IP only, backups o
 modules/cloudrun_api/ reusable: the API on Cloud Run v2, scale-to-zero, Direct VPC egress (#19)
 modules/auth/        reusable: Firebase Auth config, email + password on, no IdP secrets (#20)
 modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multipart lifecycle only (#21)
-modules/monitoring/  reusable: alerts on API 5xx rate, DB connection and media write failures; channels by ID only (#24); HTTPS uptime checks on API /health and web root (#5)
+modules/monitoring/  reusable: alerts on API 5xx rate, DB connection and media write failures; channels by ID only (#24); HTTPS uptime checks on API /health and web root (#5);
+                     one dashboard, JSON in dashboards/ecofolk.json (#6)
 modules/web_hosting/ reusable: Firebase Hosting site for the web build, <project>-web.web.app (#22)
 modules/secrets/     reusable: Secret Manager secret containers (no versions), one replica in Montréal (#32)
 modules/sql_off_hours/ dev only: Cloud Scheduler stops dev Cloud SQL at 22:15 CT and starts it at 04:45 CT (#14)
 modules/billing_killswitch/ dev only: budget topic + function that unlinks ecofolk-dev's billing at 100% (#15)
-scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33) and tests
+scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33),
+                     restore-from-export.sh (#3, run on-site only) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
 .github/dependabot.yml weekly Dependabot PRs: terraform per env/module dir, plus github-actions (#10)
 CONTRIBUTING.md      copy-in checklist for anything coming from a private repo
@@ -27,7 +29,7 @@ policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / b
 
 **No GCP key exists anywhere.** `infra-apply.yml` (push to main only) exchanges the job's GitHub OIDC
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
-the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `tflint`, `region-pin`, `workflow-guard`,
+the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `dashboard-json`, `tflint`, `region-pin`, `restore-script`, `workflow-guard`,
 `secret-scan` and `policy` and nothing that can reach GCP.
 
 ## Dev billing kill-switch (#15)
@@ -102,7 +104,9 @@ for m in modules/*/; do [ -d "$m/tests" ] && terraform -chdir="$m" init -backend
 cd environments/dev && terraform init -backend=false -input=false && terraform validate
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
+bash scripts/tests/test_restore_from_export.sh
 bash scripts/tests/test_secret_scan.sh && gitleaks git --log-opts="HEAD" --config .gitleaks.toml --redact --exit-code 1 .
+for f in $(git ls-files 'modules/*/dashboards/*.json'); do jq empty "$f"; done
 conftest verify --policy policy --data policy/data.json
 python3 -m unittest discover -s modules/billing_killswitch/tests -p 'test_*.py'
 bash scripts/tests/test_policy_files.sh

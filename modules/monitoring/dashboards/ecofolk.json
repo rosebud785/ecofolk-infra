@@ -1,0 +1,279 @@
+{
+  "displayName": "EcoFolk",
+  "mosaicLayout": {
+    "columns": 48,
+    "tiles": [
+      {
+        "xPos": 0,
+        "yPos": 0,
+        "width": 24,
+        "height": 16,
+        "widget": {
+          "title": "API (Cloud Run): requests",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "requests",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"run.googleapis.com/request_count\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_SUM",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": ["resource.label.service_name"]
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "requests / min", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 0,
+        "width": 24,
+        "height": 16,
+        "widget": {
+          "title": "API (Cloud Run): latency p50 / p95",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "p50",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"run.googleapis.com/request_latencies\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_PERCENTILE_50",
+                      "groupByFields": ["resource.label.service_name"]
+                    }
+                  }
+                }
+              },
+              {
+                "plotType": "LINE",
+                "legendTemplate": "p95",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"run.googleapis.com/request_latencies\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_PERCENTILE_95",
+                      "groupByFields": ["resource.label.service_name"]
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "ms", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 0,
+        "yPos": 16,
+        "width": 24,
+        "height": 16,
+        "widget": {
+          "title": "API (Cloud Run): 5xx responses",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "STACKED_BAR",
+                "legendTemplate": "5xx",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"run.googleapis.com/request_count\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\" metric.label.response_code_class=\"5xx\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_SUM",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": ["resource.label.service_name"]
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "5xx / min", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 16,
+        "width": 24,
+        "height": 16,
+        "widget": {
+          "title": "API (Cloud Run): instances",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "instances",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"run.googleapis.com/container/instance_count\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MAX",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": ["resource.label.service_name"]
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "instances", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 0,
+        "yPos": 32,
+        "width": 16,
+        "height": 16,
+        "widget": {
+          "title": "Database (Cloud SQL): CPU",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "CPU utilization",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\" resource.type=\"cloudsql_database\" resource.label.database_id=\"${sql_database_id}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "fraction of vCPU", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 16,
+        "yPos": 32,
+        "width": 16,
+        "height": 16,
+        "widget": {
+          "title": "Database (Cloud SQL): connections vs tier maximum",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "connections",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\" resource.type=\"cloudsql_database\" resource.label.database_id=\"${sql_database_id}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MAX",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": ["resource.label.database_id"]
+                    }
+                  }
+                }
+              }
+            ],
+            "thresholds": [
+              { "label": "tier maximum (max_connections)", "value": "__DB_MAX_CONNECTIONS__", "color": "RED", "direction": "ABOVE" }
+            ],
+            "yAxis": { "label": "connections", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 32,
+        "yPos": 32,
+        "width": 16,
+        "height": 16,
+        "widget": {
+          "title": "Database (Cloud SQL): disk",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "disk utilization",
+                "minAlignmentPeriod": "60s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"cloudsql.googleapis.com/database/disk/utilization\" resource.type=\"cloudsql_database\" resource.label.database_id=\"${sql_database_id}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "fraction of disk", "scale": "LINEAR" }
+          }
+        }
+      },
+      {
+        "xPos": 0,
+        "yPos": 48,
+        "width": 48,
+        "height": 16,
+        "widget": {
+          "title": "Uptime checks: pass rate (API /health, web /)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "API /health",
+                "minAlignmentPeriod": "300s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" resource.type=\"uptime_url\" metric.label.check_id=\"${api_health_check_id}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "3600s",
+                      "perSeriesAligner": "ALIGN_FRACTION_TRUE",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": ["metric.label.check_id"]
+                    }
+                  }
+                }
+              },
+              {
+                "plotType": "LINE",
+                "legendTemplate": "web /",
+                "minAlignmentPeriod": "300s",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" resource.type=\"uptime_url\" metric.label.check_id=\"${web_root_check_id}\"",
+                    "aggregation": {
+                      "alignmentPeriod": "3600s",
+                      "perSeriesAligner": "ALIGN_FRACTION_TRUE",
+                      "crossSeriesReducer": "REDUCE_MEAN",
+                      "groupByFields": ["metric.label.check_id"]
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": { "label": "fraction of checks passed (1 h)", "scale": "LINEAR" }
+          }
+        }
+      }
+    ]
+  }
+}

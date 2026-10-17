@@ -108,6 +108,14 @@ jobs:
       - run: bash scripts/tests/test_check_region_pin.sh
       - run: bash scripts/check-region-pin.sh
 
+  # ecofolk-infra#3: restore-from-export.sh against a stubbed gcloud only (no credentials, no GCP).
+  restore-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash scripts/tests/test_restore_from_export.sh
+
   workflow-guard:
     runs-on: ubuntu-latest
     timeout-minutes: 10

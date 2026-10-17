@@ -70,6 +70,28 @@ jobs:
           echo "tested $n module(s)"
           exit $fail
 
+  # ecofolk-infra#6: jq parses every checked-in dashboard JSON (modules/*/dashboards/*.json). Zero files
+  # fails the job, so a moved dashboard can't silently skip the check. The metric-type allowlist is
+  # asserted by modules/monitoring/tests/dashboard.tftest.hcl (tf-test). jq ships on ubuntu-latest.
+  dashboard-json:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: jq-validate each dashboard JSON
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files 'modules/*/dashboards/*.json')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no modules/*/dashboards/*.json found (#6)"
+            exit 1
+          fi
+          fail=0
+          for f in "${files[@]}"; do
+            if jq empty "$f"; then echo "ok: $f"; else echo "::error file=$f::not valid JSON"; fail=1; fi
+          done
+          exit $fail
+
   tflint:
     runs-on: ubuntu-latest
     timeout-minutes: 10

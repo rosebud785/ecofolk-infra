@@ -790,6 +790,49 @@ jobs:
         run: echo hi
 EOF2
 
+run_case rule3_secrets_mixed_case_dot fail 'secrets\.\* referenced in a workflow triggered by' bad9i.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ Secrets.K }}"
+EOF2
+
+run_case rule3_secrets_upper_bracket fail 'secrets\.\* referenced in a workflow triggered by' bad9j.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ SECRETS['K'] }}"
+EOF2
+
+run_case rule3_secrets_mixed_case_tojson fail 'secrets\.\* referenced in a workflow triggered by' bad9k.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo '\${{ toJson(SeCrEtS) }}'
+EOF2
+
+run_case rule3_dispatch_unguarded_mixed_case fail 'secrets\.\* referenced in a workflow triggered by' bad9l.yml <<EOF2
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ Secrets.K }}"
+EOF2
+
 run_case rule3_secrets_commented_out_ok pass '-' ok9a.yml <<EOF2
 on:
   pull_request:

@@ -54,7 +54,9 @@ TRUSTED_TRIGGERS = frozenset({"push", "schedule", "workflow_dispatch"})
 
 
 EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
-SECRETS_IDENT = re.compile(r"\bsecrets\b")
+# Expression contexts are case-insensitive in GitHub Actions (`Secrets.K` reads the secrets context), so every
+# identifier match here is IGNORECASE and fails closed.
+SECRETS_IDENT = re.compile(r"\bsecrets\b", re.IGNORECASE)
 
 
 def secrets_in_expressions(text: str) -> list[int]:
@@ -71,7 +73,7 @@ def secrets_in_expressions(text: str) -> list[int]:
 
 
 REF_GUARD = re.compile(r"github\.ref\s*==\s*['\"]refs/heads/main['\"]")
-SECRET_USE = re.compile(r"\$\{\{[^}]*\bsecrets\b(?!\.GITHUB_TOKEN\b)")
+SECRET_USE = re.compile(r"\$\{\{[^}]*\bsecrets\b(?!\.GITHUB_TOKEN\b)", re.IGNORECASE)
 
 
 def _push_is_main_only(value: object) -> bool:

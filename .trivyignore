@@ -1,0 +1,7 @@
+# Misconfigurations the `trivy` CI job (#9) deliberately accepts. Format, enforced by
+# scripts/check-trivyignore.sh: each check ID on a line of its own, and the line directly above it a
+# one-line reason that carries an issue ref (e.g. #9). An ID here is ignored repo-wide, so keep the list short.
+
+# modules/cloudsql: not yet ENCRYPTED_ONLY; the API's DB TLS must be confirmed first (#87).
+GCP-0015
+

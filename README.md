@@ -21,8 +21,9 @@ modules/sql_off_hours/ dev only: Cloud Scheduler stops dev Cloud SQL at 22:15 CT
 modules/idle_sit_sweep/ reusable: Cloud Scheduler POSTs the API's idle-sit sweep with a Google OIDC token, every 2h (dev: 05–21 CT) (#17)
 modules/billing_killswitch/ dev only: budget topic + function that unlinks ecofolk-dev's billing at 100% (#15)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33),
-                     restore-from-export.sh (#3, run on-site only) and tests
+                     restore-from-export.sh (#3, run on-site only), check-trivyignore.sh (#9) and tests
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
+.trivyignore         trivy config baseline (#9): each suppressed check ID with a one-line reason and an issue ref
 .github/dependabot.yml weekly Dependabot PRs: terraform per env/module dir, plus github-actions (#10)
 CONTRIBUTING.md      copy-in checklist for anything coming from a private repo
 policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / bucket limits, IAM boundary
@@ -31,7 +32,7 @@ policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / b
 **No GCP key exists anywhere.** `infra-apply.yml` (push to main only) exchanges the job's GitHub OIDC
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
 the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `dashboard-json`, `tflint`, `region-pin`, `restore-script`, `workflow-guard`,
-`secret-scan` and `policy` and nothing that can reach GCP.
+`secret-scan`, `policy` and `trivy` and nothing that can reach GCP.
 
 ## Dev billing kill-switch (#15)
 
@@ -112,6 +113,9 @@ conftest verify --policy policy --data policy/data.json
 python3 -m unittest discover -s modules/billing_killswitch/tests -p 'test_*.py'
 bash scripts/tests/test_policy_files.sh
 conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)
+bash scripts/tests/test_check_trivyignore.sh && bash scripts/check-trivyignore.sh
+trivy config --checks-bundle-repository mirror.gcr.io/aquasec/trivy-checks@sha256:b591e9190cff4aa4e385b1a25bccfd9ecf178d3c77fd194e1410b7ce7e1df058 \
+  --misconfig-scanners terraform --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore .
 ```
 
 History and rationale: ecofolk#827, #828, #883; design DESIGN-ecofolk-infra-guardrails-E4.

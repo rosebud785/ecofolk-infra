@@ -22,8 +22,9 @@ Rules for every procedure:
 - **Region:** everything regional is `northamerica-northeast1` (Montréal, ef#391). A command that needs a
   region passes it explicitly.
 - **Project:** `<project-id>` is the dev project id from the repo variable `GCP_PROJECT_ID`
-  (`environments/dev/variables.tf`). `ecofolk-prod` holds only enabled APIs today
-  (`environments/prod/main.tf`) and stays unlinked from billing until go-live.
+  (`environments/dev/variables.tf`). `ecofolk-prod` holds only enabled APIs today: the prod
+  stack in `environments/prod/main.tf` (#12) is not applied before go-live, and the project stays unlinked
+  from billing until then.
 - **Credentials:** these procedures run from a local session with a human's own credentials. Nothing
   here runs in CI, and no pull-request path can reach GCP (README).
 

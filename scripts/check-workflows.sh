@@ -4,7 +4,8 @@
 #   2. permissions, on the PARSED workflow (check-workflow-permissions.py): `write-all` anywhere; `id-token: write`
 #      at workflow level, in an untrusted-trigger workflow, or in a job of a file not on the allowlist below; any
 #      permission other than read/none in an untrusted-trigger workflow; a workflow that does not parse;
-#   3. references secrets.* (other than secrets.GITHUB_TOKEN) in a workflow with any untrusted trigger (trusted =
+#   3. has `secrets` anywhere inside a ${{ }} expression (any spelling; check-workflow-permissions.py) or
+#      `secrets: inherit`, in a workflow with any untrusted trigger (trusted =
 #      push limited to branches: [main], schedule, and workflow_dispatch whose privileged jobs carry
 #      `if: github.ref == 'refs/heads/main'`; see check-workflow-permissions.py);
 #   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt).
@@ -58,14 +59,11 @@ for f in "${files[@]}"; do
   on_pr=0
   if [ "$trig" != "trusted" ]; then on_pr=1; fi
 
-  # 3. secrets.* in a workflow with an untrusted trigger
+  # 3. `secrets: inherit` in an untrusted workflow (the expression form is checked by the python rule)
   if [ "$on_pr" = 1 ]; then
     while IFS=: read -r n _; do
-      report "$f" "$n" "secrets.* referenced in a workflow triggered by $trig"
-    done < <(printf '%s\n' "$stripped" | grep -nE 'secrets\.[A-Za-z_]' | grep -vE 'secrets\.GITHUB_TOKEN' || true)
-    while IFS=: read -r n _; do
       report "$f" "$n" "secrets: inherit / secrets context in a workflow triggered by $trig"
-    done < <(printf '%s\n' "$stripped" | grep -nE 'secrets:[[:space:]]*inherit|toJSON\(secrets\)' || true)
+    done < <(printf '%s\n' "$stripped" | grep -nE 'secrets:[[:space:]]*inherit' || true)
   fi
 
   # 4. unpinned uses:

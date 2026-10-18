@@ -32,3 +32,12 @@ variable "ops_scheduler_service_account_id" {
   default     = "ops-scheduler"
   description = "Account id (the part before @) of the ops scheduler service account in the dev project; runs the nightly Cloud SQL export (#2) and the off-hours stop and start (#14)."
 }
+
+# Issue #17 (Architect's OIDC redesign on PR #86): the sweep invoker SA is created locally (L1(a)), with no
+# roles, under exactly this id; only the id is named here, so the email follows the project id. The idle-sit
+# sweep job's OIDC token is minted for it.
+variable "sweep_invoker_service_account_id" {
+  type        = string
+  default     = "sweep-invoker"
+  description = "Account id (the part before @) of the idle-sit sweep's invoker service account in the dev project (#17)."
+}

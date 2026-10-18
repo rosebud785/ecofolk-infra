@@ -107,6 +107,27 @@ module "cloudrun_api" {
   depends_on = [module.project, module.network]
 }
 
+# Idle-sit sweep (issue #17, Architect's OIDC redesign on PR #86): one Cloud Scheduler job POSTs
+# {api}/internal/sweep-idle-sits with a Google-signed OIDC ID token for the sweep-invoker SA, audience =
+# that URL; the API verifies it (ecofolk#1092). No static secret and no header in Terraform. Dev passes
+# 0 5-21/2 * * * (America/Chicago) instead of the module's every-2-hours default, so no sweep runs while
+# #14 has dev Cloud SQL stopped (22:15–04:45 CT); an overnight sweep would be a DB connection failure that
+# #24's alert pages on. Details: modules/idle_sit_sweep/README.md.
+#
+# LOCAL FOLLOW-UP (ecofolk#460 / L1(a)), IAM is not managed in this public repo: create the SA
+# var.sweep_invoker_service_account_id with no roles, and confirm tf-apply can actAs it; add the ef#395
+# inventory line.
+module "idle_sit_sweep" {
+  source           = "../../modules/idle_sit_sweep"
+  project_id       = var.project_id
+  region           = module.project.region
+  api_url          = module.cloudrun_api.uri
+  invoker_sa_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+  sweep_schedule   = "0 5-21/2 * * *"
+
+  depends_on = [module.project]
+}
+
 # Secret Manager secret CONTAINERS only, no values (issue #32, Architect ruling on ecofolk#399): the four
 # default names in modules/secrets, one user-managed replica each in Montréal. Region is module.project's
 # pin; depends_on so secretmanager.googleapis.com is enabled first.

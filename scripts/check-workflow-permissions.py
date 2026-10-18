@@ -8,11 +8,13 @@ The resolved `permissions` is checked at the workflow level and at every job:
   * `write-all` is forbidden anywhere (it grants id-token: write and write on everything);
   * `id-token` == write is allowed only in a JOB's permissions, in an allowlisted file, not PR-triggered;
     at workflow level it fails even in an allowlisted file;
-  * in a pull_request-triggered workflow, every permission value must be `read` or `none`.
+  * in an UNTRUSTED workflow (any trigger outside push / schedule / workflow_dispatch, unknown triggers and an
+    unreadable `on:` included; see TRUSTED_TRIGGERS), every permission value must be `read` or `none`.
 
 A file that does not parse FAILS the guard: an unreadable workflow is not a clean one.
 
 Usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...
+       check-workflow-permissions.py --trigger <file>   # prints `trusted` or the untrusted trigger name
 Prints `file:line: message` per violation (line = the offending `permissions:` key); exit 1 if any.
 Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 """
@@ -41,20 +43,38 @@ def find(node: yaml.Node, loader: yaml.SafeLoader, name: str) -> list[tuple[yaml
     return [(k, v) for k, v in mapping_items(node, loader) if key_name(k) == name]
 
 
-def triggers_on_pr(root: yaml.Node, loader: yaml.SafeLoader) -> bool:
+# Trusted triggers (Architect, ecofolk-infra#31): in this repo these run from a protected branch's copy of the
+# workflow, not a contributor's. EVERYTHING else is untrusted, unknown and future triggers included (an allowlist
+# fails closed; a list of "PR-ish" triggers already missed two). A workflow is untrusted if ANY trigger is outside
+# the set. check-workflows.sh asks this same function (via --trigger) for rule 3, so there is one definition.
+TRUSTED_TRIGGERS = frozenset({"push", "schedule", "workflow_dispatch"})
+
+
+def untrusted_trigger(root: yaml.Node, loader: yaml.SafeLoader) -> str | None:
+    """Name of the first trigger outside TRUSTED_TRIGGERS, or a description if `on:` is missing or unreadable;
+    None when every trigger is trusted."""
+    found = False
     for key in ("on", "true", "True"):  # YAML 1.1 reads a bare `on` key as boolean true
         for _, v in find(root, loader, key):
+            found = True
             on = loader.construct_object(v, deep=True)
             if isinstance(on, str):
-                return on == "pull_request"
-            if isinstance(on, list):
-                return "pull_request" in on
-            if isinstance(on, dict):
-                return "pull_request" in on
-    return False
+                names = [on]
+            elif isinstance(on, (list, dict)):
+                names = list(on)
+            else:
+                return "<unreadable on:>"
+            if not names:
+                return "<empty on:>"
+            for t in names:
+                if not isinstance(t, str):
+                    return f"<unreadable trigger {t!r}>"
+                if t not in TRUSTED_TRIGGERS:
+                    return t
+    return None if found else "<no on:>"
 
 
-def check_permissions(node, loader, line, where, on_pr, allowed, report):
+def check_permissions(node, loader, line, where, on_pr: str | None, allowed, report):
     perms = loader.construct_object(node, deep=True)
     if perms == "write-all":
         report(line, f"permissions: write-all at {where} (grants id-token: write and write on everything)")
@@ -67,11 +87,11 @@ def check_permissions(node, loader, line, where, on_pr, allowed, report):
                 report(line, "id-token: write at workflow level (job-level only, on the apply job)")
             # the pre-#31 reasons stay reported alongside, so each fixture keeps failing for its own reason
             if on_pr:
-                report(line, "id-token: write in a workflow triggered by pull_request")
+                report(line, f"id-token: write in a workflow triggered by {on_pr}")
             elif not allowed:
                 report(line, "id-token: write outside the allowlist")
         elif on_pr and value not in ("read", "none"):
-            report(line, f"permissions {scope}: {value} at {where} in a workflow triggered by pull_request (read or none only)")
+            report(line, f"permissions {scope}: {value} at {where} in a workflow triggered by {on_pr} (read or none only)")
 
 
 def check_file(path: str, allow: set[str]) -> list[str]:
@@ -88,7 +108,7 @@ def check_file(path: str, allow: set[str]) -> list[str]:
             if root is None or not isinstance(root, yaml.MappingNode):
                 report(1, "workflow is not a YAML mapping (parse failure fails the guard)")
                 return out
-            on_pr = triggers_on_pr(root, loader)
+            on_pr = untrusted_trigger(root, loader)
             is_allowed = os.path.basename(path) in allow
             for k, v in find(root, loader, "permissions"):
                 check_permissions(v, loader, k.start_mark.line + 1, "workflow level", on_pr, is_allowed, report)
@@ -105,7 +125,26 @@ def check_file(path: str, allow: set[str]) -> list[str]:
     return out
 
 
+def trigger_of(path: str) -> str:
+    """`trusted`, or the name of the untrusted trigger. A file that does not parse is untrusted."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            loader = yaml.SafeLoader(fh.read())
+        try:
+            root = loader.get_single_node()
+            if root is None or not isinstance(root, yaml.MappingNode):
+                return "<unparseable workflow>"
+            return untrusted_trigger(root, loader) or "trusted"
+        finally:
+            loader.dispose()
+    except (yaml.YAMLError, OSError, UnicodeDecodeError, RecursionError):
+        return "<unparseable workflow>"
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--trigger":
+        print(trigger_of(argv[1]))
+        return 0
     if len(argv) < 2:
         print("usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...", file=sys.stderr)
         return 2

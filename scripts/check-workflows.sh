@@ -2,9 +2,10 @@
 # Makes "no credentials on a PR path" mechanical. Fails, naming file:line, if any workflow:
 #   1. contains pull_request_target;
 #   2. permissions, on the PARSED workflow (check-workflow-permissions.py): `write-all` anywhere; `id-token: write`
-#      at workflow level, in a pull_request workflow, or in a job of a file not on the allowlist below; any
-#      permission other than read/none in a pull_request workflow; a workflow that does not parse;
-#   3. references secrets.* (other than secrets.GITHUB_TOKEN) while triggered by pull_request;
+#      at workflow level, in an untrusted-trigger workflow, or in a job of a file not on the allowlist below; any
+#      permission other than read/none in an untrusted-trigger workflow; a workflow that does not parse;
+#   3. references secrets.* (other than secrets.GITHUB_TOKEN) in a workflow with any untrusted trigger (anything but
+#      push / schedule / workflow_dispatch);
 #   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt).
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
@@ -50,17 +51,19 @@ for f in "${files[@]}"; do
     report "$f" "$n" "pull_request_target is forbidden"
   done < <(printf '%s\n' "$stripped" | grep -nE 'pull_request_target' || true)
 
-  # Triggered by pull_request? (the bare word, not pull_request_target / pull_request_review)
+  # Untrusted trigger? One definition shared with rule 2 (check-workflow-permissions.py TRUSTED_TRIGGERS:
+  # only push / schedule / workflow_dispatch are trusted; anything else, unknown included, is not).
+  trig=$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/check-workflow-permissions.py" --trigger "$f")
   on_pr=0
-  if printf '%s\n' "$stripped" | grep -qE '(^|[^A-Za-z_])pull_request([^A-Za-z_]|$)'; then on_pr=1; fi
+  if [ "$trig" != "trusted" ]; then on_pr=1; fi
 
-  # 3. secrets.* on a PR path
+  # 3. secrets.* in a workflow with an untrusted trigger
   if [ "$on_pr" = 1 ]; then
     while IFS=: read -r n _; do
-      report "$f" "$n" "secrets.* referenced in a workflow triggered by pull_request"
+      report "$f" "$n" "secrets.* referenced in a workflow triggered by $trig"
     done < <(printf '%s\n' "$stripped" | grep -nE 'secrets\.[A-Za-z_]' | grep -vE 'secrets\.GITHUB_TOKEN' || true)
     while IFS=: read -r n _; do
-      report "$f" "$n" "secrets: inherit / secrets context in a workflow triggered by pull_request"
+      report "$f" "$n" "secrets: inherit / secrets context in a workflow triggered by $trig"
     done < <(printf '%s\n' "$stripped" | grep -nE 'secrets:[[:space:]]*inherit|toJSON\(secrets\)' || true)
   fi
 

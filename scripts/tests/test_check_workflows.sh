@@ -301,6 +301,145 @@ jobs:
       - uses: actions/checkout@$SHA
 EOF2
 
+run_case rule5_pr_review_workflow_write fail 'triggered by pull_request_review \(read or none only\)' bad5r1.yml <<EOF2
+on: pull_request_review
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_review_comment_job_write fail 'triggered by pull_request_review_comment \(read or none only\)' bad5r2.yml <<EOF2
+on:
+  pull_request_review_comment:
+    types: [created]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_review_list_with_push_write fail 'triggered by pull_request_review \(read or none only\)' bad5r3.yml <<EOF2
+on: [push, pull_request_review]
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule5_pr_review_read_ok pass - ok5r.yml <<EOF2
+on: pull_request_review
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_issue_comment_write fail 'triggered by issue_comment \(read or none only\)' bad6a.yml <<EOF2
+on: issue_comment
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_workflow_run_secret fail 'secrets\.\* referenced in a workflow triggered by workflow_run' bad6b.yml <<EOF2
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+env:
+  T: \${{ secrets.DEPLOY_KEY }}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_mixed_list_write fail 'triggered by issue_comment \(read or none only\)' bad6c.yml <<EOF2
+on: [push, issue_comment]
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_unknown_trigger_write fail 'triggered by some_future_event \(read or none only\)' bad6d.yml <<EOF2
+on: some_future_event
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_review_secret fail 'secrets\.\* referenced in a workflow triggered by pull_request_review' bad6e.yml <<EOF2
+on: pull_request_review
+env:
+  T: \${{ secrets.DEPLOY_KEY }}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_no_on_fails_closed fail 'triggered by <no on:>' bad6f.yml <<EOF2
+name: x
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_schedule_write_ok pass '-' ok6a.yml <<EOF2
+on:
+  schedule:
+    - cron: '0 3 * * *'
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case allow_dispatch_and_push_write_ok pass '-' ok6b.yml <<EOF2
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
 run_case rule5_pr_alias_write fail 'pull_request' bad5k.yml <<EOF2
 on:
   pull_request:

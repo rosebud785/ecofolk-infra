@@ -54,10 +54,10 @@ module "network" {
 # LOCAL FOLLOW-UP (L1(a), ef#885): create ops-scheduler in ecofolk-prod and its bindings; the list is in
 # modules/cloudsql/export.tf. IAM is not managed in this public repo.
 module "cloudsql" {
-  source                       = "../../modules/cloudsql"
-  project_id                   = local.project_id
-  private_network              = module.network.network_self_link
-  deletion_protection          = true
+  source              = "../../modules/cloudsql"
+  project_id          = local.project_id
+  private_network     = module.network.network_self_link
+  deletion_protection = true
   # go-live: confirm tier (cost review)
   tier                         = "db-f1-micro"
   export_service_account_email = "${var.ops_scheduler_service_account_id}@${local.project_id}.iam.gserviceaccount.com"
@@ -141,3 +141,4 @@ output "sql_connection_name" {
   value       = module.cloudsql.connection_name
   description = "Prod Cloud SQL instance connection name, for the Cloud SQL connector."
 }
+

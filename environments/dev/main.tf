@@ -107,6 +107,25 @@ module "cloudrun_api" {
   depends_on = [module.project, module.network]
 }
 
+# Idle-sit sweep (issue #17, Architect respec 2026-10-16, amended): one Cloud Scheduler job POSTs
+# {api}/internal/sweep-idle-sits. Dev passes 0 5-21/2 * * * (America/Chicago) instead of the module's
+# every-2-hours default, so no sweep runs while #14 has dev Cloud SQL stopped (22:15–04:45 CT); an
+# overnight sweep would be a DB connection failure that #24's alert pages on. No Google token on the job
+# and no header value in Terraform: modules/idle_sit_sweep/README.md.
+#
+# LOCAL FOLLOW-UP (ecofolk#460 / L1(a)): after the first apply, set the job's request header out of band
+# with `gcloud scheduler jobs update http`, value piped from 1Password (README.md); add the ef#395
+# inventory line. No IAM binding is needed for this job.
+module "idle_sit_sweep" {
+  source         = "../../modules/idle_sit_sweep"
+  project_id     = var.project_id
+  region         = module.project.region
+  api_url        = module.cloudrun_api.uri
+  sweep_schedule = "0 5-21/2 * * *"
+
+  depends_on = [module.project]
+}
+
 # Secret Manager secret CONTAINERS only, no values (issue #32, Architect ruling on ecofolk#399): the four
 # default names in modules/secrets, one user-managed replica each in Montréal. Region is module.project's
 # pin; depends_on so secretmanager.googleapis.com is enabled first.

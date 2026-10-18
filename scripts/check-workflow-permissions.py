@@ -13,6 +13,8 @@ The resolved `permissions` is checked at the workflow level and at every job:
 
 A file that does not parse FAILS the guard: an unreadable workflow is not a clean one.
 
+Rule 3 lives here too: in an UNTRUSTED workflow, ANY `secrets` identifier inside a `${{ }}` expression fails.
+
 Usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...
        check-workflow-permissions.py --trigger <file>   # prints `trusted` or the untrusted trigger name
 Prints `file:line: message` per violation (line = the offending `permissions:` key); exit 1 if any.
@@ -49,6 +51,23 @@ def find(node: yaml.Node, loader: yaml.SafeLoader, name: str) -> list[tuple[yaml
 # fails closed; a list of "PR-ish" triggers already missed two). A workflow is untrusted if ANY trigger is outside
 # the set. check-workflows.sh asks this same function (via --trigger) for rule 3, so there is one definition.
 TRUSTED_TRIGGERS = frozenset({"push", "schedule", "workflow_dispatch"})
+
+
+EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
+SECRETS_IDENT = re.compile(r"\bsecrets\b")
+
+
+def secrets_in_expressions(text: str) -> list[int]:
+    """Line numbers of every `${{ }}` expression (comments stripped, line numbers kept) that contains the
+    identifier `secrets`, in any spelling: dot, bracket, toJson(secrets), format('{0}', secrets.X), any
+    function. No list of spellings (#79): one identifier test. `secrets.GITHUB_TOKEN` is included on purpose;
+    a token need is spelled `github.token`."""
+    stripped = re.sub(r"(^|[ \t])#.*$", r"\1", text, flags=re.MULTILINE)
+    return [
+        stripped.count("\n", 0, m.start()) + 1
+        for m in EXPRESSION.finditer(stripped)
+        if SECRETS_IDENT.search(m.group(0))
+    ]
 
 
 REF_GUARD = re.compile(r"github\.ref\s*==\s*['\"]refs/heads/main['\"]")
@@ -180,6 +199,13 @@ def check_file(path: str, allow: set[str]) -> list[str]:
                 report(1, "workflow is not a YAML mapping (parse failure fails the guard)")
                 return out
             on_pr = untrusted_trigger(root, loader, text)
+            if on_pr:
+                for n in secrets_in_expressions(text):
+                    report(
+                        n,
+                        f"secrets.* referenced in a workflow triggered by {on_pr}"
+                        " (`secrets` inside ${{ }}; use github.token)",
+                    )
             if on_pr and on_pr.startswith("workflow_dispatch ("):
                 # A privileged dispatch job without the main guard fails on its own: it may hold secrets only
                 # through `secrets:` (inherit/mapping), which neither the permissions rule nor the grep can see.

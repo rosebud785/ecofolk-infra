@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@$SHA # v4
       - uses: ./.github/actions/local
-      - run: echo "\${{ secrets.GITHUB_TOKEN }}"
+      - run: echo "\${{ github.token }}"
 EOF2
 
 run_case rule1_pull_request_target fail 'pull_request_target' bad1.yml <<EOF2
@@ -696,6 +696,132 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule3_secrets_bracket_single fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9a.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ secrets['DEPLOY_KEY'] }}"
+EOF2
+
+run_case rule3_secrets_bracket_double fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9b.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo '\${{ secrets["DEPLOY_KEY"] }}'
+EOF2
+
+run_case rule3_secrets_tojson fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9c.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo '\${{ toJson(secrets) }}'
+EOF2
+
+run_case rule3_secrets_tojson_upper fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9d.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo '\${{ toJSON(secrets) }}'
+EOF2
+
+run_case rule3_secrets_in_format fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9e.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ format('{0}', secrets.DEPLOY_KEY) }}"
+EOF2
+
+run_case rule3_secrets_multiline_expression fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9f.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: |
+          echo "\${{
+            secrets.DEPLOY_KEY
+          }}"
+EOF2
+
+run_case rule3_secrets_github_token_spelling_fails fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9g.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ secrets.GITHUB_TOKEN }}"
+EOF2
+
+run_case rule3_secrets_in_if_condition fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9h.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - if: \${{ secrets.DEPLOY_KEY != '' }}
+        run: echo hi
+EOF2
+
+run_case rule3_secrets_commented_out_ok pass '-' ok9a.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      # \${{ secrets.DEPLOY_KEY }} would be bad
+      - run: echo hi
+EOF2
+
+run_case rule3_secrets_word_outside_expression_ok pass '-' ok9b.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo 'no secrets here'
+EOF2
+
+run_case rule3_github_token_spelling_ok pass '-' ok9c.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo "\${{ github.token }}"
 EOF2
 
 run_case rule5_pr_alias_write fail 'pull_request' bad5k.yml <<EOF2

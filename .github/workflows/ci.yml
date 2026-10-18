@@ -185,3 +185,36 @@ jobs:
           files_out=$(bash scripts/policy-files.sh)
           mapfile -t files <<< "$files_out"
           conftest test --parser hcl2 --combine --policy policy --data policy/data.json "${files[@]}"
+
+  # ecofolk-infra#9: trivy misconfiguration scan of the Terraform only (--misconfig-scanners terraform);
+  # HIGH and CRITICAL fail the job. trivy is the pinned v0.75.0 Linux-64bit release tarball, checked against
+  # a sha256 copied from that release's checksums.txt and hardcoded here (never fetched at run time). The
+  # checks bundle is pinned by digest too, so a new upstream check can't turn an unrelated PR red; bumping
+  # it is a deliberate PR that re-baselines .trivyignore. Suppressions only via .trivyignore, each with a
+  # one-line reason and an issue ref (scripts/check-trivyignore.sh). Table output to the log; no SARIF
+  # upload, because security-events: write would break the read-only PR rule in scripts/check-workflows.sh.
+  trivy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TRIVY_VERSION: 0.75.0
+      TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+      TRIVY_CHECKS_BUNDLE: mirror.gcr.io/aquasec/trivy-checks@sha256:b591e9190cff4aa4e385b1a25bccfd9ecf178d3c77fd194e1410b7ce7e1df058
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install trivy (pinned, sha256-verified)
+        run: |
+          set -euo pipefail
+          tgz="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tgz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/$tgz"
+          echo "${TRIVY_SHA256}  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP/bin" trivy
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: bash scripts/tests/test_check_trivyignore.sh
+      - run: bash scripts/check-trivyignore.sh
+      - name: trivy config (HIGH/CRITICAL fail)
+        run: |
+          trivy config --checks-bundle-repository "$TRIVY_CHECKS_BUNDLE" --misconfig-scanners terraform \
+            --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore .

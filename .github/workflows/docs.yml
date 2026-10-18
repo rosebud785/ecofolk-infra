@@ -1,0 +1,39 @@
+name: docs
+
+# ecofolk-infra#11: each modules/<name>/README.md carries terraform-docs output between its
+# BEGIN_TF_DOCS / END_TF_DOCS markers (config: .terraform-docs.yml), and this job fails if any of them has
+# drifted from the module's *.tf. Fix locally with `bash scripts/check-tf-docs.sh --fix` and commit.
+# pull_request only, read-only: it reads the checkout and nothing else. terraform-docs is the pinned
+# v0.20.0 linux-amd64 release tarball, checked against a sha256 copied from that release's sha256sum file
+# and hardcoded here (never fetched at run time). No third-party action.
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  tf-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      TF_DOCS_VERSION: 0.20.0
+      TF_DOCS_SHA256: 34ae01772412bb11474e6718ea62113e38ff5964ee570a98c69fafe3a6dff286
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install terraform-docs (pinned, sha256-verified)
+        run: |
+          set -euo pipefail
+          tgz="terraform-docs-v${TF_DOCS_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tgz" \
+            "https://github.com/terraform-docs/terraform-docs/releases/download/v${TF_DOCS_VERSION}/$tgz"
+          echo "${TF_DOCS_SHA256}  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP/bin" terraform-docs
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: bash scripts/tests/test_check_tf_docs.sh
+      - run: bash scripts/check-tf-docs.sh

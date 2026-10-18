@@ -59,21 +59,51 @@ EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
 SECRETS_IDENT = re.compile(r"\bsecrets\b", re.IGNORECASE)
 
 
-def secrets_in_expressions(text: str) -> list[int]:
-    """Line numbers of every `${{ }}` expression (comments stripped, line numbers kept) that contains the
-    identifier `secrets`, in any spelling: dot, bracket, toJson(secrets), format('{0}', secrets.X), any
-    function. No list of spellings (#79): one identifier test. `secrets.GITHUB_TOKEN` is included on purpose;
-    a token need is spelled `github.token`."""
-    stripped = re.sub(r"(^|[ \t])#.*$", r"\1", text, flags=re.MULTILINE)
-    return [
-        stripped.count("\n", 0, m.start()) + 1
-        for m in EXPRESSION.finditer(stripped)
-        if SECRETS_IDENT.search(m.group(0))
-    ]
+def scalar_nodes(node: yaml.Node, skip_keys: tuple[str, ...] = ()) -> list[yaml.ScalarNode]:
+    """Every scalar node (keys and values) under `node`, aliases resolved, each node once. A `#` inside a quoted
+    or block scalar is CONTENT that GitHub evaluates, so detection reads the parsed scalars, never the raw text:
+    only real YAML comments (which the parser drops) are ignored. `skip_keys` prunes those mapping keys' values."""
+    out: list[yaml.ScalarNode] = []
+    seen: set[int] = set()
+
+    def walk(n: yaml.Node) -> None:
+        if id(n) in seen:
+            return
+        seen.add(id(n))
+        if isinstance(n, yaml.ScalarNode):
+            out.append(n)
+        elif isinstance(n, yaml.SequenceNode):
+            for c in n.value:
+                walk(c)
+        elif isinstance(n, yaml.MappingNode):
+            for k, v in n.value:
+                walk(k)
+                if not (isinstance(k, yaml.ScalarNode) and k.value in skip_keys):
+                    walk(v)
+
+    walk(node)
+    return out
+
+
+def secrets_in_expressions(root: yaml.Node) -> list[int]:
+    """Line numbers of every scalar holding a `${{ }}` expression that contains the identifier `secrets`, in any
+    spelling: dot, bracket, toJson(secrets), format('{0}', secrets.X), any function. No list of spellings (#79):
+    one identifier test over the parsed scalars. `secrets.GITHUB_TOKEN` is included on purpose; a token need
+    is spelled `github.token`."""
+    lines = []
+    for sc in scalar_nodes(root):
+        for m in EXPRESSION.finditer(sc.value):
+            if SECRETS_IDENT.search(m.group(0)):
+                lines.append(sc.start_mark.line + 1 + sc.value.count("\n", 0, m.start()))
+    return lines
 
 
 REF_GUARD = re.compile(r"github\.ref\s*==\s*['\"]refs/heads/main['\"]")
 SECRET_USE = re.compile(r"\$\{\{[^}]*\bsecrets\b(?!\.GITHUB_TOKEN\b)", re.IGNORECASE)
+
+
+def _has_secret_use(node: yaml.Node, skip_keys: tuple[str, ...] = ()) -> bool:
+    return any(SECRET_USE.search(sc.value) for sc in scalar_nodes(node, skip_keys))
 
 
 def _push_is_main_only(value: object) -> bool:
@@ -112,10 +142,7 @@ def _unguarded_privileged_dispatch_job(root, loader, text: str) -> str | None:
     for _, v in find(root, loader, "permissions"):
         wf_perms = loader.construct_object(v, deep=True)
     jobs_nodes = [v for _, v in find(root, loader, "jobs")]
-    outside = text
-    for jn in jobs_nodes:
-        outside = text[: jn.start_mark.index] + text[jn.end_mark.index :]
-    outside_secret = bool(SECRET_USE.search(outside))
+    outside_secret = _has_secret_use(root, skip_keys=("jobs",))
     for jn in jobs_nodes:
         for jk, job in mapping_items(jn, loader):
             jobval = loader.construct_object(job, deep=True)
@@ -124,9 +151,7 @@ def _unguarded_privileged_dispatch_job(root, loader, text: str) -> str | None:
             # A job-level `secrets:` (inherit, or a mapping) hands secrets to a reusable workflow whose body this
             # file cannot show, so it counts as secret use whatever the value is.
             inherits = isinstance(jobval, dict) and bool(jobval.get("secrets"))
-            uses_secret = (
-                outside_secret or inherits or bool(SECRET_USE.search(text[job.start_mark.index : job.end_mark.index]))
-            )
+            uses_secret = outside_secret or inherits or _has_secret_use(job)
             if (writes or uses_secret) and not _guarded(jobval):
                 return str(key_name(jk))
     return None
@@ -202,12 +227,23 @@ def check_file(path: str, allow: set[str]) -> list[str]:
                 return out
             on_pr = untrusted_trigger(root, loader, text)
             if on_pr:
-                for n in secrets_in_expressions(text):
+                for n in secrets_in_expressions(root):
                     report(
                         n,
                         f"secrets.* referenced in a workflow triggered by {on_pr}"
                         " (`secrets` inside ${{ }}; use github.token)",
                     )
+            if on_pr:
+                # A job-level `secrets:` key (inherit or a mapping) in an untrusted workflow, read from the parsed
+                # YAML so a `#` in a string cannot hide it.
+                for _, jobs in find(root, loader, "jobs"):
+                    for jk, job in mapping_items(jobs, loader):
+                        for k, v in find(job, loader, "secrets"):
+                            if loader.construct_object(v, deep=True):
+                                report(
+                                    k.start_mark.line + 1,
+                                    f"secrets: passed to job {key_name(jk)} in a workflow triggered by {on_pr}",
+                                )
             if on_pr and on_pr.startswith("workflow_dispatch ("):
                 # A privileged dispatch job without the main guard fails on its own: it may hold secrets only
                 # through `secrets:` (inherit/mapping), which neither the permissions rule nor the grep can see.

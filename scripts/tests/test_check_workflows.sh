@@ -833,6 +833,62 @@ jobs:
       - run: echo "\${{ Secrets.K }}"
 EOF2
 
+run_case rule3_hash_inside_quoted_scalar_does_not_hide fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9m.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: 'echo "build #1 \${{ secrets.DEPLOY_KEY }}"'
+EOF2
+
+run_case rule3_shell_comment_in_block_scalar_does_not_hide fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9n.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: |
+          echo hi # \${{ secrets.DEPLOY_KEY }}
+EOF2
+
+run_case rule3_hash_before_expression_in_block fail 'secrets\.\* referenced in a workflow triggered by pull_request' bad9o.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: |
+          # \${{ secrets.DEPLOY_KEY }}
+          echo hi
+EOF2
+
+run_case rule3_real_yaml_comment_after_value_ok pass '-' ok9d.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+      - run: echo hi # \${{ secrets.DEPLOY_KEY }}
+EOF2
+
+run_case rule3_job_secrets_inherit_hash_string_fail fail 'secrets: passed to job a' bad9p.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    uses: acme/repo/.github/workflows/x.yml@$SHA
+    secrets: inherit
+EOF2
+
 run_case rule3_secrets_commented_out_ok pass '-' ok9a.yml <<EOF2
 on:
   pull_request:

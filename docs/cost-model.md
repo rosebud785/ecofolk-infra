@@ -108,9 +108,9 @@ paid from the first byte and operation.
 Every number above comes from one of these. Each one is also on its line in the CSV's `assumption` column.
 
 1. **One environment, as configured in `environments/dev`.** That is the only root that creates
-   resources. `environments/prod` only enables APIs today. A prod copy of the same stack would add the
-   three Cloud SQL lines again, about $10.43 a month without C14. Free tiers per billing account would
-   then be shared, not doubled. That copy is **not** in the totals.
+   resources. `environments/prod` composes the prod stack (#12) but is not applied before go-live.
+   Applied, it would add the three Cloud SQL lines again, about $10.43 a month (prod has no C14). Free
+   tiers per billing account would then be shared, not doubled. That copy is **not** in the totals.
 2. **A month is 730 hours**, which is Google's own conversion.
 3. **C14's schedule:** C14 isn't defined in this repo, so this assumes Cloud SQL runs 07:00–23:00
    America/Toronto every day, 486.67 h a month. A weekdays-only schedule would cut the instance line

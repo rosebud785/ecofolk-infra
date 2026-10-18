@@ -15,6 +15,7 @@ A file that does not parse FAILS the guard: an unreadable workflow is not a clea
 
 Usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...
        check-workflow-permissions.py --trigger <file>   # prints `trusted` or the untrusted trigger name
+       check-workflow-permissions.py --names-prod <file>   # prints `prod` or `no` (check-workflows.sh rule 5)
 Prints `file:line: message` per violation (line = the offending `permissions:` key); exit 1 if any.
 Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 """
@@ -217,9 +218,42 @@ def trigger_of(path: str) -> str:
         return "<unparseable workflow>"
 
 
+# Rule 5 of check-workflows.sh (#12): a directory that is or could be the prod root. environments/prod, an
+# environments/* glob, or an environments/$... path built at run time.
+PROD_DIR = re.compile(r"environments/(prod(?![A-Za-z0-9_-])|\*|\$)")
+
+
+def names_prod(path: str) -> bool:
+    """True if the workflow, outside its `on:` block (path filters such as `environments/**` select which
+    pushes trigger it, not where a step runs), names a directory that is or could be environments/prod.
+    Comments are dropped by the parser. A file that does not parse counts as naming prod (fail closed)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        loader = yaml.SafeLoader(text)
+        try:
+            root = loader.get_single_node()
+            if root is None or not isinstance(root, yaml.MappingNode):
+                return True
+            for k, v in mapping_items(root, loader):
+                if key_name(k) in ("on", "true", "True"):
+                    continue
+                value = loader.construct_object(v, deep=True)
+                if PROD_DIR.search(yaml.safe_dump(value, width=1 << 20)):
+                    return True
+            return False
+        finally:
+            loader.dispose()
+    except (yaml.YAMLError, OSError, UnicodeDecodeError, RecursionError):
+        return True
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--trigger":
         print(trigger_of(argv[1]))
+        return 0
+    if len(argv) == 2 and argv[0] == "--names-prod":
+        print("prod" if names_prod(argv[1]) else "no")
         return 0
     if len(argv) < 2:
         print("usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...", file=sys.stderr)

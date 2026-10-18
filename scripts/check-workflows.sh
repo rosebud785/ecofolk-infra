@@ -7,7 +7,14 @@
 #   3. references secrets.* (other than secrets.GITHUB_TOKEN) in a workflow with any untrusted trigger (trusted =
 #      push limited to branches: [main], schedule, and workflow_dispatch whose privileged jobs carry
 #      `if: github.ref == 'refs/heads/main'`; see check-workflow-permissions.py);
-#   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt).
+#   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt);
+#   5. could run `plan` or `apply` in environments/prod (ecofolk-infra#12, pipeline design §6.2: CI only
+#      validates prod, it never plans or applies it). A workflow fails, at each plan/apply line, if it both
+#      runs plan/apply (a `terraform`/`tofu` command line naming plan or apply, or a `uses:` action whose
+#      name contains plan or apply) and names a directory that is or could be prod: `environments/prod`,
+#      an `environments/*` glob, or an `environments/$...` path built at run time, anywhere outside `on:`
+#      (check-workflow-permissions.py --names-prod). Fails closed: a workflow
+#      that applies dev must name environments/dev literally, as infra-apply.yml does.
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 set -euo pipefail
@@ -79,6 +86,15 @@ for f in "${files[@]}"; do
       report "$f" "$n" "uses: '$ref' is not pinned to a 40-hex SHA"
     fi
   done < <(printf '%s\n' "$stripped" | grep -nE '^[[:space:]-]*uses:' || true)
+
+  # 5. plan/apply that could reach environments/prod (#12)
+  # Whether the workflow names prod is asked of the parser (outside `on:`, whose `paths:` filters are not
+  # directories a step runs in); the plan/apply lines are grepped so each is reported at file:line.
+  if [ "$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/check-workflow-permissions.py" --names-prod "$f")" = prod ]; then
+    while IFS=: read -r n _; do
+      report "$f" "$n" "plan/apply in a workflow that names environments/prod (or a glob/run-time path that can reach it); CI only validates prod (#12)"
+    done < <(printf '%s\n' "$stripped" | grep -nE '(^|[^A-Za-z0-9_-])(terraform|tofu)([[:space:]].*)?[[:space:]](plan|apply)([^A-Za-z0-9_-]|$)|^[[:space:]-]*uses:[^@]*(plan|apply)' || true)
+  fi
 done
 
 if [ "$fail" = 1 ]; then

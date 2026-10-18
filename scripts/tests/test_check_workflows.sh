@@ -758,6 +758,144 @@ run_case rule5_non_mapping_fails fail 'not a YAML mapping' bad5n.yml <<EOF2
 - a list
 EOF2
 
+# Rule 5 (#12): no workflow plans or applies environments/prod. CI only validates it.
+run_case prod_plan_chdir fail 'CI only validates prod' prod1.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=environments/prod plan -no-color
+EOF2
+
+run_case prod_apply_working_directory fail 'CI only validates prod' prod2.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply
+        working-directory: environments/prod
+        run: terraform apply -auto-approve
+EOF2
+
+run_case prod_via_env_var fail 'CI only validates prod' prod3.yml <<EOF2
+on:
+  push:
+    branches: [main]
+env:
+  TF_DIR: environments/prod
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - working-directory: \${{ env.TF_DIR }}
+        run: |
+          terraform init
+          terraform plan -out=tfplan
+EOF2
+
+run_case prod_via_glob_loop fail 'CI only validates prod' prod4.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for d in environments/*; do
+            terraform -chdir="\$d" apply -auto-approve
+          done
+EOF2
+
+run_case prod_via_runtime_path fail 'CI only validates prod' prod5.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - working-directory: environments/\${{ vars.TARGET_ENV }}
+        run: terraform plan
+EOF2
+
+run_case prod_apply_action fail 'CI only validates prod' prod6.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: example/terraform-apply@$SHA # v1
+        with:
+          path: environments/prod
+EOF2
+
+run_case prod_tofu_plan fail 'CI only validates prod' prod7.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: tofu -chdir=environments/prod plan
+EOF2
+
+run_case prod_validate_only_ok pass - prodok1.yml <<EOF2
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for d in environments/*; do
+            terraform -chdir="\$d" init -backend=false -input=false
+            terraform -chdir="\$d" validate
+          done
+EOF2
+
+run_case prod_dev_apply_with_paths_filter_ok pass - prodok2.yml <<EOF2
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'environments/**'
+      - 'environments/prod/**'
+env:
+  TF_DIR: environments/dev
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      # never plan or apply environments/prod here
+      - working-directory: \${{ env.TF_DIR }}
+        run: |
+          terraform plan -detailed-exitcode -out=tfplan
+          terraform apply -auto-approve tfplan
+EOF2
+
+run_case prod_not_a_prefix_match_ok pass - prodok3.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=environments/production-like-dev plan
+EOF2
+
 # The live workflows must pass (infra-apply.yml is job-level only and push-triggered).
 live=$(cd "$here/../.." && bash scripts/check-workflows.sh .github/workflows 2>&1) \
   && echo "ok   live_workflows_pass" || { echo "FAIL live_workflows_pass: $live"; failures=$((failures + 1)); }

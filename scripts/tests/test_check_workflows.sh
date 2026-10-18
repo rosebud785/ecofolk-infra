@@ -100,6 +100,7 @@ EOF2
 run_case rule2_id_token_job_level_outside_allowlist fail 'outside the allowlist' bad2c.yml <<EOF2
 on:
   push:
+    branches: [main]
 jobs:
   a:
     runs-on: ubuntu-latest
@@ -326,7 +327,10 @@ jobs:
 EOF2
 
 run_case rule5_pr_review_list_with_push_write fail 'triggered by pull_request_review \(read or none only\)' bad5r3.yml <<EOF2
-on: [push, pull_request_review]
+on:
+  push:
+    branches: [main]
+  pull_request_review:
 permissions:
   contents: write
 jobs:
@@ -373,7 +377,10 @@ jobs:
 EOF2
 
 run_case allow_mixed_list_write fail 'triggered by issue_comment \(read or none only\)' bad6c.yml <<EOF2
-on: [push, issue_comment]
+on:
+  push:
+    branches: [main]
+  issue_comment:
 permissions:
   contents: write
 jobs:
@@ -430,9 +437,171 @@ jobs:
 EOF2
 
 run_case allow_dispatch_and_push_write_ok pass '-' ok6b.yml <<EOF2
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_no_branches_write fail 'triggered by push \(not limited to branches: \[main\]\)' bad7a.yml <<EOF2
+on: push
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_wildcard_write fail 'triggered by push \(not limited' bad7b.yml <<EOF2
+on:
+  push:
+    branches: ['**']
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_feature_branch_write fail 'triggered by push \(not limited' bad7c.yml <<EOF2
+on:
+  push:
+    branches: ['feature/*']
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_branches_ignore_write fail 'triggered by push \(not limited' bad7d.yml <<EOF2
+on:
+  push:
+    branches: [main]
+    branches-ignore: [x]
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_tags_write fail 'triggered by push \(not limited' bad7e.yml <<EOF2
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_bare_secret fail 'secrets\.\* referenced in a workflow triggered by push \(not limited' bad7f.yml <<EOF2
+on: push
+env:
+  T: \${{ secrets.DEPLOY_KEY }}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_write_no_guard fail 'triggered by workflow_dispatch \(job a is privileged' bad7g.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_secret_no_guard fail 'secrets\.\* referenced in a workflow triggered by workflow_dispatch \(job a' bad7h.yml <<EOF2
+on: workflow_dispatch
+env:
+  T: \${{ secrets.DEPLOY_KEY }}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_guard_with_or_fails fail 'workflow_dispatch \(job a is privileged' bad7i.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' || github.actor == 'x'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_push_string_branch_ok pass '-' ok7a.yml <<EOF2
+on:
+  push:
+    branches: main
+permissions:
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_guarded_write_ok pass '-' ok7b.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_guarded_secret_ok pass '-' ok7c.yml <<EOF2
+on: workflow_dispatch
+env:
+  T: \${{ secrets.DEPLOY_KEY }}
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_read_only_ok pass '-' ok7d.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
@@ -470,6 +639,7 @@ EOF2
 run_case rule5_push_write_permission_ok pass - ok5c.yml <<EOF2
 on:
   push:
+    branches: [main]
 permissions:
   contents: read
 jobs:

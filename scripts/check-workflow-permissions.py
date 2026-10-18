@@ -70,11 +70,18 @@ def _push_is_main_only(value: object) -> bool:
 
 
 def _guarded(job: object) -> bool:
+    """True only for the exact good shape of a job-level `if:` (allowlist, so it fails closed): the main-ref
+    guard alone, or the guard followed by `&& <term>`..., after stripping `${{ }}`. The condition may contain no
+    `!`, `||` or parentheses, so a negation (`!(…)`, `!=`) or an OR can never read as a guard. Deliberate
+    fail-closed side effect: `… == 'refs/heads/main' && !cancelled()` is rejected (#78, Architect)."""
     cond = job.get("if") if isinstance(job, dict) else None
-    if isinstance(cond, bool):
+    if not isinstance(cond, str):
         return False
-    text = str(cond or "")
-    return bool(REF_GUARD.search(text)) and "||" not in text and not re.search(r"\bor\b", text)
+    text = re.sub(r"^\s*\$\{\{|\}\}\s*$", "", cond.strip()).strip()
+    if re.search(r"[!()]|\|\|", text):
+        return False
+    first, *rest = [part.strip() for part in text.split("&&")]
+    return bool(REF_GUARD.fullmatch(first)) and all(rest)
 
 
 def _unguarded_privileged_dispatch_job(root, loader, text: str) -> str | None:
@@ -93,7 +100,12 @@ def _unguarded_privileged_dispatch_job(root, loader, text: str) -> str | None:
             jobval = loader.construct_object(job, deep=True)
             perms = jobval.get("permissions", wf_perms) if isinstance(jobval, dict) else wf_perms
             writes = perms == "write-all" or (isinstance(perms, dict) and "write" in perms.values())
-            uses_secret = outside_secret or bool(SECRET_USE.search(text[job.start_mark.index : job.end_mark.index]))
+            # A job-level `secrets:` (inherit, or a mapping) hands secrets to a reusable workflow whose body this
+            # file cannot show, so it counts as secret use whatever the value is.
+            inherits = isinstance(jobval, dict) and bool(jobval.get("secrets"))
+            uses_secret = (
+                outside_secret or inherits or bool(SECRET_USE.search(text[job.start_mark.index : job.end_mark.index]))
+            )
             if (writes or uses_secret) and not _guarded(jobval):
                 return str(key_name(jk))
     return None
@@ -168,6 +180,10 @@ def check_file(path: str, allow: set[str]) -> list[str]:
                 report(1, "workflow is not a YAML mapping (parse failure fails the guard)")
                 return out
             on_pr = untrusted_trigger(root, loader, text)
+            if on_pr and on_pr.startswith("workflow_dispatch ("):
+                # A privileged dispatch job without the main guard fails on its own: it may hold secrets only
+                # through `secrets:` (inherit/mapping), which neither the permissions rule nor the grep can see.
+                report(1, f"workflow triggered by {on_pr}")
             is_allowed = os.path.basename(path) in allow
             for k, v in find(root, loader, "permissions"):
                 check_permissions(v, loader, k.start_mark.line + 1, "workflow level", on_pr, is_allowed, report)

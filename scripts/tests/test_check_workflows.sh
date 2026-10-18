@@ -561,6 +561,95 @@ jobs:
       - uses: actions/checkout@$SHA
 EOF2
 
+run_case main_dispatch_negated_guard_fails fail 'workflow_dispatch \(job a is privileged' bad8a.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: "!(github.ref == 'refs/heads/main')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_not_equal_fails fail 'workflow_dispatch \(job a is privileged' bad8b.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_guard_and_not_cancelled_fails_closed fail 'workflow_dispatch \(job a is privileged' bad8c.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_secrets_inherit_no_guard fail 'secrets: inherit' bad8d.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  a:
+    uses: acme/repo/.github/workflows/x.yml@$SHA
+    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_secrets_mapping_no_guard fail 'workflow_dispatch \(job a is privileged' bad8e.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  a:
+    uses: acme/repo/.github/workflows/x.yml@$SHA
+    secrets:
+      K: literal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_wrapped_guard_and_term_ok pass '-' ok8a.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: \${{ github.ref == 'refs/heads/main' && github.actor == 'x' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case main_dispatch_secrets_inherit_guarded_ok pass '-' ok8b.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main'
+    uses: acme/repo/.github/workflows/x.yml@$SHA
+    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
 run_case main_push_string_branch_ok pass '-' ok7a.yml <<EOF2
 on:
   push:

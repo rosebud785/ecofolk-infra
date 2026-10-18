@@ -58,6 +58,7 @@ module "cloudsql" {
   project_id                   = local.project_id
   private_network              = module.network.network_self_link
   deletion_protection          = true
+  # go-live: confirm tier (cost review)
   tier                         = "db-f1-micro"
   export_service_account_email = "${var.ops_scheduler_service_account_id}@${local.project_id}.iam.gserviceaccount.com"
 

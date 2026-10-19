@@ -35,3 +35,40 @@ gcloud scheduler jobs describe ecofolk-pg-off-hours-start --project=ecofolk-dev 
 gcloud sql instances describe ecofolk-pg --project=ecofolk-dev \
   --format="value(name,state,settings.activationPolicy)"
 ```
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+|------|---------|
+| terraform | >= 1.5.0 |
+| google | ~> 5.0 |
+
+## Providers
+
+| Name | Version |
+|------|---------|
+| google | ~> 5.0 |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [google_cloud_scheduler_job.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_scheduler_job) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| enable_off_hours | Create the 22:15 CT stop and 04:45 CT start jobs. False creates neither, so the instance runs around the clock. | `bool` | `true` | no |
+| instance_name | Name of the Cloud SQL instance to stop and start; pass module.cloudsql.instance_name. | `string` | n/a | yes |
+| project_id | GCP project id of the dev project that owns the instance. Must not be a *-prod project. | `string` | n/a | yes |
+| region | Cloud Scheduler region. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
+| service_account_email | Email of the service account the stop and start jobs run as (ops-scheduler in the dev project). Created locally, never here. | `string` | n/a | yes |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| job_names | Names of the Cloud Scheduler jobs, keyed stop and start. Empty when enable_off_hours is false. |
+<!-- END_TF_DOCS -->

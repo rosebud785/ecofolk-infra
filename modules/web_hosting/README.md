@@ -27,3 +27,39 @@ the API, the database and media, which all stay pinned.
   web build;
 - **the custom domain** (`google_firebase_hosting_custom_domain`): waits on ecofolk#670 and #23. The
   module's tests fail if one appears.
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+|------|---------|
+| terraform | >= 1.5.0 |
+| google-beta | ~> 5.0 |
+
+## Providers
+
+| Name | Version |
+|------|---------|
+| google-beta | ~> 5.0 |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [google-beta_google_firebase_hosting_site.web](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_firebase_hosting_site) | resource |
+| [google-beta_google_firebase_project.this](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_firebase_project) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| project_id | GCP project id to add Firebase to and host the web build in. The site id is <project_id>-web. | `string` | n/a | yes |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| default_host | Bare hostname of default_url (no scheme), the form modules/auth's web_host takes. |
+| default_url | The site's default URL (https://<site>.web.app), for the auth authorized domains and the API's CORS allowlist. |
+| site_id | The Hosting site id, for `firebase deploy --only hosting:<site>` (ecofolk#408). |
+<!-- END_TF_DOCS -->

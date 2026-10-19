@@ -209,13 +209,14 @@ module "billing_killswitch" {
 # Hosting site's <site>.web.app while var.web_host is unset). db_max_connections stays the module default,
 # 25 = db-f1-micro, modules/cloudsql's default tier.
 #
-# Dev alerts open incidents but page nobody (#90 spec (b)): dev's value for var.alert_notification_channels
-# is [], because #14 stops dev Cloud SQL 22:15–04:45 CT and a paging DB alert would fire every night. Paging
-# in dev is a later opt-in. The value comes from repo variable ALERT_CHANNEL_IDS (infra-apply.yml), not
-# from a committed tfvars.
+# Dev alerts go to the email channel Andy made by hand for ef#894, same as prod (Architect ruling on #94,
+# 2026-10-19; it supersedes the earlier "dev passes [] and pages nobody" line in the #90 spec). The value
+# comes from repo variable ALERT_CHANNEL_IDS (infra-apply.yml), not from a committed tfvars. #14 stops dev
+# Cloud SQL 22:15–04:45 CT, so no DB-touching job may run in that window (docs/alerting-policy.md).
 #
-# LOCAL FOLLOW-UP (L-ALERT): set repo variable ALERT_CHANNEL_IDS to [] for dev, and supply the two log
-# filters (db_connection_failure_log_filter, media_write_failure_log_filter) to the dev apply. No IAM.
+# LOCAL FOLLOW-UP (L-ALERT): supply the two log filters (db_connection_failure_log_filter,
+# media_write_failure_log_filter) to the dev apply via repo variables. ALERT_CHANNEL_IDS already holds the
+# email channel. No IAM.
 module "monitoring" {
   source                           = "../../modules/monitoring"
   project_id                       = var.project_id

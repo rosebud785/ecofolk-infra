@@ -27,8 +27,8 @@ run "dev_plan" {
   command = plan
 
   assert {
-    condition     = length(output.scheduler_jobs) == 4
-    error_message = "the dev composition should have 4 scheduler jobs (nightly export, off-hours stop and start, idle-sit sweep); update this count if a job was added on purpose"
+    condition     = length(output.scheduler_jobs) == 5
+    error_message = "the dev composition should have 5 scheduler jobs (nightly export, off-hours stop and start, idle-sit sweep, sync-usgs-water); update this count if a job was added on purpose"
   }
 }
 
@@ -52,8 +52,8 @@ run "every_scheduler_module_is_in_the_output" {
 
   # Keeps the call regex from passing by matching nothing.
   assert {
-    condition     = output.modules_with_jobs == tolist(["cloudsql", "idle_sit_sweep", "sql_off_hours"])
-    error_message = "expected the cloudsql, idle_sit_sweep and sql_off_hours module calls to carry scheduler jobs, found ${jsonencode(output.modules_with_jobs)}; if a module was added on purpose, add it here and to the scheduler_jobs output"
+    condition     = output.modules_with_jobs == tolist(["cloudsql", "idle_sit_sweep", "sql_off_hours", "sync_usgs_water"])
+    error_message = "expected the cloudsql, idle_sit_sweep, sql_off_hours and sync_usgs_water module calls to carry scheduler jobs, found ${jsonencode(output.modules_with_jobs)}; if a module was added on purpose, add it here and to the scheduler_jobs output"
   }
 
   assert {
@@ -79,8 +79,8 @@ run "every_job_central_and_outside_the_stop" {
   }
 
   assert {
-    condition     = output.job_count == 4
-    error_message = "the checker must see all 4 dev scheduler jobs"
+    condition     = output.job_count == 5
+    error_message = "the checker must see all 5 dev scheduler jobs"
   }
 
   assert {

@@ -226,3 +226,15 @@ output "billing_killswitch_topic" {
   value       = module.billing_killswitch.topic_id
   description = "The budget topic the local ef#885 script points budget ecofolk-dev-killswitch at (#15)."
 }
+
+# Every Cloud Scheduler job in this composition (#99), for tests/scheduler_window.tftest.hcl: each must be
+# America/Chicago and never fire while #14 has dev Cloud SQL stopped (after 22:15, before 04:45 CT). A module
+# that adds a scheduler job must expose it as scheduler_jobs and be listed here; the test fails otherwise.
+output "scheduler_jobs" {
+  value = concat(
+    module.cloudsql.scheduler_jobs,
+    module.sql_off_hours.scheduler_jobs,
+    module.idle_sit_sweep.scheduler_jobs,
+  )
+  description = "Every Cloud Scheduler job in the dev composition: name, schedule and time_zone (#99)."
+}

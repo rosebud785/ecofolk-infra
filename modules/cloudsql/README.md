@@ -48,4 +48,5 @@ Cloud SQL Postgres 16: private IP only, backups on, the IAM auth flag set (ecofo
 | instance_name | The instance's name, for modules/sql_off_hours' stop and start jobs (#14). |
 | instance_service_account_email | The instance's own service account. The export writes as it, so LOCAL FOLLOW-UP L1(a) grants it write on the export bucket. |
 | private_ip_address | The instance's private IP inside the PSA range. There is no public IP. |
+| scheduler_jobs | This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). |
 <!-- END_TF_DOCS -->

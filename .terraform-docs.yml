@@ -1,0 +1,29 @@
+# ecofolk-infra#11: terraform-docs config for every modules/<name>/README.md. The generated block sits
+# between the BEGIN_TF_DOCS / END_TF_DOCS markers; prose outside the markers is hand-written and kept.
+# Regenerate: bash scripts/check-tf-docs.sh --fix. PR CI (docs.yml) fails if a README has drifted.
+formatter: markdown table
+version: ">= 0.20.0, < 0.21.0"
+
+output:
+  file: README.md
+  mode: inject
+  template: |-
+    <!-- BEGIN_TF_DOCS -->
+    {{ .Content }}
+    <!-- END_TF_DOCS -->
+
+sort:
+  enabled: true
+  by: name
+
+settings:
+  anchor: false
+  default: true
+  escape: false
+  hide-empty: true
+  html: false
+  indent: 2
+  lockfile: false
+  required: true
+  sensitive: true
+  type: true

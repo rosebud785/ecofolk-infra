@@ -34,3 +34,39 @@ this repo**. The module's tests fail if one appears.
 
 - the custom auth domain (waits on the domain decision, ecofolk#404/#670);
 - mapping Firebase UIDs to app users (app code, private repo).
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+|------|---------|
+| terraform | >= 1.5.0 |
+| google | ~> 5.0 |
+
+## Providers
+
+| Name | Version |
+|------|---------|
+| google | ~> 5.0 |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [google_identity_platform_config.auth](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/identity_platform_config) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| authorized_domains | Domains allowed for auth redirects and email action links. Default (null): localhost plus var.web_host. | `list(string)` | `null` | no |
+| project_id | GCP project id whose Firebase Auth / Identity Platform config this manages. | `string` | n/a | yes |
+| web_host | Bare hostname of the environment's web app (no scheme, no path). Added to the default authorized_domains. | `string` | `null` | no |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| auth_domain | The project's Firebase auth domain (<project>.firebaseapp.com), for the web build's Firebase config. |
+| authorized_domains | The authorized domains set on the config. |
+<!-- END_TF_DOCS -->

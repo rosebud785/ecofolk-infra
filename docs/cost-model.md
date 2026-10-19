@@ -15,7 +15,7 @@ operations, neither of which a free tier covers in full.
 | --- | ---: | ---: | ---: |
 | Without C14 (SQL up 24 h) | 10.44 | **10.95** | 11.63 |
 | With C14 (SQL up 16 h/day) | 7.72 | **8.23** | 8.91 |
-| Before free tiers, without C14 (gross) | 50.21 | 52.12 | 54.20 |
+| Before free tiers, without C14 (gross) | 26.56 | 28.47 | 30.55 |
 
 - **Against the $25 dev budget (#15):** fits in every scenario, with or without C14. At 20 users the headroom is
   about $14.05 without C14 and about $16.77 with it; at 2× it is about $13.37 and $16.09.
@@ -24,8 +24,8 @@ operations, neither of which a free tier covers in full.
 - **Usage moves the total only a little.** Going from idle to 2× headroom adds about $1.19, nearly all of
   it media: Cloud Run egress for media views and GCS Class A operations. The bill is still set by what
   runs, not by how many people use it.
-- **The free tiers carry about $41 a month.** The gross row is what these same lines would cost with no
-  free allowance. Almost all of the difference is the uptime check (see
+- **The free tiers carry about $18 a month.** The gross row is what these same lines would cost with no
+  free allowance. Almost all of the difference is the uptime checks (see
   [Lines where a free tier is doing the work](#lines-where-a-free-tier-is-doing-the-work)).
 - **The credit runs out by date, not by spend.** At about $10.95 a month, 90 days uses roughly $32 of the
   $300. The figures above are what each month costs once the credit has expired.
@@ -49,7 +49,8 @@ and each total is the sum of the rounded lines.
 | VPC, subnet, PSA peering | yes, `modules/network` | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | no (no charge) |
 | Artifact Registry storage | module yes, not yet called by an environment | 0.05 | 0.05 | 0.05 | 0.05 | 0.05 | 0.05 | **partly** (0.5 GiB) |
 | Cloud Logging (#6) | no | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
-| Uptime check (#5) | no | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
+| Uptime checks (#5) | yes, `modules/monitoring` via `environments/dev` (#90) | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** (1M executions) |
+| Alerting (#24) | yes, `modules/monitoring` via `environments/dev` (#90) | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** (not charged before 2027-09-01) |
 | Cloud Scheduler jobs (#2, #14, #17) | no | 0.00 | 0.10 | 0.00 | 0.10 | 0.00 | 0.10 | **yes** (3 jobs) |
 | Identity Platform (#20) | yes, `modules/auth` | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
 | GCS media storage, Standard, Montréal (#21) | yes, `modules/media_bucket` | 0.01 | 0.01 | 0.06 | 0.06 | 0.10 | 0.10 | no (Always Free is US-only) |
@@ -78,7 +79,7 @@ Gross is the cost of the 20-user, no-C14 usage at the paid rate, before any free
 
 | Line | Free allowance | 20-user usage | Gross without the allowance |
 | --- | --- | --- | ---: |
-| **Uptime check** | 1M executions per project per month | 131,400 | **39.42** |
+| **Uptime checks** | 1M executions per project per month | 52,560 | **15.77** |
 | Cloud Run CPU | 180,000 vCPU-s per billing account (worth $4.32 at us-central1 rates) | 18,000 vCPU-s | 0.60 |
 | Cloud Logging | 50 GiB per project per month | 1 GiB | 0.50 |
 | Scheduler | 3 jobs per billing account | 2 jobs (4 with C14) | 0.20 (0.40 with C14) |
@@ -88,8 +89,8 @@ Gross is the cost of the 20-user, no-C14 usage at the paid rate, before any free
 | Artifact Registry | 0.5 GiB per billing account | 1 GiB | 0.10 (0.05 is paid) |
 | Cloud Run memory, requests | 360,000 GiB-s; 2M requests | 9,000 GiB-s; 60,000 | 0.05 |
 
-The uptime check is the only free tier carrying real money. One check every minute from three checker
-regions uses 13% of the per-project allowance. A second project (prod) gets its own million, but every
+The uptime checks are the only free tier carrying real money. Two checks every 5 minutes from three checker
+regions use about 5% of the per-project allowance. A second project (prod) gets its own million, but every
 extra check or shorter period counts against it. The Cloud Run, Scheduler and Artifact Registry
 allowances belong to the **billing account**, so a prod project on the same billing account shares them
 with dev.
@@ -139,13 +140,22 @@ Every number above comes from one of these. Each one is also on its line in the 
    region are free. The module is not yet called from `environments/dev`.
 10. **Logging (#6):** the default `_Default` bucket with 30-day retention, so there is no retention
     charge. Ingestion is 0.2 / 1 / 2 GiB a month.
-11. **Uptime (#5):** one check on the API, every 1 minute, from the minimum of 3 checker regions. That is
-    131,400 executions a month in every scenario.
-12. **Scheduler:** one job for #2, one for #17, and two for C14 (#14, stop and start). That is 2 jobs
+11. **Uptime (#5), as `environments/dev` wires `modules/monitoring` (#90):** two checks, the API's
+    `/health` and the web root, every 5 minutes, from the minimum of 3 checker regions. That is 52,560
+    executions a month in every scenario. **Free-tier assumption:** the 1M executions per project per
+    month cover all of it, so the line is $0. Gross, it would be $15.77.
+12. **Alerting (#24), wired into `environments/dev` by #90:** three alert policies (four conditions) and
+    two log-based metrics. **Free-tier assumption:** $0, because Google does not charge for alerting
+    before 2027-09-01 at the earliest (<https://cloud.google.com/products/observability/pricing>, read
+    2026-10-18 from a search-indexed copy, not the live page). From then on, about 5 metric references
+    at $0.35 each is about $1.75 a month, plus points returned. Recheck before that date. The two
+    log-based counters write a few points a day, inside the free chargeable-metrics allowance. Dev
+    notifies no channel (#90), and channels cost nothing either way. The dashboard (#6) is free.
+13. **Scheduler:** one job for #2, one for #17, and two for C14 (#14, stop and start). That is 2 jobs
     without C14 and 4 with it. A paused job still counts.
-13. **Identity Platform:** email and password only, as `modules/auth` configures it, so each user is a
+14. **Identity Platform:** email and password only, as `modules/auth` configures it, so each user is a
     Tier 1 MAU. Anonymous sign-in is off. No phone, SMS or MFA, which bill per message.
-14. **GCS media bucket (#21)**, as `modules/media_bucket` configures it: Standard class, regional
+15. **GCS media bucket (#21)**, as `modules/media_bucket` configures it: Standard class, regional
     NORTHAMERICA-NORTHEAST1, uniform access, no versioning, one AbortIncompleteMultipartUpload rule
     (1 day) and no age-based delete. Stored: 0.5 GiB of seed content plus 0.1 GiB (about 100 MiB) of
     uploads per user, so 0.5 / 2.5 / 4.5 GiB. Operations: 1,000 Class A (uploads, multipart parts,
@@ -154,11 +164,11 @@ Every number above comes from one of these. Each one is also on its line in the 
     rate: the app's sweep (ecofolk#310) is assumed to remove 0.025 GiB per active user a month, so
     0.5 GiB deleted at 20 users is 0.115 GiB-month of soft-deleted storage. Prices are the
     single-region, flat-namespace rates.
-15. **Firebase Hosting (#22)**, as `modules/web_hosting` (PR #51) proposes it: one site serving a static
+16. **Firebase Hosting (#22)**, as `modules/web_hosting` (PR #51) proposes it: one site serving a static
     build of about 5 MB, with 30 retained releases (0.15 GB stored). One 2 MB cold load per active
     user per active day (cache hits count toward transfer too): 0.8 GB a month at 20 users, 40 MB on
     the busiest day, against 360 MB a day free.
-16. **USD, before tax.** Any tax, and the conversion if the billing account is invoiced in CAD, comes on
+17. **USD, before tax.** Any tax, and the conversion if the billing account is invoiced in CAD, comes on
     top.
 
 ## Prices (read 2026-10-14)
@@ -177,6 +187,7 @@ Every number above comes from one of these. Each one is also on its line in the 
 | Artifact Registry storage | $0.10 / GiB-month after 0.5 GiB | <https://cloud.google.com/artifact-registry/pricing> |
 | Cloud Logging ingestion | $0.50 / GiB after 50 GiB | <https://cloud.google.com/stackdriver/pricing> |
 | Uptime-check executions | $0.30 / 1,000 after 1M | <https://cloud.google.com/stackdriver/pricing> |
+| Alerting | $0.35 / metric reference / month, not charged before 2027-09-01 | <https://cloud.google.com/products/observability/pricing> (read 2026-10-18) |
 | Cloud Scheduler | $0.10 / job / 31 days after 3 jobs | <https://cloud.google.com/scheduler/pricing> |
 | Identity Platform, Tier 1 (email) | $0 up to 50,000 MAU, then $0.0055 / MAU | <https://cloud.google.com/identity-platform/pricing> |
 | Cloud Storage Standard, regional, Montréal | $0.023 / GiB-month, no Always Free in this region | <https://cloud.google.com/storage/pricing> |
@@ -199,13 +210,13 @@ When #5176's billing feed exists, compare these lines first, biggest risk first:
    close to 487, not 730.
 2. **Cloud SQL storage.** Confirm the disk is still 10 GiB, and that autoresize hasn't grown it.
 3. **Cloud Storage, media bucket.** Stored GiB (live plus soft-deleted) and Class A / Class B
-   operation counts against assumption 14. No free tier applies in Montréal, so every unit bills.
+   operation counts against assumption 15. No free tier applies in Montréal, so every unit bills.
 4. **Cloud Run internet egress.** GiB out against the 3.53 GiB assumption (1.14 API, 2.38 media). It
    is already past its 1 GiB free allowance and is the line most likely to move with real media use.
 5. **Cloud Run CPU.** Billed vCPU-seconds against the 0.3 s/request assumption. It still sits inside
    its free tier, but media proxying adds instance time the 0.3 s figure may not cover.
 6. **Monitoring uptime-check executions.** Make sure they stay under 1M per project. This line is worth
-   $39 a month if the free tier stops covering it.
+   about $16 a month if the free tier stops covering it. From 2027-09-01, also check alerting charges.
 7. **Cloud Scheduler.** The job count across the whole billing account, since the 3 free jobs are
    shared by every project on it.
 

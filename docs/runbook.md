@@ -11,7 +11,7 @@ Scope of this draft:
 | - | - |
 | [Deploy](#1-deploy) | TBD: ecofolk#408 |
 | [Rollback](#2-rollback) | TBD: ecofolk#408 |
-| [Restore](#3-restore-from-the-nightly-export) | drafted; its commands wait on ecofolk-infra#2 and ecofolk-infra#3 |
+| [Restore](#3-restore-from-the-nightly-export) | drafted, with commands from ecofolk-infra#2 and ecofolk-infra#3 |
 | [Rotate](#4-rotate-a-secret-manager-held-credential) | drafted, generic shape |
 
 Rules for every procedure:
@@ -37,7 +37,7 @@ Names below are the module defaults, as instantiated by `environments/dev/main.t
 | Component | Module | Name / key facts |
 | - | - | - |
 | API | `modules/cloudrun_api/` | Cloud Run v2 service `ecofolk-api`; min 0, max 3 instances; public ingress; Direct VPC egress (private ranges only). Terraform ignores image changes: deploys own the image (ecofolk#408). Env vars are non-secret only; Secret Manager refs come with ef#399. |
-| Database | `modules/cloudsql/` | Postgres 16 instance `ecofolk-pg`, database `ecofolk`; ENTERPRISE, `db-f1-micro`, ZONAL; **private IP only**; automated backups on; IAM DB auth on; `deletion_protection` true (Terraform and GCP side). No backup window and no PITR yet (ecofolk-infra#2). `postgis` and `vector` are created by the app's migrations, not here. |
+| Database | `modules/cloudsql/` | Postgres 16 instance `ecofolk-pg`, database `ecofolk`; ENTERPRISE, `db-f1-micro`, ZONAL; **private IP only**; automated backups on; IAM DB auth on; `deletion_protection` true (Terraform and GCP side). Maintenance Sunday 05:00 CT, backup 05:30 CT, PITR 7 days; nightly export at 05:15 CT to `<project-id>-sql-exports` (ecofolk-infra#2, `export.tf`). `postgis` and `vector` are created by the app's migrations, not here. |
 | Media | `modules/media_bucket/` | Bucket `<project-id>-media`, location `NORTHAMERICA-NORTHEAST1`; uniform access, public access prevention enforced; **no versioning**; soft delete 7 days; only lifecycle rule aborts incomplete multipart uploads after 1 day. Retention is the app's (ecofolk#310). |
 | Network | `modules/network/` | Custom-mode VPC, one subnet in Montréal, a Private Service Access range and peering for Cloud SQL's private IP. No connector, no NAT, no firewall rules. |
 | Images | `modules/artifact_registry/` | Docker repository with cleanup (keep 10 most recent, delete untagged after 7 days). **The module exists but no root calls it yet**, so no repository is created by `main` today. |
@@ -77,39 +77,178 @@ the restore is usable: both extensions present and expected rows in place.
 automated backups are deleted along with the instance. The nightly export to GCS is the copy that
 outlives it (ecofolk-infra#2).
 
-> **Blocked for commands.** Neither piece this procedure runs exists on `main` yet:
->
-> - the nightly export (export bucket and scheduler job) is ecofolk-infra#2, open;
-> - `scripts/restore-from-export.sh` is ecofolk-infra#3, open.
->
-> So this draft gives the steps, the checks and the timings to record, but no commands and no expected
-> output. Both are filled in from the merged code when #2 and #3 land, not guessed now.
+What runs, all on `main`:
+
+- **The export** (ecofolk-infra#2, `modules/cloudsql/export.tf`): Cloud Scheduler job
+  `ecofolk-pg-nightly-export` runs at 05:15 America/Chicago and writes the `ecofolk` database to
+  `gs://<project-id>-sql-exports/ecofolk.sql.gz`. Every night overwrites the same object. The bucket is
+  versioned, so earlier nights are noncurrent versions of it, deleted after 30 days.
+- **The restore** (ecofolk-infra#3, `scripts/restore-from-export.sh`): creates database `ecofolk` on a
+  target instance, imports the export, checks `postgis` and `vector`, and prints three tables' row counts.
+  It does **not** create or delete the target instance, and it does not compare counts: you do both
+  (steps 2, 4 and 6 below). Its tests are `scripts/tests/test_restore_from_export.sh`, run against a
+  stubbed `gcloud` only.
+
+Run every command below from a clone of this repo, in one shell, after setting the project for that
+shell only (the script uses gcloud's own project):
+
+```bash
+export CLOUDSDK_CORE_PROJECT=<project-id>
+```
 
 ### 3.1 Before you start
 
-- [ ] ecofolk-infra#2 and ecofolk-infra#3 are merged and applied. (If not, stop: this procedure can't run.)
+- [ ] ecofolk-infra#2 and ecofolk-infra#3 are merged **and applied** (both are on `main`), and the
+      export's LOCAL FOLLOW-UP L1(a) is done: the `ops-scheduler` service account and the bindings listed
+      in `modules/cloudsql/export.tf`. Without them the export job fails and no export exists.
+- [ ] The restore's own LOCAL FOLLOW-UP items (header of `scripts/restore-from-export.sh`) are done: read
+      on the export bucket for the instance's service account, and Cloud SQL rights for you.
 - [ ] You have a local session with your own credentials for `<project-id>`.
-- [ ] You know which export you're restoring: its object URI, `<export-uri>`, and its timestamp.
 - [ ] You've picked a **new** target instance name, `<target-instance>`, different from `ecofolk-pg`.
-      Never restore over the live instance in a rehearsal.
-- [ ] You've picked the **three tables** to count rows in, and you know their expected counts as of
-      the export (the script takes the table names as arguments, per ecofolk-infra#3's spec).
+      Never restore over the live instance in a rehearsal. (The script refuses `ecofolk-pg` and exits 2.)
+- [ ] You've picked the **three tables** to count rows in (`<table1>` `<table2>` `<table3>`, plain
+      lower-case identifiers, optionally `schema.table`), and you know their expected counts as of the
+      export. The script takes the names as arguments; the counts are yours to compare.
 
 ### 3.2 Steps
 
-1. **Pick the export.** Find the most recent export object in the export bucket and note its URI and age.
-   _Command: TBD with ecofolk-infra#2 (bucket name and object layout)._
-2. **Run the restore** into `<target-instance>`. The script creates the target database, imports the
-   export, runs the checks in step 3, and exits non-zero on any miss.
-   _Command and expected output: TBD with ecofolk-infra#3 (`scripts/restore-from-export.sh`)._
-3. **Extension check (the step that matters).** The restore passes only if **both** `postgis` **and**
+1. **Pick the export.** First confirm the last nightly exports succeeded: they show as `EXPORT`
+   operations on the live instance.
+
+   ```bash
+   gcloud sql operations list --instance=ecofolk-pg \
+     --filter="operationType=EXPORT" --limit=3 \
+     --format="table(endTime,status,error.errors[0].code)"
+   ```
+
+   Expected: the newest row is from today's (or the last) 05:15 CT run, `status` `DONE`, no error code.
+   If the newest run failed, the current object is an older night: check its timestamp below.
+
+   Then list the export object's versions with their times:
+
+   ```bash
+   gcloud storage ls --all-versions --long gs://<project-id>-sql-exports/ecofolk.sql.gz
+   ```
+
+   Expected: one line per kept night, each `<size> <time> gs://<project-id>-sql-exports/ecofolk.sql.gz#<generation>`.
+   The newest line is the live object. Record its time in §3.3 as the export timestamp: it's the restore
+   point.
+
+   - **Restoring the latest night (the normal case):** `<export-uri>` is
+     `gs://<project-id>-sql-exports/ecofolk.sql.gz`.
+   - **Restoring an earlier night** (the latest is bad): copy that version to its own object first, and
+     use the copy as `<export-uri>`. The copy is deleted by the bucket's 30-day rule like any export.
+
+     ```bash
+     gcloud storage cp \
+       "gs://<project-id>-sql-exports/ecofolk.sql.gz#<generation>" \
+       gs://<project-id>-sql-exports/restore/ecofolk-<yyyymmdd>.sql.gz
+     ```
+
+2. **Create the fresh target instance.** It mirrors `ecofolk-pg` (`modules/cloudsql/main.tf`): Postgres 16,
+   ENTERPRISE, `db-f1-micro`, ZONAL, private IP only on the `ecofolk` VPC (`modules/network/`), IAM
+   database auth on, in Montréal. Two deliberate differences: it has the Cloud SQL **Data API** allowed,
+   because the script runs its checks through `gcloud sql instances execute-sql`, and it has no deletion
+   protection, so step 6 can remove it.
+
+   ```bash
+   gcloud sql instances create <target-instance> \
+     --region=northamerica-northeast1 \
+     --database-version=POSTGRES_16 --edition=enterprise --tier=db-f1-micro \
+     --availability-type=zonal \
+     --no-assign-ip --network=ecofolk \
+     --database-flags=cloudsql.iam_authentication=on \
+     --data-api-access=ALLOW_DATA_API
+   ```
+
+   Expected: gcloud waits, then lists the new instance with `STATUS` `RUNNABLE`. Record "Target instance
+   ready" in §3.3.
+
+   Confirm the target reads the export as the same service account the export bucket was granted to
+   (Cloud SQL uses one service account per project). This compares the two without printing either
+   address:
+
+   ```bash
+   [ "$(gcloud sql instances describe ecofolk-pg --format='value(serviceAccountEmailAddress)')" = \
+     "$(gcloud sql instances describe <target-instance> --format='value(serviceAccountEmailAddress)')" ] \
+     && echo "same service account" || echo "DIFFERENT: stop, the import can't read the bucket"
+   ```
+
+   Then add yourself as an IAM database user on the target: `execute-sql` connects as your Google
+   account, so a database user with that name must exist.
+
+   ```bash
+   gcloud sql users create <your-google-account-email> \
+     --instance=<target-instance> --type=CLOUD_IAM_USER \
+     --database-roles=cloudsqlsuperuser
+   ```
+
+   `cloudsqlsuperuser` is there so your user can count rows in tables the import created under another
+   owner. This is a throwaway rehearsal instance; never do this on `ecofolk-pg`. Whether that role is
+   enough for every restored table is unverified until the first performance: if step 4 fails with
+   "could not count rows", note it under **Performed** and raise it on ecofolk#405.
+
+3. **Run the restore** into `<target-instance>`:
+
+   ```bash
+   bash scripts/restore-from-export.sh <export-uri> <target-instance> <table1> <table2> <table3>; \
+     echo "exit=$?"
+   ```
+
+   It runs four stages in order and stops at the first failure:
+
+   ```text
+   == restore <export-uri> -> <target-instance> (database ecofolk)
+   -- 1/4 create database
+   -- 2/4 import
+   -- 3/4 extensions
+   ok  extension postgis
+   ok  extension vector
+   -- 4/4 tables
+   ok  table <table1> rows=<n>
+   ok  table <table2> rows=<n>
+   ok  table <table3> rows=<n>
+   RESTORE_OK: <target-instance> database ecofolk has postgis and vector, and all 3 tables.
+   exit=0
+   ```
+
+   (gcloud's own progress lines for the create and the import appear between these.) Record "Import
+   finished" in §3.3 when `-- 3/4 extensions` prints.
+
+   **Extension check (the step that matters).** The restore passes only if **both** `postgis` **and**
    `vector` exist in the restored database. One of the two isn't enough: ef#455 found a check that
-   passed with only one. The app's migrations create both (`modules/cloudsql/` header), so a restore
-   that lacks either one is broken, whatever the row counts say.
-4. **Row counts.** The three named tables return their expected counts.
-5. **Exit status.** The script exits 0. Any non-zero exit is a failed restore: record it as such.
-6. **Clean up the rehearsal instance** if this was a rehearsal, so it doesn't bill while idle.
-   _Command: TBD with ecofolk-infra#3 (whether the script or the operator removes it)._
+   passed with only one. The script checks each on its own and prints `ok  extension <name>` for each.
+   The app's migrations create both (`modules/cloudsql/` header), so a restore that lacks either one is
+   broken, whatever the row counts say. A miss reads:
+
+   ```text
+   RESTORE_FAILED: extension vector is missing from ecofolk on <target-instance>
+   ```
+
+4. **Row counts.** Compare each `ok  table <name> rows=<n>` line against the count you expected as of the
+   export timestamp, and record each in §3.3. The script only proves each table exists and is countable;
+   the comparison is yours. A table that doesn't exist reads
+   `RESTORE_FAILED: table <name> is missing from ecofolk on <target-instance>`.
+
+5. **Exit status.** The `exit=` line printed straight after the script (step 3's command).
+   Expected: `exit=0` with `RESTORE_OK` printed. `exit=1` is a failed restore (the `RESTORE_FAILED:` line
+   names the step); `exit=2` is bad arguments, and nothing ran. Record anything other than 0 as a failed
+   restore.
+
+6. **Clean up the rehearsal instance** if this was a rehearsal, so it doesn't bill while idle. The script
+   never deletes anything; you do.
+
+   ```bash
+   gcloud sql instances delete <target-instance>
+   ```
+
+   gcloud asks you to confirm. If step 1 made a copy under `restore/`, remove it too:
+
+   ```bash
+   gcloud storage rm gs://<project-id>-sql-exports/restore/ecofolk-<yyyymmdd>.sql.gz
+   ```
+
+   Then end the shell, or `unset CLOUDSDK_CORE_PROJECT`.
 
 ### 3.3 Timings to record
 

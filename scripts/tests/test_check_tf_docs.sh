@@ -60,7 +60,7 @@ run_case stale-after-fix pass - "$d"
 
 # Stale: the generated block edited by hand.
 d="$tmp/handedit"; new_module "$d/m"; bash "$guard" --fix "$d" >/dev/null
-sed -i 's/Fixture name\./Edited by hand./' "$d/m/README.md"
+sed 's/Fixture name\./Edited by hand./' "$d/m/README.md" >"$d/m/README.md.new" && mv "$d/m/README.md.new" "$d/m/README.md"
 run_case stale-hand-edit fail 'handedit/m/README.md: generated docs are stale' "$d"
 
 # No README.

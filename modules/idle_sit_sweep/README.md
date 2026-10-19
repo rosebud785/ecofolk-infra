@@ -54,3 +54,41 @@ gcloud scheduler jobs describe idle-sit-sweep --project=ecofolk-dev \
   --location=northamerica-northeast1 \
   --format="value(name,schedule,timeZone,state,httpTarget.httpMethod,httpTarget.uri,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience)"
 ```
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+|------|---------|
+| terraform | >= 1.5.0 |
+| google | ~> 5.0 |
+
+## Providers
+
+| Name | Version |
+|------|---------|
+| google | ~> 5.0 |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [google_cloud_scheduler_job.sweep](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_scheduler_job) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| api_url | Base URL of the API (https://<host>, no path, no trailing slash); pass module.cloudrun_api.uri. | `string` | n/a | yes |
+| invoker_sa_email | Email of the sweep invoker service account (<id>@<project>.iam.gserviceaccount.com). | `string` | n/a | yes |
+| project_id | GCP project id that owns the Scheduler job. | `string` | n/a | yes |
+| region | Cloud Scheduler region. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
+| sweep_schedule | Cron schedule (5 fields, America/Chicago) for the idle-sit sweep. | `string` | `"0 */2 * * *"` | no |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| audience | The OIDC audience the job's ID token carries (the endpoint URL); the API must expect exactly this. |
+| job_name | Name of the idle-sit sweep Cloud Scheduler job. |
+<!-- END_TF_DOCS -->

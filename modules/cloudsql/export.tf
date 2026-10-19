@@ -5,7 +5,9 @@
 #
 # The bucket is <project_id>-sql-exports (Architect name default on #2), in Montréal, private, versioned.
 # Every run writes the same object, so the previous night's export becomes a noncurrent version. The one
-# lifecycle rule deletes objects older than 30 days, live or noncurrent, so about 30 nights are kept.
+# lifecycle rule deletes only noncurrent versions, 30 days after they were superseded, and only once they
+# have at least 7 newer versions. No rule can select the live object at any age (ecofolk-infra#96): if the
+# export silently stops, the last good export and the 6 nights before it (7 versions) stay put.
 #
 # The job runs at 05:15 America/Chicago, between the maintenance window (05:00 CT) and the backup
 # (05:30 CT), and after dev's 04:45 CT start (#14). It POSTs the Cloud SQL Admin `export` API with an OAuth
@@ -25,6 +27,7 @@ locals {
   export_bucket_name            = "${var.project_id}-sql-exports"
   export_object_uri             = "gs://${local.export_bucket_name}/${local.database_name}.sql.gz" # .gz: Cloud SQL compresses
   export_retention_days         = 30
+  export_min_newer_versions     = 7
   export_schedule               = "15 5 * * *"
   export_time_zone              = "America/Chicago"
   export_oauth_scope            = "https://www.googleapis.com/auth/cloud-platform"
@@ -47,14 +50,18 @@ resource "google_storage_bucket" "sql_exports" {
     enabled = true
   }
 
+  # Noncurrent versions only. There is deliberately no `age` condition and no LIVE/ANY rule: an age rule
+  # on the live object deletes the last good export once the nightly job has failed for that long (#96).
+  # Conditions are ANDed, so a version goes only when it is ARCHIVED, has been noncurrent for 30 days, and
+  # has at least 7 newer versions.
   lifecycle_rule {
     action {
       type = "Delete"
     }
     condition {
-      age = local.export_retention_days
-      # ANY: the rule applies to noncurrent versions too, so overwritten exports don't pile up.
-      with_state = "ANY"
+      with_state                 = "ARCHIVED"
+      days_since_noncurrent_time = local.export_retention_days
+      num_newer_versions         = local.export_min_newer_versions
     }
   }
 }

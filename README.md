@@ -22,18 +22,43 @@ modules/sql_off_hours/ dev only: Cloud Scheduler stops dev Cloud SQL at 22:15 CT
 modules/idle_sit_sweep/ reusable: Cloud Scheduler POSTs the API's idle-sit sweep with a Google OIDC token, every 2h (dev: 05–21 CT) (#17)
 modules/billing_killswitch/ dev only: budget topic + function that unlinks ecofolk-dev's billing at 100% (#15)
 scripts/             check-region-pin.sh (ef#391), check-workflows.sh (E4), test_secret_scan.sh (#33),
-                     restore-from-export.sh (#3, run on-site only), check-trivyignore.sh (#9) and tests
+                     restore-from-export.sh (#3, run on-site only), check-trivyignore.sh (#9),
+                     check-tf-docs.sh (#11) and tests
+.terraform-docs.yml  terraform-docs config for the generated block in each modules/<name>/README.md (#11)
 .gitleaks.toml       secret-scan rules (#33); allowlist only via .gitleaksignore
 .trivyignore         trivy config baseline (#9): each suppressed check ID with a one-line reason and an issue ref
 .github/dependabot.yml weekly Dependabot PRs: terraform per env/module dir, plus github-actions (#10)
-CONTRIBUTING.md      copy-in checklist for anything coming from a private repo
+CONTRIBUTING.md      the boundary (no credentials, IAM or id-token; claude/* branches) and the copy-in checklist
 policy/              conftest rules over the HCL (#7): Cloud Run / Cloud SQL / bucket limits, IAM boundary
 ```
 
 **No GCP key exists anywhere.** `infra-apply.yml` (push to main only) exchanges the job's GitHub OIDC
 token through Workload Identity Federation; GCP trusts it only for this repo's `refs/heads/main` and
 the `gcp-dev` Environment. PRs run `fmt`, `validate`, `tf-test`, `dashboard-json`, `tflint`, `region-pin`, `restore-script`, `workflow-guard`,
-`secret-scan`, `policy` and `trivy` and nothing that can reach GCP.
+`secret-scan`, `policy` and `trivy` (`ci.yml`) and `tf-docs` (`docs.yml`), and nothing that can reach GCP.
+
+## Plan and apply: only from `main`, locally
+
+A real `terraform plan` or `apply` runs only from `main`, after a reviewed PR has been merged locally
+(`merge-reviewed-pr.sh`, E6). Never from a PR, a `claude/*` branch or a cloud session: they hold no
+credentials and need none, and prove a change with the checks below (`terraform test` against mock
+providers, policy, lint). Dev is applied from `main` by `infra-apply.yml`; `environments/prod` is never
+applied by CI, and `ecofolk-prod` stays unlinked from billing until go-live.
+
+## Module docs (generated, checked in CI)
+
+Each `modules/<name>/README.md` is hand-written prose followed by a block that `terraform-docs`
+generates from the module's `*.tf` (requirements, resources, inputs, outputs), between
+`<!-- BEGIN_TF_DOCS -->` and `<!-- END_TF_DOCS -->`. Don't edit inside the markers. After changing a
+module's variables, outputs or resources, regenerate and commit:
+
+```bash
+bash scripts/check-tf-docs.sh --fix
+```
+
+PR CI's `tf-docs` job (`.github/workflows/docs.yml`) runs `scripts/check-tf-docs.sh` and fails if a
+module has no README, its README lacks the markers, or the generated block has drifted. A new module
+ships a README with the two markers in the same PR. Needs terraform-docs 0.20.x.
 
 ## Dev billing kill-switch (#15)
 
@@ -115,6 +140,7 @@ python3 -m unittest discover -s modules/billing_killswitch/tests -p 'test_*.py'
 bash scripts/tests/test_policy_files.sh
 conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)
 bash scripts/tests/test_check_trivyignore.sh && bash scripts/check-trivyignore.sh
+bash scripts/tests/test_check_tf_docs.sh && bash scripts/check-tf-docs.sh
 trivy config --checks-bundle-repository mirror.gcr.io/aquasec/trivy-checks@sha256:b591e9190cff4aa4e385b1a25bccfd9ecf178d3c77fd194e1410b7ce7e1df058 \
   --misconfig-scanners terraform --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore .
 ```

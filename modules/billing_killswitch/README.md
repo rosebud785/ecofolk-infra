@@ -61,3 +61,52 @@ which goes down with it. That's accepted. Relinking billing is a manual, local s
   for it on this function's service only.
 
 This public repo writes no IAM.
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+|------|---------|
+| terraform | >= 1.5.0 |
+| archive | ~> 2.0 |
+| google | ~> 5.0 |
+
+## Providers
+
+| Name | Version |
+|------|---------|
+| archive | ~> 2.0 |
+| google | ~> 5.0 |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [google_cloudfunctions2_function.killswitch](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions2_function) | resource |
+| [google_project_service.apis](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
+| [google_pubsub_topic.budget](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic) | resource |
+| [google_storage_bucket.source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket) | resource |
+| [google_storage_bucket_object.source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket_object) | resource |
+| [archive_file.source](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file) | data source |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| budget_display_name | The only budget whose messages the function acts on; every other budget (ecofolk-all included) is ignored. | `string` | `"ecofolk-dev-killswitch"` | no |
+| function_name | Name of the Cloud Functions (2nd gen) function (and its Cloud Run service). | `string` | `"ecofolk-dev-killswitch"` | no |
+| project_allowlist | Project ids the function may unlink billing from. It does nothing for any other project. Never a *-prod id. | `list(string)` | ```[ "ecofolk-dev" ]``` | no |
+| project_id | GCP project id that hosts the topic and function, and whose billing the function unlinks. No default: every caller states its own project. | `string` | n/a | yes |
+| region | Region of the function, its trigger, the topic's message storage and the source bucket. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
+| service_account_id | Account id (the part before @) of the function's runtime SA, also used by its trigger. Created locally (ef#885), not here. | `string` | `"ecofolk-killswitch"` | no |
+| topic_name | Pub/Sub topic the budget publishes to. The local budget script (ef#885) points the budget at this name. | `string` | `"ecofolk-dev-killswitch"` | no |
+| unlink_threshold | The function unlinks when costAmount >= budgetAmount x this. 1.0 = 100% of the budget's actual (gross) spend. | `number` | `1` | no |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| function_name | The kill-switch function's name, for the local run.invoker grant on its service (ef#885). |
+| service_account_email | The runtime and trigger SA the function expects (created locally, ef#885). |
+| topic_id | The budget topic (projects/<project>/topics/<name>), for the local budget wiring (ef#885). |
+<!-- END_TF_DOCS -->

@@ -4,6 +4,24 @@ This repo is **public**. Nothing in it may hold a secret, and no pull-request pa
 credentials (see [README.md](README.md)). Run the checks in README's *Running the checks locally*
 before you push.
 
+## The boundary
+
+These hold for every change, by a person or a cloud worker:
+
+- **No credentials.** No service-account keys, secrets, tfvars with values or state files, committed
+  or referenced. Secret Manager holds empty containers only.
+- **No IAM.** No `google_*_iam_*`, `google_service_account_key`, Workload Identity pools or providers,
+  or billing bindings. When a change needs one, leave a `# LOCAL FOLLOW-UP:` comment naming the binding
+  and list it in the PR body; a local session adds it.
+- **No `id-token`.** No workflow but `infra-apply.yml` holds `id-token: write`, no workflow uses
+  `pull_request_target`, and every `uses:` is pinned to a full commit SHA with a version comment
+  (`scripts/check-workflows.sh`).
+- **Cloud workers push to `claude/*` branches only**, never to `main`. Changes reach `main` only through
+  a reviewed PR, merged locally. Real `plan`/`apply` runs only from `main` (README: *Plan and apply*), so a PR proves
+  itself with the checks: `terraform test` with `mock_provider`, policy, lint, region pin.
+- **Region:** `northamerica-northeast1` for everything regional (`scripts/check-region-pin.sh`).
+- **Docs:** a module change regenerates its README block (`bash scripts/check-tf-docs.sh --fix`).
+
 ## Copying anything in from a private repo
 
 Use this checklist whenever a file, or part of one, comes from a private repo into this one. CI's

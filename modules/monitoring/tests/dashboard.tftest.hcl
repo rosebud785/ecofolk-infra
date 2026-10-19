@@ -27,6 +27,17 @@ run "one_dashboard_in_the_project_with_valid_json" {
     error_message = "the rendered dashboard_json must be valid JSON"
   }
 
+  # GCP rejects a color on an xyChart threshold at apply (400, "color cannot be specified within a XyChart
+  # Threshold", #94's first apply), which a mock provider never sees. Guard the shape here.
+  assert {
+    condition = alltrue(flatten([
+      for t in jsondecode(google_monitoring_dashboard.ecofolk.dashboard_json).mosaicLayout.tiles : [
+        for th in try(t.widget.xyChart.thresholds, []) : !contains(keys(th), "color")
+      ]
+    ]))
+    error_message = "an xyChart threshold must not carry a color: the Monitoring API refuses it"
+  }
+
   assert {
     condition     = jsondecode(google_monitoring_dashboard.ecofolk.dashboard_json).displayName == "EcoFolk"
     error_message = "the dashboard must be named EcoFolk"

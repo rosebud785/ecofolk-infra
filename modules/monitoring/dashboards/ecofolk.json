@@ -194,7 +194,7 @@
               }
             ],
             "thresholds": [
-              { "label": "tier maximum (max_connections)", "value": "__DB_MAX_CONNECTIONS__", "color": "RED", "direction": "ABOVE" }
+              { "label": "tier maximum (max_connections)", "value": "__DB_MAX_CONNECTIONS__", "direction": "ABOVE" }
             ],
             "yAxis": { "label": "connections", "scale": "LINEAR" }
           }

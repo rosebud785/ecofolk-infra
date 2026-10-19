@@ -42,7 +42,8 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | media_write_failure_log_filter | Cloud Logging filter matching one log entry per failed media upload/write by the API. Supplied by L-ALERT. | `string` | n/a | yes |
 | notification_channels | Notification channel resource names (projects/<project>/notificationChannels/<n>) every policy notifies. IDs only: never an address. | `list(string)` | n/a | yes |
 | project_id | GCP project id the alert policies and log-based metrics live in. No default: every caller states its own project. | `string` | n/a | yes |
-| sql_instance_name | Name of the Cloud SQL instance the dashboard's database tiles and the stale-export alert watch (modules/cloudsql's instance_name). | `string` | `"ecofolk-pg"` | no |
+| sql_export_job_name | Id of the nightly export's Cloud Scheduler job, for the stale-export alert (pass module.cloudsql.export_job_name). | `string` | n/a | yes |
+| sql_instance_name | Name of the Cloud SQL instance the dashboard's database tiles watch and the stale-export alert names (modules/cloudsql's instance_name). | `string` | `"ecofolk-pg"` | no |
 | web_host | Hostname of the EcoFolk web build (modules/web_hosting: <project>-web.web.app), probed at https://<web_host>/. | `string` | n/a | yes |
 
 ## Outputs
@@ -51,6 +52,6 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 |------|-------------|
 | alert_policy_names | Resource names of the four alert policies. |
 | dashboard_id | Resource id of the EcoFolk dashboard. |
-| log_metric_names | Names of the three log-based metrics (logging.googleapis.com/user/<name>). |
+| log_metric_names | Names of the three log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109). |
 | uptime_check_ids | Uptime check IDs of the API /health and web root checks. |
 <!-- END_TF_DOCS -->

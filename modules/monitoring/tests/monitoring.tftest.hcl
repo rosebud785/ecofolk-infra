@@ -11,6 +11,7 @@ variables {
   media_write_failure_log_filter   = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""
   api_host                         = "api.example.test"
   web_host                         = "web.example.test"
+  sql_export_job_name              = "ecofolk-pg-nightly-export"
 }
 
 run "policies_exist_and_notify_the_channels" {
@@ -153,14 +154,14 @@ run "log_policies_fire_on_any_matching_entry" {
 }
 
 # Spec item 4 and the amendment: no default on the two log filters or on the channels, so an unset value
-# fails the apply. A default isn't visible in a plan, so read variables.tf: each block (the text from
+# fails the apply. #109: nor on the export job's id, which must come from modules/cloudsql's output. A default isn't visible in a plan, so read variables.tf: each block (the text from
 # `variable "<name>"` up to the next `variable "`) must exist and must have no `default =` line.
 run "filter_and_channel_variables_have_no_default" {
   command = plan
 
   assert {
     condition = alltrue([
-      for name in ["db_connection_failure_log_filter", "media_write_failure_log_filter", "notification_channels"] :
+      for name in ["db_connection_failure_log_filter", "media_write_failure_log_filter", "notification_channels", "sql_export_job_name"] :
       length([
         for seg in split("variable \"", file("${path.module}/variables.tf")) : seg
         if startswith(seg, "${name}\"")
@@ -172,7 +173,7 @@ run "filter_and_channel_variables_have_no_default" {
         if startswith(seg, "${name}\"")
       ])
     ])
-    error_message = "db_connection_failure_log_filter, media_write_failure_log_filter and notification_channels must each be declared once with no default"
+    error_message = "db_connection_failure_log_filter, media_write_failure_log_filter, notification_channels and sql_export_job_name must each be declared once with no default"
   }
 }
 
@@ -274,28 +275,10 @@ run "rejects_a_bad_service_name" {
   expect_failures = [var.api_service_name]
 }
 
-# Issue #109: the stale-export alert. The metric counts completed, error-free exports of the module's
-# instance from the audit log; the policy pages when that metric goes absent.
-run "sql_export_metric_counts_completed_error_free_exports" {
+# Issue #109 (Architect ruling on #111): the stale-export alert. The metric counts successful attempts of
+# the nightly export's Cloud Scheduler job, from its execution log; the policy pages when it goes absent.
+run "sql_export_metric_counts_successful_runs_of_the_export_job" {
   command = plan
-
-  assert {
-    condition = (
-      strcontains(google_logging_metric.sql_export_successes.filter, "protoPayload.methodName=\"cloudsql.instances.export\"") &&
-      strcontains(google_logging_metric.sql_export_successes.filter, "protoPayload.serviceName=\"cloudsql.googleapis.com\"") &&
-      strcontains(google_logging_metric.sql_export_successes.filter, "logName:\"cloudaudit.googleapis.com%2Factivity\"") &&
-      strcontains(google_logging_metric.sql_export_successes.filter, "operation.last=true")
-    )
-    error_message = "the export metric must match the audit log's cloudsql.instances.export completion entry (operation.last=true)"
-  }
-
-  assert {
-    condition = (
-      strcontains(google_logging_metric.sql_export_successes.filter, "resource.type=\"cloudsql_database\"") &&
-      strcontains(google_logging_metric.sql_export_successes.filter, "resource.labels.database_id=\"ecofolk-dev:ecofolk-pg\"")
-    )
-    error_message = "the export metric must be scoped to var.sql_instance_name's cloudsql_database resource"
-  }
 
   assert {
     condition = (
@@ -307,23 +290,84 @@ run "sql_export_metric_counts_completed_error_free_exports" {
   }
 }
 
-# KNOWN-WRONG: a failed export also writes a completion entry, with protoPayload.status.code set. The
-# metric must not count it, or a run of failures keeps the alert quiet. Every clause is ANDed, so the
-# error exclusion must be one of them, and nothing may match "any status".
-run "sql_export_metric_does_not_match_a_failed_export" {
+# KNOWN-WRONG (structure, not presence): a failed attempt also writes an AttemptFinished entry. The filter
+# must be exactly the AND of these clauses. A substring check passes a filter with "OR <anything>" appended,
+# and because OR binds tighter than AND that turns the last clause into "(x OR <anything>)", so a failed
+# run counts as a success and the alert stays quiet through a run of failures. Splitting on " AND " must
+# give exactly this set, and no clause may carry an OR, a NOT or a parenthesis.
+run "sql_export_metric_filter_is_exactly_the_and_of_its_clauses" {
   command = plan
 
   assert {
-    condition = contains(
-      split(" AND ", google_logging_metric.sql_export_successes.filter),
-      "(NOT protoPayload.status.code:* OR protoPayload.status.code=0)"
+    condition = (
+      length(split(" AND ", google_logging_metric.sql_export_successes.filter)) == 5 &&
+      toset(split(" AND ", google_logging_metric.sql_export_successes.filter)) == toset([
+        "resource.type=\"cloud_scheduler_job\"",
+        "resource.labels.job_id=\"ecofolk-pg-nightly-export\"",
+        "jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\"",
+        "httpRequest.status>=200",
+        "httpRequest.status<300",
+      ])
     )
-    error_message = "the export metric must AND an error exclusion (no status code, or code 0): a failed export must not count as a success"
+    error_message = "the export metric's filter must be exactly the AND of: the cloud_scheduler_job resource, this job's id, AttemptFinished, and httpRequest.status in [200, 300); got: ${google_logging_metric.sql_export_successes.filter}"
   }
 
   assert {
-    condition     = !can(regex("protoPayload\\.status\\.code\\s*(!=|>|>=)", google_logging_metric.sql_export_successes.filter))
-    error_message = "the export metric must not select non-zero status codes"
+    condition     = !can(regex("(?i)(\\bOR\\b|\\bNOT\\b|[()]|(^|\\s)-)", google_logging_metric.sql_export_successes.filter))
+    error_message = "the export metric's filter must have no OR, NOT, negation or grouping: any of them can re-admit a failed attempt"
+  }
+}
+
+# The job id comes from the variable (modules/cloudsql's output in the roots), not a literal.
+run "sql_export_follows_the_job_and_instance_variables" {
+  command = plan
+
+  variables {
+    sql_export_job_name = "ecofolk-pg-canary-nightly-export"
+    sql_instance_name   = "ecofolk-pg-canary"
+  }
+
+  assert {
+    condition = (
+      contains(split(" AND ", google_logging_metric.sql_export_successes.filter), "resource.labels.job_id=\"ecofolk-pg-canary-nightly-export\"") &&
+      !strcontains(google_logging_metric.sql_export_successes.filter, "job_id=\"ecofolk-pg-nightly-export\"")
+    )
+    error_message = "the export metric must be scoped to var.sql_export_job_name only"
+  }
+
+  assert {
+    condition = (
+      strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, "`ecofolk-pg-canary-nightly-export`") &&
+      strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, "`ecofolk-pg-canary`")
+    )
+    error_message = "the stale-export documentation must name the job and instance from the variables"
+  }
+}
+
+# The roots pass modules/cloudsql's output, never a string literal (Architect ruling on #111).
+run "roots_pass_the_job_id_from_modules_cloudsql" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for env in ["dev", "prod"] :
+      can(regex("\\n\\s*sql_export_job_name\\s*=\\s*module\\.cloudsql\\.export_job_name\\s*\\n", file("${path.module}/../../environments/${env}/main.tf")))
+    ])
+    error_message = "environments/dev and environments/prod must pass sql_export_job_name = module.cloudsql.export_job_name"
+  }
+}
+
+# The DATA_READ audit-log metric is gone, not kept alongside: Data Access logs are off by default, so it
+# would read as configured and never get a point (ef-qa's HOLD, Architect ruling on #111).
+run "no_cloud_sql_audit_log_metric" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for f in fileset(path.module, "*.tf") :
+      !can(regex("cloudaudit\\.googleapis\\.com|cloudsql\\.instances\\.export|protoPayload", file("${path.module}/${f}")))
+    ])
+    error_message = "modules/monitoring must not match Cloud SQL's audit log (Data Access, off by default): the export alert watches the scheduler's execution log"
   }
 }
 
@@ -342,15 +386,15 @@ run "sql_export_policy_is_absent_on_exactly_that_metric" {
   assert {
     condition = (
       google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].filter ==
-      "metric.type=\"logging.googleapis.com/user/ecofolk-sql-export-successes\" AND resource.type=\"cloudsql_database\""
+      "metric.type=\"logging.googleapis.com/user/ecofolk-sql-export-successes\" AND resource.type=\"cloud_scheduler_job\""
     )
-    error_message = "the stale-export policy's absence condition must watch exactly the ecofolk-sql-export-successes metric"
+    error_message = "the stale-export policy's absence condition must watch exactly the ecofolk-sql-export-successes metric on cloud_scheduler_job"
   }
 
-  # The API caps a metric-absence duration at 23.5 h, short of the spec's 48 h.
+  # The API caps a metric-absence duration at 23.5 h, short of the ruled 48 h.
   assert {
     condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "84600s"
-    error_message = "the absence duration must be 84600s (23.5 h, the maximum)"
+    error_message = "the absence duration must be 84600s (23.5 h, the API maximum)"
   }
 
   assert {
@@ -363,25 +407,28 @@ run "sql_export_policy_is_absent_on_exactly_that_metric" {
 
   assert {
     condition = alltrue([
-      for s in ["What broke", "First thing to check", "Operations", "ecofolk-pg-nightly-export", "ecofolk-dev-sql-exports", "runbook.md#3-restore-from-the-nightly-export"] :
+      for s in ["What broke", "First thing to check", "`ecofolk-pg-nightly-export`", "Operations", "ecofolk-dev-sql-exports", "runbook.md#3-restore-from-the-nightly-export"] :
       strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, s)
     ])
-    error_message = "the stale-export documentation must say what broke, point at Cloud SQL Operations, the scheduler job and the bucket, and link runbook §3"
+    error_message = "the stale-export documentation must say what broke, point at the scheduler job, Cloud SQL Operations and the bucket, and link runbook §3"
+  }
+
+  # What a success proves and what it doesn't (Architect ruling on #111).
+  assert {
+    condition = alltrue([
+      for s in ["the Cloud SQL Admin API accepted the export request", "does **not** prove the export then completed", "§3.2 step 1", "gcloud sql operations list", "operationType=EXPORT"] :
+      strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, s)
+    ])
+    error_message = "the stale-export documentation must say a success proves the job fired and the Admin API accepted the request, that it does not prove the export completed, and point at runbook §3.2 step 1's operations list"
   }
 }
 
-run "sql_export_follows_the_instance_variable" {
+run "rejects_a_job_name_that_is_a_resource_path" {
   command = plan
 
   variables {
-    sql_instance_name = "ecofolk-pg-canary"
+    sql_export_job_name = "projects/ecofolk-dev/locations/northamerica-northeast1/jobs/ecofolk-pg-nightly-export"
   }
 
-  assert {
-    condition = (
-      strcontains(google_logging_metric.sql_export_successes.filter, "resource.labels.database_id=\"ecofolk-dev:ecofolk-pg-canary\"") &&
-      strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, "ecofolk-pg-canary-nightly-export")
-    )
-    error_message = "the export metric and its documentation must take the instance from var.sql_instance_name"
-  }
+  expect_failures = [var.sql_export_job_name]
 }

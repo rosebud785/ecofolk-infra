@@ -14,7 +14,7 @@ output "log_metric_names" {
     media_write_failures   = google_logging_metric.media_write_failures.name
     sql_export_successes   = google_logging_metric.sql_export_successes.name
   }
-  description = "Names of the three log-based metrics (logging.googleapis.com/user/<name>)."
+  description = "Names of the three log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109)."
 }
 
 # Issue #5: for ef#406's alert policies to reference (metric.label.check_id in an uptime_check filter).

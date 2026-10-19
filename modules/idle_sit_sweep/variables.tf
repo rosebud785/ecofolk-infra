@@ -44,7 +44,7 @@ variable "invoker_sa_email" {
 variable "sweep_schedule" {
   type        = string
   default     = "0 */2 * * *"
-  description = "Cron schedule (5 fields, America/Chicago) for the idle-sit sweep."
+  description = "Cron schedule (5 fields, America/Chicago) for the idle-sit sweep. WARNING: the default 0 */2 * * * runs inside dev's 22:15–04:45 CT Cloud SQL stop (#14), so environments/dev must override it with a schedule that stays out of that window (#99)."
 
   validation {
     condition     = can(regex("^\\S+( \\S+){4}$", var.sweep_schedule))

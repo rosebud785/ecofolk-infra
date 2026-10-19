@@ -37,7 +37,17 @@
 #           default/validation has drifted from this script's own
 #           ALLOWED_REGION constant (checked below, not just asserted) —
 #           refuses to report a verdict against a definition of "allowed"
-#           it can no longer trust.
+#           it can no longer trust. Also 2 whenever the scan itself breaks
+#           (find/grep/tr error, or a token or file that was read but never
+#           classified): it fails CLOSED, never reporting 0 on a scan it did
+#           not finish (#76).
+#
+# PORTABILITY (#76)
+#   Must run under macOS /bin/bash 3.2 as well as Linux bash 5. No bash-4-only
+#   syntax: `${var,,}` is a "bad substitution" on 3.2, which aborted the scan
+#   loop and then reported REGION_PIN_OK — failing OPEN. Lower-casing goes
+#   through `tr`, and the scan counts what it read against what it classified
+#   so any future aborted loop exits 2 instead of 0.
 
 set -uo pipefail
 
@@ -65,6 +75,9 @@ RED=$'\033[31m'; GRN=$'\033[32m'; RST=$'\033[0m'
 # won't carry this file, and shouldn't need to).
 if [ "$TARGET_DIR" = "$DEFAULT_DIR" ] && [ -f "$TF_VARS_FILE" ]; then
     tf_hits=$(grep -c "\"$ALLOWED_REGION\"" "$TF_VARS_FILE")
+    case "$tf_hits" in
+        ''|*[!0-9]*) echo "${RED}GATE ERROR${RST}: could not read $TF_VARS_FILE (grep -c gave '$tf_hits')."; exit 2 ;;
+    esac
     if [ "$tf_hits" -lt 2 ]; then
         echo "${RED}GATE ERROR${RST}: $TF_VARS_FILE does not declare \"$ALLOWED_REGION\" as both its"
         echo "default and validation condition (found $tf_hits occurrence(s), expected >= 2)."
@@ -83,15 +96,40 @@ fi
 # allowed-region comparison below is case-insensitive to match.
 PATTERN='\b(us|europe|asia|australia|southamerica|northamerica|me|africa)-[a-z]+[0-9]\b|\bglobal\b'
 
-violations=0
+gate_error() { echo "${RED}GATE ERROR${RST}: $*"; exit 2; }
+
+SCAN_LIST="$(mktemp)" || gate_error "mktemp failed; cannot list files to scan."
+trap 'rm -f "$SCAN_LIST"' EXIT
+find "$TARGET_DIR" -name .terraform -prune -o -type f \( -name '*.tf' -o -name '*.tfvars' \) -print0 > "$SCAN_LIST" \
+    || gate_error "find failed under $TARGET_DIR; refusing to report a verdict on a partial file list."
+files_listed=$(tr -cd '\000' < "$SCAN_LIST" | wc -c) || gate_error "could not count the files to scan."
+
+violations=0; files_seen=0; tokens_found=0; tokens_classified=0
 while IFS= read -r -d '' file; do
+    files_seen=$((files_seen + 1))
+    hits=$(grep -noiE "$PATTERN" "$file"); grc=$?
+    # grep: 0 = matches, 1 = no match, anything else = it could not scan.
+    [ "$grc" -le 1 ] || gate_error "grep failed (exit $grc) on $file."
+    [ -n "$hits" ] || continue
+    tokens_found=$((tokens_found + $(printf '%s\n' "$hits" | wc -l)))
     while IFS=: read -r lineno match; do
-        [ -n "$match" ] || continue
-        [ "${match,,}" = "$ALLOWED_REGION" ] && continue
+        lower=$(printf '%s' "$match" | tr '[:upper:]' '[:lower:]') \
+            || gate_error "could not lower-case token '$match' in $file:$lineno."
+        tokens_classified=$((tokens_classified + 1))
+        [ "$lower" = "$ALLOWED_REGION" ] && continue
         echo "${RED}FAIL${RST} $file:$lineno — disallowed region/endpoint token: $match"
         violations=$((violations + 1))
-    done < <(grep -noiE "$PATTERN" "$file")
-done < <(find "$TARGET_DIR" -name .terraform -prune -o -type f \( -name '*.tf' -o -name '*.tfvars' \) -print0)
+    done <<EOF
+$hits
+EOF
+done < "$SCAN_LIST"
+
+# Fail closed: a loop that aborted partway (as `${var,,}` did on bash 3.2)
+# leaves these counts unequal. Never let that read as REGION_PIN_OK.
+[ "$files_seen" -eq "$files_listed" ] \
+    || gate_error "scanned $files_seen of $files_listed file(s); the scan did not finish."
+[ "$tokens_classified" -eq "$tokens_found" ] \
+    || gate_error "classified $tokens_classified of $tokens_found region/endpoint token(s); the scan did not finish."
 
 echo
 if [ "$violations" -eq 0 ]; then

@@ -82,7 +82,9 @@ What runs, all on `main`:
 - **The export** (ecofolk-infra#2, `modules/cloudsql/export.tf`): Cloud Scheduler job
   `ecofolk-pg-nightly-export` runs at 05:15 America/Chicago and writes the `ecofolk` database to
   `gs://<project-id>-sql-exports/ecofolk.sql.gz`. Every night overwrites the same object. The bucket is
-  versioned, so earlier nights are noncurrent versions of it, deleted after 30 days.
+  versioned, so earlier nights are noncurrent versions of it. The one lifecycle rule deletes a noncurrent
+  version 30 days after it was superseded, and only once it has at least 7 newer versions. No rule ever
+  deletes a live object (ecofolk-infra#96).
 - **The restore** (ecofolk-infra#3, `scripts/restore-from-export.sh`): creates database `ecofolk` on a
   target instance, imports the export, checks `postgis` and `vector`, and prints three tables' row counts.
   It does **not** create or delete the target instance, and it does not compare counts: you do both
@@ -137,7 +139,9 @@ export CLOUDSDK_CORE_PROJECT=<project-id>
    - **Restoring the latest night (the normal case):** `<export-uri>` is
      `gs://<project-id>-sql-exports/ecofolk.sql.gz`.
    - **Restoring an earlier night** (the latest is bad): copy that version to its own object first, and
-     use the copy as `<export-uri>`. The copy is deleted by the bucket's 30-day rule like any export.
+     use the copy as `<export-uri>`. The copy is a live object, and no lifecycle rule ever deletes a live
+     object (ecofolk-infra#96), so it stays (and bills) until you remove it in step 6. That removal is
+     required.
 
      ```bash
      gcloud storage cp \
@@ -235,18 +239,31 @@ export CLOUDSDK_CORE_PROJECT=<project-id>
    names the step); `exit=2` is bad arguments, and nothing ran. Record anything other than 0 as a failed
    restore.
 
-6. **Clean up the rehearsal instance** if this was a rehearsal, so it doesn't bill while idle. The script
-   never deletes anything; you do.
+6. **Clean up.** The script never deletes anything; you do. If this was a rehearsal, delete the target
+   instance so it doesn't bill while idle:
 
    ```bash
    gcloud sql instances delete <target-instance>
    ```
 
-   gcloud asks you to confirm. If step 1 made a copy under `restore/`, remove it too:
+   gcloud asks you to confirm.
+
+   **Required if step 1 made a copy under `restore/`, rehearsal or not:** remove the copy. Nothing else
+   removes it. Pass `--all-versions`: the bucket is versioned, so a plain `rm` only turns the copy into a
+   noncurrent version, and the lifecycle rule never deletes that version because it never gets 7 newer
+   versions.
 
    ```bash
-   gcloud storage rm gs://<project-id>-sql-exports/restore/ecofolk-<yyyymmdd>.sql.gz
+   gcloud storage rm --all-versions gs://<project-id>-sql-exports/restore/ecofolk-<yyyymmdd>.sql.gz
    ```
+
+   Then confirm nothing is left under `restore/`:
+
+   ```bash
+   gcloud storage ls --all-versions gs://<project-id>-sql-exports/restore/
+   ```
+
+   Expected: no objects listed (gcloud may report that the URL matched no objects).
 
    Then end the shell, or `unset CLOUDSDK_CORE_PROJECT`.
 

@@ -203,6 +203,34 @@ module "billing_killswitch" {
   depends_on = [module.project]
 }
 
+# Alerts (#24), uptime checks on the API's /health and the web root (#5), and the dashboard (#6), wired the
+# way PR #84 wires prod (issue #90, Architect ruling row 3256). The uptime checks probe only hosts that
+# already exist in dev: the API's Cloud Run run.app host, and the same web host module.auth uses (the
+# Hosting site's <site>.web.app while var.web_host is unset). db_max_connections stays the module default,
+# 25 = db-f1-micro, modules/cloudsql's default tier.
+#
+# Dev alerts go to the email channel Andy made by hand for ef#894, same as prod (Architect ruling on #94,
+# 2026-10-19; it supersedes the earlier "dev passes [] and pages nobody" line in the #90 spec). The value
+# comes from repo variable ALERT_CHANNEL_IDS (infra-apply.yml), not from a committed tfvars. #14 stops dev
+# Cloud SQL 22:15–04:45 CT, so no DB-touching job may run in that window (docs/alerting-policy.md).
+#
+# LOCAL FOLLOW-UP (L-ALERT): supply the two log filters (db_connection_failure_log_filter,
+# media_write_failure_log_filter) to the dev apply via repo variables. ALERT_CHANNEL_IDS already holds the
+# email channel. No IAM.
+module "monitoring" {
+  source                           = "../../modules/monitoring"
+  project_id                       = var.project_id
+  api_service_name                 = module.cloudrun_api.name
+  notification_channels            = var.alert_notification_channels
+  db_connection_failure_log_filter = var.db_connection_failure_log_filter
+  media_write_failure_log_filter   = var.media_write_failure_log_filter
+  api_host                         = trimprefix(module.cloudrun_api.uri, "https://")
+  web_host                         = coalesce(var.web_host, module.web_hosting.default_host)
+  sql_instance_name                = module.cloudsql.instance_name
+
+  depends_on = [module.project]
+}
+
 # Firebase is already attached to ecofolk-dev (Andy, 2026-10-15: GET firebase.googleapis.com/v1beta1/
 # projects/ecofolk-dev returned 200), so the project is adopted into state rather than created; a create
 # would fail with ALREADY_EXISTS. No import for google_firebase_hosting_site.web: attaching Firebase
@@ -237,4 +265,9 @@ output "scheduler_jobs" {
     module.idle_sit_sweep.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the dev composition: name, schedule and time_zone (#99)."
+}
+
+output "uptime_check_ids" {
+  value       = module.monitoring.uptime_check_ids
+  description = "Uptime check IDs of the dev API /health and web root checks (#5)."
 }

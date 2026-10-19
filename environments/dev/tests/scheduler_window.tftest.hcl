@@ -17,7 +17,10 @@ override_resource {
 }
 
 variables {
-  project_id = "ecofolk-dev"
+  project_id                       = "ecofolk-dev"
+  alert_notification_channels      = ["projects/ecofolk-dev/notificationChannels/1234567890"]
+  db_connection_failure_log_filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.db_connect_failed\""
+  media_write_failure_log_filter   = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""
 }
 
 run "dev_plan" {

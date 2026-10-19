@@ -5,6 +5,8 @@
 # start (05:30 CT), PITR on with 7 days of logs in dev and prod, deletion_protection defaulting to true
 # (above), the export bucket's 30-day lifecycle and enforced public access prevention, and the export
 # job's service account coming from a variable with no IAM in the module.
+# Issue #96 (Architect cloud spec, 2026-10-19): the lifecycle deletes noncurrent versions only (ARCHIVED,
+# 30 days noncurrent, at least 7 newer versions), and no lifecycle rule can select the LIVE export.
 mock_provider "google" {}
 
 variables {
@@ -276,7 +278,27 @@ run "export_bucket_is_named_pinned_and_private" {
   }
 }
 
-run "export_bucket_deletes_objects_after_30_days" {
+# #96 known-wrong: the live ecofolk.sql.gz must never be selected by any lifecycle rule, at any age, so a
+# nightly export that silently stops can't age out the last good copy. Only rules pinned to
+# with_state = "ARCHIVED" are accepted: LIVE, ANY or an unset with_state can all match the live object.
+# Checked over every rule, whatever its action, so restoring or adding a rule like the pre-#96
+# `age = 30, with_state = "ANY"` Delete fails here, before the shape checks below.
+# On Terraform >= 1.15 a failing assert that reads `condition` prints a TERRAFORM CRASH instead of this
+# message (the provider's deprecated `no_age` puts a mark on the block that the diagnostic can't render).
+# The run still reports "fail" and the exit code is non-zero; 1.14 shows the message.
+run "export_bucket_has_no_lifecycle_rule_that_can_select_the_live_export" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for r in google_storage_bucket.sql_exports.lifecycle_rule :
+      alltrue([for c in r.condition : c.with_state == "ARCHIVED"])
+    ])
+    error_message = "every export-bucket lifecycle rule must be with_state = \"ARCHIVED\": a LIVE/ANY/unset rule can select the live export (#96)"
+  }
+}
+
+run "export_bucket_deletes_noncurrent_versions_after_30_days_keeping_7" {
   command = plan
 
   assert {
@@ -290,8 +312,23 @@ run "export_bucket_deletes_objects_after_30_days" {
   }
 
   assert {
-    condition     = one(google_storage_bucket.sql_exports.lifecycle_rule[0].condition).age == 30
-    error_message = "the lifecycle rule must delete objects older than 30 days"
+    condition     = one(google_storage_bucket.sql_exports.lifecycle_rule[0].condition).with_state == "ARCHIVED"
+    error_message = "the lifecycle rule must apply to noncurrent (ARCHIVED) versions only"
+  }
+
+  assert {
+    condition     = one(google_storage_bucket.sql_exports.lifecycle_rule[0].condition).days_since_noncurrent_time == 30
+    error_message = "noncurrent versions must be deleted 30 days after they were superseded"
+  }
+
+  assert {
+    condition     = one(google_storage_bucket.sql_exports.lifecycle_rule[0].condition).num_newer_versions == 7
+    error_message = "a noncurrent version must only be deleted once it has at least 7 newer versions"
+  }
+
+  assert {
+    condition     = one(google_storage_bucket.sql_exports.lifecycle_rule[0].condition).age == null
+    error_message = "the lifecycle rule must not delete by object age (#96)"
   }
 }
 

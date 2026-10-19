@@ -45,6 +45,11 @@ env:
   # #24: read by environments/dev's alert_notification_channels once L-ALERT wires modules/monitoring in;
   # Terraform ignores a TF_VAR_ for a variable the root doesn't declare yet.
   TF_VAR_alert_notification_channels: ${{ vars.ALERT_CHANNEL_IDS }}
+  # #24/#90: the app's log line shapes live in the private repo, so the two filters are repo variables
+  # (not secrets), read by environments/dev's db_connection_failure_log_filter and
+  # media_write_failure_log_filter. Terraform ignores a TF_VAR_ for a variable the root doesn't declare yet.
+  TF_VAR_db_connection_failure_log_filter: ${{ vars.DB_CONNECTION_FAILURE_LOG_FILTER }}
+  TF_VAR_media_write_failure_log_filter: ${{ vars.MEDIA_WRITE_FAILURE_LOG_FILTER }}
   TF_DIR: environments/dev
 
 jobs:

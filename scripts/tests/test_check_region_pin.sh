@@ -16,6 +16,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHK="$SCRIPT_DIR/../check-region-pin.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# bash 3.2 image for the #76 leg, pinned by digest (bash:3.2).
+BASH32_IMAGE="bash@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091"
 
 pass=0; fail=0
 check() {
@@ -25,7 +28,8 @@ check() {
 }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+FIX32=""
+trap 'rm -rf "$WORK" ${FIX32:+"$FIX32"}' EXIT
 
 # 1. A deliberate us-central1 violation MUST fail the build — the actual
 #    proof this guard can go red, not an assumption.
@@ -148,6 +152,81 @@ EOF
 OUT10=$(bash "$CHK" "$UPPER_CLEAN" 2>&1); RC10=$?
 check "upper-case NORTHAMERICA-NORTHEAST1 fixture: exits 0" "[ $RC10 -eq 0 ]"
 check "upper-case NORTHAMERICA-NORTHEAST1 fixture: reports REGION_PIN_OK" "echo \"\$OUT10\" | grep -q REGION_PIN_OK"
+
+# 11. Fail closed (#76): if a tool the scan depends on breaks, the verdict is
+#     a GATE ERROR (exit 2), never REGION_PIN_OK. Shims on PATH stand in for
+#     a broken grep and a broken lower-casing `tr`.
+SHIM_GREP="$WORK/shim-grep"; SHIM_TR="$WORK/shim-tr"
+mkdir -p "$SHIM_GREP" "$SHIM_TR"
+printf '#!/bin/sh\necho "grep: simulated read error" >&2\nexit 2\n' > "$SHIM_GREP/grep"
+REAL_TR="$(command -v tr)"
+cat > "$SHIM_TR/tr" <<EOF
+#!/bin/sh
+[ "\$1" = '[:upper:]' ] && { echo "tr: simulated failure" >&2; exit 1; }
+exec "$REAL_TR" "\$@"
+EOF
+chmod +x "$SHIM_GREP/grep" "$SHIM_TR/tr"
+OUT11=$(PATH="$SHIM_GREP:$PATH" bash "$CHK" "$VIOLATION" 2>&1); RC11=$?
+check "broken grep: exits 2, not 0" "[ $RC11 -eq 2 ]"
+check "broken grep: names the reason" "echo \"\$OUT11\" | grep -q 'GATE ERROR.*grep failed'"
+OUT12=$(PATH="$SHIM_TR:$PATH" bash "$CHK" "$CLEAN" 2>&1); RC12=$?
+check "broken lower-casing: exits 2, not 0" "[ $RC12 -eq 2 ]"
+check "broken lower-casing: never reports REGION_PIN_OK" "! echo \"\$OUT12\" | grep -q REGION_PIN_OK"
+
+# 12. bash 3.2 (#76): macOS /bin/bash is 3.2, where the old `${var,,}` was a
+#     "bad substitution" that aborted the scan and then reported
+#     REGION_PIN_OK (exit 0) on a us-central1 fixture. Re-run the known-wrong
+#     and known-right fixtures under a real bash 3.2: natively when /bin/bash
+#     is 3.x (a Mac), and in the bash:3.2 container when docker is up, using
+#     the exact form `docker run --rm -v "$PWD":/w -w /w <bash:3.2> bash
+#     scripts/check-region-pin.sh <fixture>`. The fixtures live in a
+#     throwaway, git-ignored dir under the repo so that /w mount can see them,
+#     and are removed on exit before anything else scans the tree. In hosted
+#     CI (GITHUB_ACTIONS=true) the container leg is required, not skipped.
+FIX32="$(mktemp -d "$REPO_ROOT/.region-pin-fixtures.XXXXXX")"
+FIX32_REL="${FIX32#"$REPO_ROOT"/}"
+mkdir -p "$FIX32/violation" "$FIX32/upper-violation" "$FIX32/clean" "$FIX32/upper-clean"
+printf 'resource "google_sql_database_instance" "main" {\n  region = "us-central1"\n}\n' > "$FIX32/violation/main.tf"
+printf 'resource "google_storage_bucket" "media" {\n  location = "US-CENTRAL1"\n}\n' > "$FIX32/upper-violation/main.tf"
+printf 'resource "google_sql_database_instance" "main" {\n  region = "northamerica-northeast1"\n}\n' > "$FIX32/clean/main.tf"
+printf 'resource "google_storage_bucket" "media" {\n  location = "NORTHAMERICA-NORTHEAST1"\n}\n' > "$FIX32/upper-clean/main.tf"
+
+# bash32_leg LABEL CMD...  — CMD is run from the repo root with the fixture
+# path (relative to the repo root) appended.
+bash32_leg() {
+  local label="$1"; shift
+  local rc out
+  for case in violation:1 upper-violation:1 clean:0 upper-clean:0; do
+    out=$(cd "$REPO_ROOT" && "$@" scripts/check-region-pin.sh "$FIX32_REL/${case%%:*}" 2>&1); rc=$?
+    check "$label ${case%%:*} fixture: exits ${case##*:}" "[ $rc -eq ${case##*:} ]"
+    check "$label ${case%%:*} fixture: no bad substitution" "! echo \"\$out\" | grep -qi 'bad substitution'"
+  done
+}
+
+ran32=0
+if [ -x /bin/bash ] && /bin/bash -c '[ "${BASH_VERSINFO[0]}" -lt 4 ]'; then
+  bash32_leg "native /bin/bash $(/bin/bash -c 'echo $BASH_VERSION'):" /bin/bash
+  ran32=1
+fi
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  if docker image inspect "$BASH32_IMAGE" >/dev/null 2>&1 || docker pull -q "$BASH32_IMAGE" >/dev/null 2>&1; then
+    check "container bash is 3.2" \
+      "docker run --rm \"$BASH32_IMAGE\" bash -c 'echo \$BASH_VERSION' | grep -q '^3\.2\.'"
+    bash32_leg "docker bash:3.2:" docker run --rm -v "$REPO_ROOT":/w -w /w "$BASH32_IMAGE" bash
+    ran32=1
+  else
+    echo "FAIL  docker bash:3.2: could not pull $BASH32_IMAGE"; fail=$((fail+1))
+  fi
+fi
+rm -rf "$FIX32"; FIX32=""
+if [ "$ran32" -eq 0 ]; then
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    echo "FAIL  bash 3.2 leg: no bash 3.x and no docker in hosted CI — the #76 proof did not run"
+    fail=$((fail+1))
+  else
+    echo "SKIP  bash 3.2 leg: no /bin/bash 3.x and no running docker here (#76 proof not run locally)"
+  fi
+fi
 
 echo ""
 echo "== $pass passed, $fail failed =="

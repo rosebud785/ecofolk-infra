@@ -12,6 +12,10 @@
 #     with no default (L-ALERT supplies them);
 #   - no IAM of any kind.
 #
+# INVARIANT (ef#894, docs/alerting-policy.md): alert 2 cannot be time-scoped in a log filter, so every
+# DB-touching Cloud Scheduler job must be time_zone America/Chicago with no run inside the 22:15-04:45 CT
+# dev SQL stop (#14). A run in that window is a DB connection failure and pages.
+#
 # Alert policies and log-based metrics are project-level, not regional: nothing here takes a region.
 # Needs monitoring.googleapis.com and logging.googleapis.com, both on by default in a new project.
 #

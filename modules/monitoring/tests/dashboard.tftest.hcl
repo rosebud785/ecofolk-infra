@@ -27,15 +27,16 @@ run "one_dashboard_in_the_project_with_valid_json" {
     error_message = "the rendered dashboard_json must be valid JSON"
   }
 
-  # GCP rejects a color on an xyChart threshold at apply (400, "color cannot be specified within a XyChart
-  # Threshold", #94's first apply), which a mock provider never sees. Guard the shape here.
+  # GCP's Threshold reference allows only label, value and targetAxis on an xyChart threshold: "Color is
+  # not allowed in a XyChart" and "Direction is not allowed in a XyChart". A mock provider never sees the
+  # API's 400 (#94's first apply failed on color), so the shape is guarded here as an allowlist.
   assert {
     condition = alltrue(flatten([
       for t in jsondecode(google_monitoring_dashboard.ecofolk.dashboard_json).mosaicLayout.tiles : [
-        for th in try(t.widget.xyChart.thresholds, []) : !contains(keys(th), "color")
+        for th in try(t.widget.xyChart.thresholds, []) : alltrue([for k in keys(th) : contains(["label", "value", "targetAxis"], k)])
       ]
     ]))
-    error_message = "an xyChart threshold must not carry a color: the Monitoring API refuses it"
+    error_message = "an xyChart threshold may carry only label, value and targetAxis: the Monitoring API refuses color and direction"
   }
 
   assert {
@@ -259,4 +260,25 @@ run "rejects_fractional_max_connections" {
   }
 
   expect_failures = [var.db_max_connections]
+}
+
+# Known-wrongs for the allowlist above: the same predicate, run over thresholds GCP refuses, must say "not
+# allowed". Without these, an allowlist that matched everything would pass the real dashboard too.
+run "xychart_threshold_allowlist_refuses_color_and_direction" {
+  command = plan
+
+  assert {
+    condition     = var.project_id == "ecofolk-dev" && !alltrue([for k in keys(jsondecode("{\"label\":\"x\",\"value\":1,\"color\":\"RED\"}")) : contains(["label", "value", "targetAxis"], k)])
+    error_message = "the allowlist must refuse a threshold with color"
+  }
+
+  assert {
+    condition     = var.project_id == "ecofolk-dev" && !alltrue([for k in keys(jsondecode("{\"label\":\"x\",\"value\":1,\"direction\":\"ABOVE\"}")) : contains(["label", "value", "targetAxis"], k)])
+    error_message = "the allowlist must refuse a threshold with direction"
+  }
+
+  assert {
+    condition     = var.project_id == "ecofolk-dev" && alltrue([for k in keys(jsondecode("{\"label\":\"x\",\"value\":1,\"targetAxis\":\"Y1\"}")) : contains(["label", "value", "targetAxis"], k)])
+    error_message = "the allowlist must accept label, value and targetAxis"
+  }
 }

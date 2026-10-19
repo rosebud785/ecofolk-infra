@@ -43,11 +43,12 @@ variable "sweep_invoker_service_account_id" {
 }
 
 # Issue #90 spec (b), Architect ruling row 3256: channel resource names only, never an address (#24,
-# L-ALERT). No default, so a run that forgets it fails instead of guessing. Dev's value is [] (dev alerts
-# page nobody), fed by infra-apply.yml from repo variable ALERT_CHANNEL_IDS.
+# L-ALERT). No default, so a run that forgets it fails instead of guessing. Dev's value is Andy's #894
+# email channel (one element), the same as prod (Architect ruling on #94), fed by infra-apply.yml from
+# repo variable ALERT_CHANNEL_IDS.
 variable "alert_notification_channels" {
   type        = list(string)
-  description = "Notification channel resource names (projects/<project>/notificationChannels/<n>) every dev alert notifies. Dev's value is [] (#90): dev alerts page nobody."
+  description = "Notification channel resource names (projects/<project>/notificationChannels/<n>) every dev alert notifies. Dev's value is Andy's #894 email channel, one element (#90, #94)."
 }
 
 # Issue #24: the app's log shapes are private, so both filters are supplied by L-ALERT. No default, as in

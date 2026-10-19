@@ -86,12 +86,13 @@ variable "web_host" {
   }
 }
 
-# Issue #6: the Cloud SQL instance the dashboard's database tiles watch. Default is modules/cloudsql's
-# own instance_name default; the dashboard filters on database_id "<project_id>:<instance>".
+# Issue #6: the Cloud SQL instance the dashboard's database tiles watch, and (#109) the stale-export alert.
+# Default is modules/cloudsql's own instance_name default; both filter on database_id
+# "<project_id>:<instance>".
 variable "sql_instance_name" {
   type        = string
   default     = "ecofolk-pg"
-  description = "Name of the Cloud SQL instance the dashboard's database tiles watch (modules/cloudsql's instance_name)."
+  description = "Name of the Cloud SQL instance the dashboard's database tiles and the stale-export alert watch (modules/cloudsql's instance_name)."
 
   validation {
     condition     = can(regex("^[a-z]([a-z0-9-]{0,96}[a-z0-9])?$", var.sql_instance_name))

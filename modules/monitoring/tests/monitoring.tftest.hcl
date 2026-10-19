@@ -13,7 +13,7 @@ variables {
   web_host                         = "web.example.test"
 }
 
-run "three_policies_exist_and_notify_the_channels" {
+run "policies_exist_and_notify_the_channels" {
   command = plan
 
   assert {
@@ -22,9 +22,10 @@ run "three_policies_exist_and_notify_the_channels" {
         google_monitoring_alert_policy.api_5xx_rate,
         google_monitoring_alert_policy.db_connection_failures,
         google_monitoring_alert_policy.media_write_failures,
+        google_monitoring_alert_policy.sql_export_stale,
       ] : p.project == "ecofolk-dev" && p.notification_channels == var.notification_channels
     ])
-    error_message = "all three alert policies must exist on var.project_id and notify exactly var.notification_channels"
+    error_message = "all four alert policies must exist on var.project_id and notify exactly var.notification_channels"
   }
 
   assert {
@@ -33,6 +34,7 @@ run "three_policies_exist_and_notify_the_channels" {
         google_monitoring_alert_policy.api_5xx_rate,
         google_monitoring_alert_policy.db_connection_failures,
         google_monitoring_alert_policy.media_write_failures,
+        google_monitoring_alert_policy.sql_export_stale,
       ] : length(p.documentation) == 1 && length(trimspace(p.documentation[0].content)) > 0 && strcontains(p.documentation[0].content, "What broke") && strcontains(p.documentation[0].content, "First thing to check")
     ])
     error_message = "every policy must carry documentation.content saying what broke and the first thing to check"
@@ -212,12 +214,12 @@ run "outputs" {
   command = apply
 
   assert {
-    condition     = output.log_metric_names.db_connection_failures == "ecofolk-db-connection-failures" && output.log_metric_names.media_write_failures == "ecofolk-media-write-failures"
+    condition     = output.log_metric_names.db_connection_failures == "ecofolk-db-connection-failures" && output.log_metric_names.media_write_failures == "ecofolk-media-write-failures" && output.log_metric_names.sql_export_successes == "ecofolk-sql-export-successes"
     error_message = "log_metric_names must name both log-based metrics"
   }
 
   assert {
-    condition     = output.alert_policy_names.api_5xx_rate == google_monitoring_alert_policy.api_5xx_rate.name
+    condition     = output.alert_policy_names.api_5xx_rate == google_monitoring_alert_policy.api_5xx_rate.name && output.alert_policy_names.sql_export_stale == google_monitoring_alert_policy.sql_export_stale.name
     error_message = "alert_policy_names must carry the policies' resource names"
   }
 }
@@ -270,4 +272,116 @@ run "rejects_a_bad_service_name" {
   }
 
   expect_failures = [var.api_service_name]
+}
+
+# Issue #109: the stale-export alert. The metric counts completed, error-free exports of the module's
+# instance from the audit log; the policy pages when that metric goes absent.
+run "sql_export_metric_counts_completed_error_free_exports" {
+  command = plan
+
+  assert {
+    condition = (
+      strcontains(google_logging_metric.sql_export_successes.filter, "protoPayload.methodName=\"cloudsql.instances.export\"") &&
+      strcontains(google_logging_metric.sql_export_successes.filter, "protoPayload.serviceName=\"cloudsql.googleapis.com\"") &&
+      strcontains(google_logging_metric.sql_export_successes.filter, "logName:\"cloudaudit.googleapis.com%2Factivity\"") &&
+      strcontains(google_logging_metric.sql_export_successes.filter, "operation.last=true")
+    )
+    error_message = "the export metric must match the audit log's cloudsql.instances.export completion entry (operation.last=true)"
+  }
+
+  assert {
+    condition = (
+      strcontains(google_logging_metric.sql_export_successes.filter, "resource.type=\"cloudsql_database\"") &&
+      strcontains(google_logging_metric.sql_export_successes.filter, "resource.labels.database_id=\"ecofolk-dev:ecofolk-pg\"")
+    )
+    error_message = "the export metric must be scoped to var.sql_instance_name's cloudsql_database resource"
+  }
+
+  assert {
+    condition = (
+      google_logging_metric.sql_export_successes.project == "ecofolk-dev" &&
+      google_logging_metric.sql_export_successes.metric_descriptor[0].metric_kind == "DELTA" &&
+      google_logging_metric.sql_export_successes.metric_descriptor[0].value_type == "INT64"
+    )
+    error_message = "the export metric must be a DELTA/INT64 counter on var.project_id"
+  }
+}
+
+# KNOWN-WRONG: a failed export also writes a completion entry, with protoPayload.status.code set. The
+# metric must not count it, or a run of failures keeps the alert quiet. Every clause is ANDed, so the
+# error exclusion must be one of them, and nothing may match "any status".
+run "sql_export_metric_does_not_match_a_failed_export" {
+  command = plan
+
+  assert {
+    condition = contains(
+      split(" AND ", google_logging_metric.sql_export_successes.filter),
+      "(NOT protoPayload.status.code:* OR protoPayload.status.code=0)"
+    )
+    error_message = "the export metric must AND an error exclusion (no status code, or code 0): a failed export must not count as a success"
+  }
+
+  assert {
+    condition     = !can(regex("protoPayload\\.status\\.code\\s*(!=|>|>=)", google_logging_metric.sql_export_successes.filter))
+    error_message = "the export metric must not select non-zero status codes"
+  }
+}
+
+run "sql_export_policy_is_absent_on_exactly_that_metric" {
+  command = plan
+
+  assert {
+    condition = (
+      length(google_monitoring_alert_policy.sql_export_stale.conditions) == 1 &&
+      length(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent) == 1 &&
+      length(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold) == 0
+    )
+    error_message = "the stale-export policy must have exactly one condition, a condition_absent"
+  }
+
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].filter ==
+      "metric.type=\"logging.googleapis.com/user/ecofolk-sql-export-successes\" AND resource.type=\"cloudsql_database\""
+    )
+    error_message = "the stale-export policy's absence condition must watch exactly the ecofolk-sql-export-successes metric"
+  }
+
+  # The API caps a metric-absence duration at 23.5 h, short of the spec's 48 h.
+  assert {
+    condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "84600s"
+    error_message = "the absence duration must be 84600s (23.5 h, the maximum)"
+  }
+
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_stale.project == "ecofolk-dev" &&
+      google_monitoring_alert_policy.sql_export_stale.notification_channels == var.notification_channels
+    )
+    error_message = "the stale-export policy must be on var.project_id and notify exactly var.notification_channels"
+  }
+
+  assert {
+    condition = alltrue([
+      for s in ["What broke", "First thing to check", "Operations", "ecofolk-pg-nightly-export", "ecofolk-dev-sql-exports", "runbook.md#3-restore-from-the-nightly-export"] :
+      strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, s)
+    ])
+    error_message = "the stale-export documentation must say what broke, point at Cloud SQL Operations, the scheduler job and the bucket, and link runbook §3"
+  }
+}
+
+run "sql_export_follows_the_instance_variable" {
+  command = plan
+
+  variables {
+    sql_instance_name = "ecofolk-pg-canary"
+  }
+
+  assert {
+    condition = (
+      strcontains(google_logging_metric.sql_export_successes.filter, "resource.labels.database_id=\"ecofolk-dev:ecofolk-pg-canary\"") &&
+      strcontains(google_monitoring_alert_policy.sql_export_stale.documentation[0].content, "ecofolk-pg-canary-nightly-export")
+    )
+    error_message = "the export metric and its documentation must take the instance from var.sql_instance_name"
+  }
 }

@@ -40,6 +40,7 @@ and each total is the sum of the rounded lines.
 | Cloud SQL instance (db-f1-micro, zonal) | yes, `modules/cloudsql` | 8.47 | 5.65 | 8.47 | 5.65 | 8.47 | 5.65 | no |
 | Cloud SQL storage (10 GiB SSD) | yes, `disk_size` unset | 1.87 | 1.87 | 1.87 | 1.87 | 1.87 | 1.87 | no |
 | Cloud SQL backups | yes, `backup_configuration` | 0.04 | 0.04 | 0.09 | 0.09 | 0.18 | 0.18 | no |
+| Cloud SQL reference data (#29), inside the storage line | n/a, written by the app's sync jobs | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | no (inside the 10 GiB already billed) |
 | Cloud SQL public IPv4 | yes, `ipv4_enabled = false` | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | no (no public IP) |
 | Cloud Run CPU | yes, `modules/cloudrun_api` | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
 | Cloud Run memory | yes | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | **yes** |
@@ -72,6 +73,10 @@ The Firebase Hosting lines follow `modules/web_hosting` as PR #51 proposes it; t
 Media never leaves through the bucket. The API proxies `GET /media` (ecofolk#377), so the bucket only
 pays storage and operations: GCS → Cloud Run in the same region is free, and each byte a user views is
 billed once, on the Cloud Run egress line.
+
+Reference data (#29) is volume inside the database, not a separate resource: 1,160 kB measured on
+2026-10-19, plus a derived floor for water readings, all inside the 10 GiB disk the storage line already
+bills. iNaturalist's volume is not yet measured. See [`reference-data-cost.md`](reference-data-cost.md).
 
 ## Lines where a free tier is doing the work
 

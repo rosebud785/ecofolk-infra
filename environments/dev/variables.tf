@@ -35,11 +35,11 @@ variable "ops_scheduler_service_account_id" {
 
 # Issue #17 (Architect's OIDC redesign on PR #86): the sweep invoker SA is created locally (L1(a)), with no
 # roles, under exactly this id; only the id is named here, so the email follows the project id. The idle-sit
-# sweep job's OIDC token is minted for it.
+# sweep job's OIDC token is minted for it, and so is sync-usgs-water's (#98, reuses this SA).
 variable "sweep_invoker_service_account_id" {
   type        = string
   default     = "sweep-invoker"
-  description = "Account id (the part before @) of the idle-sit sweep's invoker service account in the dev project (#17)."
+  description = "Account id (the part before @) of the invoker service account for the idle-sit sweep (#17) and sync-usgs-water (#98) jobs in the dev project."
 }
 
 # Issue #90 spec (b), Architect ruling row 3256: channel resource names only, never an address (#24,

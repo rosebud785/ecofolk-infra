@@ -128,6 +128,24 @@ module "idle_sit_sweep" {
   depends_on = [module.project]
 }
 
+# sync-usgs-water (issue #98, Architect's ruling on #97 / ef#894 and cloud spec on #98): one Cloud Scheduler
+# job POSTs {api}/internal/sync-usgs-water at 0 5,11,17 * * * America/Chicago, the cadence in the app's
+# table (ef PR #1105), all outside #14's 22:15–04:45 CT dev Cloud SQL stop. Same OIDC pattern as the sweep
+# above, minted for the SAME existing sweep-invoker SA; no new SA, binding or actAs here.
+# Details: modules/sync_usgs_water/README.md.
+#
+# LOCAL FOLLOW-UP (ecofolk#1092, app side): confirm the API's /internal/sync-usgs-water accepts the
+# sweep-invoker's email and this audience; if not, fix it in the app. No IAM here.
+module "sync_usgs_water" {
+  source           = "../../modules/sync_usgs_water"
+  project_id       = var.project_id
+  region           = module.project.region
+  api_url          = module.cloudrun_api.uri
+  invoker_sa_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+
+  depends_on = [module.project]
+}
+
 # Secret Manager secret CONTAINERS only, no values (issue #32, Architect ruling on ecofolk#399): the four
 # default names in modules/secrets, one user-managed replica each in Montréal. Region is module.project's
 # pin; depends_on so secretmanager.googleapis.com is enabled first.
@@ -263,6 +281,7 @@ output "scheduler_jobs" {
     module.cloudsql.scheduler_jobs,
     module.sql_off_hours.scheduler_jobs,
     module.idle_sit_sweep.scheduler_jobs,
+    module.sync_usgs_water.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the dev composition: name, schedule and time_zone (#99)."
 }

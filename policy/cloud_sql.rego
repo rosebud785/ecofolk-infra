@@ -3,6 +3,11 @@
 #
 # Inside modules/<m>/, tier may be exactly var.X, judged by its default and every call site
 # (module_vars.rego, #39). The allowlist is the same for dev and prod.
+#
+# deletion_protection is judged the same way (#89): a resource in modules/<m>/ that writes it as exactly
+# var.X is judged by X's default and by every call site of the module, and a call site under
+# environments/prod/ must resolve to a literal true (passed, or the default when omitted). The resource's own
+# path never decides it: the resource lives in modules/, so the rule above can't see a prod call site.
 package main
 
 sql_instances contains r if {
@@ -54,6 +59,27 @@ constrained contains {"r": r, "kind": "sql_tier", "arg": "tier", "value": s.tier
 	some s in sql_settings(r)
 	"tier" in object.keys(s)
 }
+
+constrained contains {"r": r, "kind": "sql_protection", "arg": "deletion_protection", "value": r.body.deletion_protection} if {
+	some r in sql_instances
+	"deletion_protection" in object.keys(r.body)
+}
+
+# Prod call sites (and prod defaults) must be exactly true; elsewhere any literal boolean passes. A
+# non-literal ("${local.x}", "${var.y}") fails in both, as every constrained argument does.
+limit_ok("sql_protection", v, path) if {
+	is_prod(path)
+	v == true
+}
+
+limit_ok("sql_protection", v, path) if {
+	not is_prod(path)
+	is_boolean(v)
+}
+
+limit_text("sql_protection", path) := "prod instances need deletion_protection = true" if is_prod(path)
+
+limit_text("sql_protection", path) := "deletion_protection being a literal true/false" if not is_prod(path)
 
 limit_ok("sql_tier", v, _) if v in data.ecofolk.sql_tier_allowlist
 

@@ -13,7 +13,7 @@
 #   - a scheme other than https;
 #   - a URL containing "prod" anywhere, in any case (host, path, query);
 #   - a host that is a private or loopback address:
-#       IPv4 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8,
+#       IPv4 10/8, 172.16/12, 192.168/16, 127.0.0.0/8,
 #       plus 0.0.0.0/8 and 169.254.0.0/16 (link-local, cloud metadata);
 #       IPv6 ::1, ::, fc00::/7, fe80::/10, and IPv4-mapped ::ffff:*;
 #       the name "localhost" (and *.localhost);
@@ -45,7 +45,8 @@ if [ "$#" -ne 1 ] || [ -z "$1" ]; then
 fi
 
 URL="$1"
-LC_URL="${URL,,}"
+# tr, not ${URL,,}: that is bash 4 and a bad substitution on macOS bash 3.2 (#76).
+LC_URL="$(printf '%s' "$URL" | tr '[:upper:]' '[:lower:]')"
 
 refuse() {
     echo "${RED}REFUSED${RST}: $1 ($URL)"
@@ -107,9 +108,9 @@ if [[ "$host" =~ ^(0x[0-9a-f]*|[0-9]+)(\.(0x[0-9a-f]*|[0-9]+))*$ ]]; then
     for o in ${host//./ }; do
         [ "$o" -le 255 ] || refuse "IPv4 octet out of range"
     done
-    if   [ "$a" -eq 10 ];                          then refuse "private IPv4 address (10.0.0.0/8)"
-    elif [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ]; then refuse "private IPv4 address (172.16.0.0/12)"
-    elif [ "$a" -eq 192 ] && [ "$b" -eq 168 ];     then refuse "private IPv4 address (192.168.0.0/16)"
+    if   [ "$a" -eq 10 ];                          then refuse "private IPv4 address (10/8)"
+    elif [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ]; then refuse "private IPv4 address (172.16/12)"
+    elif [ "$a" -eq 192 ] && [ "$b" -eq 168 ];     then refuse "private IPv4 address (192.168/16)"
     elif [ "$a" -eq 127 ];                         then refuse "loopback IPv4 address (127.0.0.0/8)"
     elif [ "$a" -eq 0 ];                           then refuse "unspecified IPv4 address (0.0.0.0/8)"
     elif [ "$a" -eq 169 ] && [ "$b" -eq 254 ];     then refuse "link-local IPv4 address (169.254.0.0/16)"

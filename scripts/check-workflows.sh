@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Makes "no credentials on a PR path" mechanical. Fails, naming file:line, if any workflow:
 #   1. contains pull_request_target;
-#   2. permissions, on the PARSED workflow (check-workflow-permissions.py): `write-all` anywhere; `id-token: write`
+#   2. permissions, on the PARSED workflow (check-workflow-permissions.py): an untrusted-trigger workflow with no
+#      permissions block at workflow level or on a job (#65); a duplicate key inside a permissions mapping (#65);
+#      `write-all` anywhere; `id-token: write`
 #      at workflow level, in an untrusted-trigger workflow, or in a job of a file not on the allowlist below; any
 #      permission other than read/none in an untrusted-trigger workflow; a workflow that does not parse;
 #   3. has `secrets` anywhere inside a ${{ }} expression (any spelling; check-workflow-permissions.py) or
 #      `secrets: inherit`, in a workflow with any untrusted trigger (trusted =
 #      push limited to branches: [main], schedule, and workflow_dispatch whose privileged jobs carry
-#      `if: github.ref == 'refs/heads/main'`; see check-workflow-permissions.py);
+#      `if: github.ref == 'refs/heads/main' && github.ref_protected` (== is case-insensitive, #82); see check-workflow-permissions.py);
 #   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt).
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.

@@ -29,3 +29,14 @@ output "dashboard_id" {
   value       = google_monitoring_dashboard.ecofolk.id
   description = "Resource id of the EcoFolk dashboard."
 }
+
+# #13: every name this module gives a resource (alert policies, uptime checks and the dashboard get
+# server-assigned ids, so only the log-based metrics are named here), as <type>/<name>, for environments/qa's test that no
+# name collides between dev and qa.
+output "resource_names" {
+  value = [
+    "google_logging_metric/${google_logging_metric.db_connection_failures.name}",
+    "google_logging_metric/${google_logging_metric.media_write_failures.name}",
+  ]
+  description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
+}

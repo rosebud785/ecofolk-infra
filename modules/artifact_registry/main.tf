@@ -15,6 +15,9 @@
 # roles/artifactregistry.reader for the Cloud Run service agent, on this repository. IAM is never
 # written in this repo by a cloud session; a human-side session adds both bindings.
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   keep_recent_count     = 10
   untagged_max_age_secs = 7 * 24 * 60 * 60
 }
@@ -22,7 +25,7 @@ locals {
 resource "google_artifact_registry_repository" "docker" {
   project       = var.project_id
   location      = var.region
-  repository_id = var.repository_id
+  repository_id = "${var.repository_id}${local.env_suffix}"
   description   = var.description
   format        = "DOCKER"
 
@@ -43,5 +46,9 @@ resource "google_artifact_registry_repository" "docker" {
       tag_state  = "UNTAGGED"
       older_than = "${local.untagged_max_age_secs}s"
     }
+  }
+
+  labels = {
+    env = var.env
   }
 }

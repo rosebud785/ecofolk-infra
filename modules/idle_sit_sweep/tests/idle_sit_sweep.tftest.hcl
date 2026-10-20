@@ -8,6 +8,7 @@ mock_provider "google" {}
 
 variables {
   project_id = "ecofolk-dev"
+  env        = "dev"
   api_url    = "https://api.example.test"
   # Built with format(), not written as a literal address (.gitleaks.toml's gcp-service-account-address
   # rule). The Architect's name on #17: sweep-invoker.
@@ -288,4 +289,48 @@ run "rejects_a_lookalike_domain" {
   }
 
   expect_failures = [var.invoker_sa_email]
+}
+
+# Issue #13: env. dev keeps the job name; qa would get -qa.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_scheduler_job.sweep.name == "idle-sit-sweep"
+    error_message = "dev must keep the job name idle-sit-sweep"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_cloud_scheduler_job/idle-sit-sweep"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_cloud_scheduler_job.sweep.name == "idle-sit-sweep-qa"
+    error_message = "qa must name the job idle-sit-sweep-qa"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_cloud_scheduler_job/idle-sit-sweep-qa"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }

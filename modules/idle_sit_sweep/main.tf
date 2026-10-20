@@ -19,6 +19,9 @@
 #      (iam.serviceAccounts.actAs, e.g. roles/iam.serviceAccountUser on that SA only).
 #   3. Add the ef#395 inventory line.
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   name      = "idle-sit-sweep"
   time_zone = "America/Chicago"
   path      = "/internal/sweep-idle-sits"
@@ -28,7 +31,7 @@ locals {
 resource "google_cloud_scheduler_job" "sweep" {
   project     = var.project_id
   region      = var.region
-  name        = local.name
+  name        = "${local.name}${local.env_suffix}"
   description = "POSTs ${local.path} on the API to close idle sits (ecofolk-infra#17, ecofolk#460)."
 
   schedule  = var.sweep_schedule

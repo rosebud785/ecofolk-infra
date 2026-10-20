@@ -94,6 +94,7 @@ This public repo writes no IAM.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | budget_display_name | The only budget whose messages the function acts on; every other budget (ecofolk-all included) is ignored. | `string` | `"ecofolk-dev-killswitch"` | no |
+| env | Environment. Dev only: must be "dev" (#13). Sets the `env` label and the (empty) name suffix. | `string` | n/a | yes |
 | function_name | Name of the Cloud Functions (2nd gen) function (and its Cloud Run service). | `string` | `"ecofolk-dev-killswitch"` | no |
 | project_allowlist | Project ids the function may unlink billing from. It does nothing for any other project. Never a *-prod id. | `list(string)` | ```[ "ecofolk-dev" ]``` | no |
 | project_id | GCP project id that hosts the topic and function, and whose billing the function unlinks. No default: every caller states its own project. | `string` | n/a | yes |
@@ -107,6 +108,7 @@ This public repo writes no IAM.
 | Name | Description |
 |------|-------------|
 | function_name | The kill-switch function's name, for the local run.invoker grant on its service (ef#885). |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | service_account_email | The runtime and trigger SA the function expects (created locally, ef#885). |
 | topic_id | The budget topic (projects/<project>/topics/<name>), for the local budget wiring (ef#885). |
 <!-- END_TF_DOCS -->

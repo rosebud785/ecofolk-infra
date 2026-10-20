@@ -56,3 +56,16 @@ variable "export_service_account_email" {
     error_message = "export_service_account_email must be a service account email (<id>@<project>.iam.gserviceaccount.com)."
   }
 }
+
+# #13: dev, qa or prod. It is each resource's `env` label (where the type takes labels) and it suffixes
+# each resource name: dev and prod each own a project, so their names stay as they are; qa is a namespace
+# inside ecofolk-dev, so its names end in -qa and can't collide with dev's.
+variable "env" {
+  type        = string
+  description = "Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa."
+
+  validation {
+    condition     = contains(["dev", "qa", "prod"], var.env)
+    error_message = "env must be \"dev\", \"qa\" or \"prod\"."
+  }
+}

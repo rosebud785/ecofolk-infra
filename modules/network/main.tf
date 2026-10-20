@@ -16,16 +16,21 @@
 # LOCAL FOLLOW-UP: the tf-apply service account needs roles/compute.networkAdmin and
 # roles/servicenetworking.networksAdmin on the project (or a role that includes them) before the first
 # apply of this module. IAM is not managed in this public repo.
+locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+}
+
 resource "google_compute_network" "vpc" {
   project                 = var.project_id
-  name                    = var.name
+  name                    = "${var.name}${local.env_suffix}"
   auto_create_subnetworks = false
   routing_mode            = "REGIONAL"
 }
 
 resource "google_compute_subnetwork" "subnet" {
   project       = var.project_id
-  name          = "${var.name}-${var.region}"
+  name          = "${var.name}${local.env_suffix}-${var.region}"
   region        = var.region
   network       = google_compute_network.vpc.id
   ip_cidr_range = var.subnet_cidr
@@ -38,11 +43,15 @@ resource "google_compute_subnetwork" "subnet" {
 # `address` is left unset so GCP picks a free block of `psa_prefix_length` inside the VPC.
 resource "google_compute_global_address" "psa" {
   project       = var.project_id
-  name          = "${var.name}-psa"
+  name          = "${var.name}${local.env_suffix}-psa"
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
   prefix_length = var.psa_prefix_length
   network       = google_compute_network.vpc.id
+
+  labels = {
+    env = var.env
+  }
 }
 
 resource "google_service_networking_connection" "psa" {

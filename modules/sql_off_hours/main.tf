@@ -27,6 +27,9 @@
 #      carries cloudsql.instances.update, which the PATCH needs.
 #   2. tf-apply's roles/iam.serviceAccountUser on ops-scheduler (#2's item 2) also covers these jobs.
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   time_zone = "America/Chicago"
 
   stop_schedule = "15 22 * * *"
@@ -58,7 +61,7 @@ resource "google_cloud_scheduler_job" "this" {
 
   project     = var.project_id
   region      = var.region
-  name        = "${var.instance_name}-off-hours-${each.key}"
+  name        = "${var.instance_name}-off-hours-${each.key}${local.env_suffix}"
   description = each.value.description
 
   schedule  = each.value.schedule

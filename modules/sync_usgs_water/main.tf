@@ -17,6 +17,9 @@
 # configured invoker SA. Confirm /internal/sync-usgs-water accepts the sweep invoker's email and this
 # audience; if it doesn't, fix it in the app, not with IAM here.
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   name      = "sync-usgs-water"
   time_zone = "America/Chicago"
   schedule  = "0 5,11,17 * * *"
@@ -27,7 +30,7 @@ locals {
 resource "google_cloud_scheduler_job" "sync" {
   project     = var.project_id
   region      = var.region
-  name        = local.name
+  name        = "${local.name}${local.env_suffix}"
   description = "POSTs ${local.path} on the API to sync USGS water data (ecofolk-infra#98, ef PR #1105)."
 
   schedule  = local.schedule

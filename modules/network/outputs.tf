@@ -19,3 +19,14 @@ output "subnet_id" {
   value       = google_compute_subnetwork.subnet.id
   description = "Relative resource name (.id) of the subnet (Cloud Run v2 Direct VPC egress subnetwork)."
 }
+
+# #13: every name this module gives a resource, as <type>/<name>, for environments/qa's test that no
+# name collides between dev and qa.
+output "resource_names" {
+  value = [
+    "google_compute_network/${google_compute_network.vpc.name}",
+    "google_compute_subnetwork/${google_compute_subnetwork.subnet.name}",
+    "google_compute_global_address/${google_compute_global_address.psa.name}",
+  ]
+  description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
+}

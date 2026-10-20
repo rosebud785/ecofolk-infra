@@ -80,6 +80,7 @@ gcloud scheduler jobs describe idle-sit-sweep --project=ecofolk-dev \
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | api_url | Base URL of the API (https://<host>, no path, no trailing slash); pass module.cloudrun_api.uri. | `string` | n/a | yes |
+| env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa. | `string` | n/a | yes |
 | invoker_sa_email | Email of the sweep invoker service account (<id>@<project>.iam.gserviceaccount.com). | `string` | n/a | yes |
 | project_id | GCP project id that owns the Scheduler job. | `string` | n/a | yes |
 | region | Cloud Scheduler region. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
@@ -91,5 +92,6 @@ gcloud scheduler jobs describe idle-sit-sweep --project=ecofolk-dev \
 |------|-------------|
 | audience | The OIDC audience the job's ID token carries (the endpoint URL); the API must expect exactly this. |
 | job_name | Name of the idle-sit sweep Cloud Scheduler job. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | scheduler_jobs | This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). |
 <!-- END_TF_DOCS -->

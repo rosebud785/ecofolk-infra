@@ -126,3 +126,14 @@ run "rejects_an_authorized_domain_with_a_path" {
 
   expect_failures = [var.authorized_domains]
 }
+
+# Issue #13: the config is one per project, so resource_names lists it under the project's name, and
+# environments/qa's collision test catches a qa root that calls this module on dev's project.
+run "resource_names_lists_the_config" {
+  command = plan
+
+  assert {
+    condition     = output.resource_names == ["google_identity_platform_config/ecofolk-dev"]
+    error_message = "resource_names must be the project's one config (#13), got ${jsonencode(output.resource_names)}"
+  }
+}

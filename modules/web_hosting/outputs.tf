@@ -15,3 +15,13 @@ output "site_id" {
   value       = google_firebase_hosting_site.web.site_id
   description = "The Hosting site id, for `firebase deploy --only hosting:<site>` (ecofolk#408)."
 }
+
+# #13: every name this module gives a resource (Firebase is one per project, so its name is the project), as <type>/<name>, for environments/qa's test that no
+# name collides between dev and qa.
+output "resource_names" {
+  value = [
+    "google_firebase_project/${google_firebase_project.this.project}",
+    "google_firebase_hosting_site/${google_firebase_hosting_site.web.site_id}",
+  ]
+  description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
+}

@@ -37,6 +37,7 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | api_service_name | Name of the API's Cloud Run service, for the 5xx policy's filter. | `string` | `"ecofolk-api"` | no |
 | db_connection_failure_log_filter | Cloud Logging filter matching one log entry per failed database connection attempt by the API. Supplied by L-ALERT. | `string` | n/a | yes |
 | db_max_connections | The Cloud SQL tier's max_connections, drawn as the connections tile's threshold. 25 = db-f1-micro. | `number` | `25` | no |
+| env | Environment: dev, qa or prod. Sets the `env` user label on each alert policy and uptime check; qa (a namespace inside ecofolk-dev, #13) also suffixes the log-based metric names with -qa. | `string` | n/a | yes |
 | media_write_failure_log_filter | Cloud Logging filter matching one log entry per failed media upload/write by the API. Supplied by L-ALERT. | `string` | n/a | yes |
 | notification_channels | Notification channel resource names (projects/<project>/notificationChannels/<n>) every policy notifies. IDs only: never an address. | `list(string)` | n/a | yes |
 | project_id | GCP project id the alert policies and log-based metrics live in. No default: every caller states its own project. | `string` | n/a | yes |
@@ -50,5 +51,6 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | alert_policy_names | Resource names of the three alert policies. |
 | dashboard_id | Resource id of the EcoFolk dashboard. |
 | log_metric_names | Names of the two log-based metrics (logging.googleapis.com/user/<name>). |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | uptime_check_ids | Uptime check IDs of the API /health and web root checks. |
 <!-- END_TF_DOCS -->

@@ -10,7 +10,7 @@
 # What is deliberately NOT here (Architect spec on #19):
 #   - no IAM of any kind: the runtime service account, the apply identity's actAs on it, and the
 #     `allUsers` -> roles/run.invoker binding that makes the API callable are local follow-up (L-RUN below);
-#   - no secrets: `env` takes non-secret values only. Secrets come later as secret_key_ref to Secret
+#   - no secrets: `env_vars` takes non-secret values only. Secrets come later as secret_key_ref to Secret
 #     Manager secret names (ef#399, local);
 #   - no custom domain or domain mapping (ef#404/#670), and no deploy CI (ef#408).
 #
@@ -25,10 +25,19 @@
 #      then the cold start measurement (first-request latency after scale-to-zero, 5 runs, report the
 #      median) once the real image is deployed; roles/cloudsql.client and
 #      roles/secretmanager.secretAccessor (per named secret) to ef#399.
+locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+}
+
 resource "google_cloud_run_v2_service" "api" {
   project  = var.project_id
-  name     = var.name
+  name     = "${var.name}${local.env_suffix}"
   location = var.region
+
+  labels = {
+    env = var.env
+  }
 
   # The public API: reachable from the internet once allUsers gets the invoker role (L-RUN, ef#408).
   ingress = "INGRESS_TRAFFIC_ALL"
@@ -67,7 +76,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       dynamic "env" {
-        for_each = var.env
+        for_each = var.env_vars
         content {
           name  = env.key
           value = env.value

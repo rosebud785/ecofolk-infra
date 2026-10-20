@@ -15,6 +15,9 @@
 # `region` is deliberately NOT set on the provider, nor passed to the module: the module's own default
 # (northamerica-northeast1, ef#391) is the single source of truth, and a provider-level region would be a
 # second place that has to agree with it. Every regional resource takes its region from that module.
+#
+# env (#13): every module that names or labels a resource takes env = "dev". Dev's names stay as they were;
+# the QA namespace (environments/qa) shares this project, and its env = "qa" suffixes its names with -qa.
 terraform {
   backend "gcs" {
     prefix = "dev"
@@ -40,6 +43,7 @@ module "project" {
 module "network" {
   source     = "../../modules/network"
   project_id = var.project_id
+  env        = "dev"
   region     = module.project.region
 
   depends_on = [module.project]
@@ -56,6 +60,7 @@ module "network" {
 module "cloudsql" {
   source                       = "../../modules/cloudsql"
   project_id                   = var.project_id
+  env                          = "dev"
   private_network              = module.network.network_self_link
   export_service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 
@@ -73,6 +78,7 @@ module "cloudsql" {
 module "sql_off_hours" {
   source                = "../../modules/sql_off_hours"
   project_id            = var.project_id
+  env                   = "dev"
   region                = module.project.region
   instance_name         = module.cloudsql.instance_name
   service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -99,6 +105,7 @@ module "sql_off_hours" {
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = var.project_id
+  env             = "dev"
   region          = module.project.region
   service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
   network         = module.network.network_id
@@ -120,6 +127,7 @@ module "cloudrun_api" {
 module "idle_sit_sweep" {
   source           = "../../modules/idle_sit_sweep"
   project_id       = var.project_id
+  env              = "dev"
   region           = module.project.region
   api_url          = module.cloudrun_api.uri
   invoker_sa_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -139,6 +147,7 @@ module "idle_sit_sweep" {
 module "sync_usgs_water" {
   source           = "../../modules/sync_usgs_water"
   project_id       = var.project_id
+  env              = "dev"
   region           = module.project.region
   api_url          = module.cloudrun_api.uri
   invoker_sa_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -195,6 +204,7 @@ module "media_bucket" {
 module "web_hosting" {
   source     = "../../modules/web_hosting"
   project_id = var.project_id
+  env        = "dev"
 
   providers = {
     google-beta = google-beta
@@ -216,6 +226,7 @@ module "web_hosting" {
 module "billing_killswitch" {
   source     = "../../modules/billing_killswitch"
   project_id = var.project_id
+  env        = "dev"
   region     = module.project.region
 
   depends_on = [module.project]
@@ -238,6 +249,7 @@ module "billing_killswitch" {
 module "monitoring" {
   source                           = "../../modules/monitoring"
   project_id                       = var.project_id
+  env                              = "dev"
   api_service_name                 = module.cloudrun_api.name
   notification_channels            = var.alert_notification_channels
   db_connection_failure_log_filter = var.db_connection_failure_log_filter
@@ -284,6 +296,28 @@ output "scheduler_jobs" {
     module.sync_usgs_water.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the dev composition: name, schedule and time_zone (#99)."
+}
+
+# Every resource name in this composition (#13), as <type>/<name>, for environments/qa's test that no name
+# collides between dev and qa (they share ecofolk-dev). Every module call must be listed here; that test
+# fails otherwise.
+output "resource_names" {
+  value = concat(
+    module.project.resource_names,
+    module.network.resource_names,
+    module.cloudsql.resource_names,
+    module.sql_off_hours.resource_names,
+    module.cloudrun_api.resource_names,
+    module.idle_sit_sweep.resource_names,
+    module.sync_usgs_water.resource_names,
+    module.secrets.resource_names,
+    module.auth.resource_names,
+    module.media_bucket.resource_names,
+    module.web_hosting.resource_names,
+    module.billing_killswitch.resource_names,
+    module.monitoring.resource_names,
+  )
+  description = "Every resource name in the dev composition, as <type>/<name> (#13's dev/qa collision test)."
 }
 
 output "uptime_check_ids" {

@@ -3,7 +3,8 @@
 # Why: automated backups (and PITR logs) are deleted along with the instance. A SQL export in GCS is a copy
 # that survives it.
 #
-# The bucket is <project_id>-sql-exports (Architect name default on #2), in Montréal, private, versioned.
+# The bucket is <project_id>-sql-exports (Architect name default on #2; a qa env would add -qa, #13), in
+# Montréal, private, versioned.
 # Every run writes the same object, so the previous night's export becomes a noncurrent version. The one
 # lifecycle rule deletes only noncurrent versions, 30 days after they were superseded, and only once they
 # have at least 7 newer versions. No rule can select the live object at any age (ecofolk-infra#96): if the
@@ -24,7 +25,7 @@
 #      roles/storage.objectAdmin on this bucket only. The export writes the object as that account, and
 #      overwriting the previous night's object needs delete as well as create.
 locals {
-  export_bucket_name            = "${var.project_id}-sql-exports"
+  export_bucket_name            = google_storage_bucket.sql_exports.name
   export_object_uri             = "gs://${local.export_bucket_name}/${local.database_name}.sql.gz" # .gz: Cloud SQL compresses
   export_retention_days         = 30
   export_min_newer_versions     = 7
@@ -36,7 +37,7 @@ locals {
 
 resource "google_storage_bucket" "sql_exports" {
   project       = var.project_id
-  name          = local.export_bucket_name
+  name          = "${var.project_id}-sql-exports${local.env_suffix}"
   location      = upper(var.region)
   storage_class = "STANDARD"
 
@@ -64,12 +65,16 @@ resource "google_storage_bucket" "sql_exports" {
       num_newer_versions         = local.export_min_newer_versions
     }
   }
+
+  labels = {
+    env = var.env
+  }
 }
 
 resource "google_cloud_scheduler_job" "sql_export" {
   project     = var.project_id
   region      = var.region
-  name        = "${var.instance_name}-nightly-export"
+  name        = "${var.instance_name}${local.env_suffix}-nightly-export"
   description = "Nightly export of the ${local.database_name} database to ${local.export_bucket_name} (ecofolk-infra#2)."
 
   schedule  = local.export_schedule

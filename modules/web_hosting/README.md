@@ -53,6 +53,7 @@ the API, the database and media, which all stay pinned.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| env | Environment: dev, qa or prod. Neither resource takes labels; qa (a namespace inside ecofolk-dev, #13) suffixes the site id with -qa. | `string` | n/a | yes |
 | project_id | GCP project id to add Firebase to and host the web build in. The site id is <project_id>-web. | `string` | n/a | yes |
 
 ## Outputs
@@ -61,5 +62,6 @@ the API, the database and media, which all stay pinned.
 |------|-------------|
 | default_host | Bare hostname of default_url (no scheme), the form modules/auth's web_host takes. |
 | default_url | The site's default URL (https://<site>.web.app), for the auth authorized domains and the API's CORS allowlist. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | site_id | The Hosting site id, for `firebase deploy --only hosting:<site>` (ecofolk#408). |
 <!-- END_TF_DOCS -->

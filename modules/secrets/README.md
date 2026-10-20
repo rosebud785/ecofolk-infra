@@ -26,7 +26,7 @@ Secret Manager secret containers (no versions), with one replica in Montréal (e
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| env | Environment name, set as each secret's `env` label. | `string` | n/a | yes |
+| env | Environment: dev, qa or prod. Sets each secret's `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each secret id with _QA. | `string` | n/a | yes |
 | project_id | GCP project id that owns the secrets. No default: every caller states its own project. | `string` | n/a | yes |
 | region | Location of each secret's single user-managed replica. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
 | secret_names | Secret Manager secret ids to create as empty containers. Each is also the env var name the API reads it as. | `list(string)` | ```[ "POSTGRES_PASSWORD", "POSTGRES_INGEST_PASSWORD", "SWEEP_TOKEN", "NOAA_CDO_TOKEN" ]``` | no |
@@ -35,5 +35,6 @@ Secret Manager secret containers (no versions), with one replica in Montréal (e
 
 | Name | Description |
 |------|-------------|
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | secret_ids | Map from secret name to its id (projects/<project>/secrets/<name>), for the Cloud Run secretKeyRef mapping (ecofolk-infra#66). |
 <!-- END_TF_DOCS -->

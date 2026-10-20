@@ -10,6 +10,7 @@ updates:
     directories:
       - /environments/dev
       - /environments/prod
+      - /environments/qa
       - /modules/artifact_registry
       - /modules/auth
       - /modules/billing_killswitch
@@ -20,6 +21,7 @@ updates:
       - /modules/network
       - /modules/project
       - /modules/secrets
+      - /modules/sql_database
       - /modules/sql_off_hours
       - /modules/web_hosting
     schedule:

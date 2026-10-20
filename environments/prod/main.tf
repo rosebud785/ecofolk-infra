@@ -26,6 +26,9 @@ provider "google" {
   project = local.project_id
 }
 
+# env (#13): every module that names or labels a resource takes env = "prod". Prod's names are unchanged;
+# only a namespace env (qa) suffixes names.
+
 locals {
   project_id = "ecofolk-prod"
 }
@@ -39,6 +42,7 @@ module "project" {
 module "network" {
   source     = "../../modules/network"
   project_id = local.project_id
+  env        = "prod"
   region     = module.project.region
 
   depends_on = [module.project]
@@ -56,6 +60,7 @@ module "network" {
 module "cloudsql" {
   source              = "../../modules/cloudsql"
   project_id          = local.project_id
+  env                 = "prod"
   private_network     = module.network.network_self_link
   deletion_protection = true
   # go-live: confirm tier (cost review)
@@ -69,6 +74,7 @@ module "cloudsql" {
 module "artifact_registry" {
   source        = "../../modules/artifact_registry"
   project_id    = local.project_id
+  env           = "prod"
   region        = module.project.region
   repository_id = "ecofolk-images"
 
@@ -85,6 +91,7 @@ module "artifact_registry" {
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = local.project_id
+  env             = "prod"
   region          = module.project.region
   service_account = "${var.api_service_account_id}@${local.project_id}.iam.gserviceaccount.com"
   network         = module.network.network_id
@@ -121,6 +128,7 @@ module "media_bucket" {
 module "monitoring" {
   source                           = "../../modules/monitoring"
   project_id                       = local.project_id
+  env                              = "prod"
   api_service_name                 = module.cloudrun_api.name
   notification_channels            = var.alert_notification_channels
   db_connection_failure_log_filter = var.db_connection_failure_log_filter

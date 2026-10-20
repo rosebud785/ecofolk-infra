@@ -61,6 +61,7 @@ gcloud sql instances describe ecofolk-pg --project=ecofolk-dev \
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | enable_off_hours | Create the 22:15 CT stop and 04:45 CT start jobs. False creates neither, so the instance runs around the clock. | `bool` | `true` | no |
+| env | Environment. Dev only: must be "dev" (#13). Sets the `env` label and the (empty) name suffix. | `string` | n/a | yes |
 | instance_name | Name of the Cloud SQL instance to stop and start; pass module.cloudsql.instance_name. | `string` | n/a | yes |
 | project_id | GCP project id of the dev project that owns the instance. Must not be a *-prod project. | `string` | n/a | yes |
 | region | Cloud Scheduler region. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
@@ -71,5 +72,6 @@ gcloud sql instances describe ecofolk-pg --project=ecofolk-dev \
 | Name | Description |
 |------|-------------|
 | job_names | Names of the Cloud Scheduler jobs, keyed stop and start. Empty when enable_off_hours is false. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | scheduler_jobs | This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). Empty when enable_off_hours is false. |
 <!-- END_TF_DOCS -->

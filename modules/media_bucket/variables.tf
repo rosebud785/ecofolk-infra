@@ -16,12 +16,14 @@ variable "project_id" {
   description = "GCP project id that owns the bucket. The bucket is named <project_id>-media (globally unique). No default."
 }
 
+# #13: dev, qa or prod. qa uses a prefix in dev's bucket rather than calling this module, but a qa call
+# would get its own <project_id>-media-qa bucket, never dev's.
 variable "env" {
   type        = string
-  description = "Environment name, set as the bucket's `env` label."
+  description = "Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa."
 
   validation {
-    condition     = contains(["dev", "prod"], var.env)
-    error_message = "env must be \"dev\" or \"prod\"."
+    condition     = contains(["dev", "qa", "prod"], var.env)
+    error_message = "env must be \"dev\", \"qa\" or \"prod\"."
   }
 }

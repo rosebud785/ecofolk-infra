@@ -50,3 +50,15 @@ variable "enable_off_hours" {
   default     = true
   description = "Create the 22:15 CT stop and 04:45 CT start jobs. False creates neither, so the instance runs around the clock."
 }
+
+# #13: the env label and name suffix every module takes. This module is dev only, and qa shares dev's
+# instance (#13), so this stop and start already covers it, so only "dev" is accepted: a qa root can't make a second copy.
+variable "env" {
+  type        = string
+  description = "Environment. Dev only: must be \"dev\" (#13). Sets the `env` label and the (empty) name suffix."
+
+  validation {
+    condition     = var.env == "dev"
+    error_message = "env must be \"dev\": this module is dev only, and qa shares dev's project (#13)."
+  }
+}

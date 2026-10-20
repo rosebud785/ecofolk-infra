@@ -30,6 +30,7 @@ Cloud SQL Postgres 16: private IP only, backups on, the IAM auth flag set (ecofo
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | deletion_protection | Sets both Terraform's deletion_protection and the instance's settings.deletion_protection_enabled. | `bool` | `true` | no |
+| env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa. | `string` | n/a | yes |
 | export_service_account_email | Email of the service account the nightly export job runs as (the ops-scheduler account in the dev project). Created locally, never here. | `string` | n/a | yes |
 | instance_name | Cloud SQL instance name (lowercase letters, digits and hyphens). | `string` | `"ecofolk-pg"` | no |
 | private_network | Self-link of the VPC the instance takes its private IP in; pass module.network.network_self_link. | `string` | n/a | yes |
@@ -48,5 +49,6 @@ Cloud SQL Postgres 16: private IP only, backups on, the IAM auth flag set (ecofo
 | instance_name | The instance's name, for modules/sql_off_hours' stop and start jobs (#14). |
 | instance_service_account_email | The instance's own service account. The export writes as it, so LOCAL FOLLOW-UP L1(a) grants it write on the export bucket. |
 | private_ip_address | The instance's private IP inside the PSA range. There is no public IP. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | scheduler_jobs | This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). |
 <!-- END_TF_DOCS -->

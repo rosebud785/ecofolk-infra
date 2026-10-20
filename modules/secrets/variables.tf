@@ -16,13 +16,14 @@ variable "project_id" {
   description = "GCP project id that owns the secrets. No default: every caller states its own project."
 }
 
+# #13: dev, qa or prod; each secret's `env` label. A qa call (none today) would suffix each id with _QA.
 variable "env" {
   type        = string
-  description = "Environment name, set as each secret's `env` label."
+  description = "Environment: dev, qa or prod. Sets each secret's `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each secret id with _QA."
 
   validation {
-    condition     = contains(["dev", "prod"], var.env)
-    error_message = "env must be \"dev\" or \"prod\"."
+    condition     = contains(["dev", "qa", "prod"], var.env)
+    error_message = "env must be \"dev\", \"qa\" or \"prod\"."
   }
 }
 

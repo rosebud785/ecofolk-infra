@@ -3,6 +3,7 @@ mock_provider "google" {}
 
 variables {
   project_id    = "ecofolk-dev"
+  env           = "dev"
   repository_id = "ecofolk-images"
 }
 
@@ -97,4 +98,58 @@ run "rejects_an_invalid_repository_id" {
   }
 
   expect_failures = [var.repository_id]
+}
+
+# Issue #13: env. dev keeps the repository id; qa would get -qa; the env label follows var.env.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_artifact_registry_repository.docker.repository_id == "ecofolk-images"
+    error_message = "dev must keep the repository id as passed"
+  }
+
+  assert {
+    condition     = google_artifact_registry_repository.docker.labels.env == "dev"
+    error_message = "the repository must carry env = dev"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_artifact_registry_repository/ecofolk-images"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_artifact_registry_repository.docker.repository_id == "ecofolk-images-qa"
+    error_message = "qa must suffix the repository id with -qa"
+  }
+
+  assert {
+    condition     = google_artifact_registry_repository.docker.labels.env == "qa"
+    error_message = "the repository must carry env = qa"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_artifact_registry_repository/ecofolk-images-qa"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }

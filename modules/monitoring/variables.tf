@@ -111,3 +111,16 @@ variable "db_max_connections" {
     error_message = "db_max_connections must be a positive whole number."
   }
 }
+
+# #13: dev, qa or prod. It is the `env` user label on each alert policy and uptime check, and it suffixes
+# the log-based metric names (the other resources get server-assigned ids): dev and prod each own a
+# project, so their names stay as they are; a qa call would end in -qa. qa doesn't call this module today.
+variable "env" {
+  type        = string
+  description = "Environment: dev, qa or prod. Sets the `env` user label on each alert policy and uptime check; qa (a namespace inside ecofolk-dev, #13) also suffixes the log-based metric names with -qa."
+
+  validation {
+    condition     = contains(["dev", "qa", "prod"], var.env)
+    error_message = "env must be \"dev\", \"qa\" or \"prod\"."
+  }
+}

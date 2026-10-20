@@ -25,7 +25,7 @@
 # roles/cloudsql.instanceUser on the project).
 resource "google_sql_database_instance" "postgres" {
   project          = var.project_id
-  name             = var.instance_name
+  name             = "${var.instance_name}${local.env_suffix}"
   region           = var.region
   database_version = "POSTGRES_16"
 
@@ -38,6 +38,10 @@ resource "google_sql_database_instance" "postgres" {
     edition           = "ENTERPRISE"
     tier              = var.tier
     availability_type = "ZONAL"
+
+    user_labels = {
+      env = var.env
+    }
 
     # GCP-side guard, from the same variable: the instance can't be deleted from the console or API either.
     deletion_protection_enabled = var.deletion_protection
@@ -80,12 +84,16 @@ resource "google_sql_database_instance" "postgres" {
 
 resource "google_sql_database" "ecofolk" {
   project  = var.project_id
-  name     = local.database_name
+  name     = "ecofolk${replace(local.env_suffix, "-", "_")}"
   instance = google_sql_database_instance.postgres.name
 }
 
 locals {
-  database_name = "ecofolk"
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
+  # The database's name: "ecofolk" in dev and prod, with an underscore suffix in a namespace env (#13).
+  database_name = google_sql_database.ecofolk.name
 
   # C2 (#2) windows. "CT" is America/Chicago (the zone #14's AC names). Cloud SQL's maintenance hour and
   # backup start are UTC with no DST, so they are pinned to CST (UTC-6): 05:00 CT = 11:00 UTC. Under CDT

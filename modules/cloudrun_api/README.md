@@ -26,10 +26,11 @@ The API on Cloud Run v2: scale-to-zero, Direct VPC egress (ecofolk-infra#19).
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| env | Plain environment variables for the container. NON-SECRET values only: this lands in state and in the public repo. | `map(string)` | `{}` | no |
+| env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa. | `string` | n/a | yes |
+| env_vars | Plain environment variables for the container. NON-SECRET values only: this lands in state and in the public repo. | `map(string)` | `{}` | no |
 | image | Container image for the first revision. Defaults to Google's public placeholder; later deploys own the image. | `string` | `"us-docker.pkg.dev/cloudrun/container/hello"` | no |
 | max_instance_count | Upper bound on instances. At most 3 (C7); callers pass a literal or omit it. | `number` | `3` | no |
-| name | Cloud Run service name (lowercase letters, digits and hyphens). | `string` | `"ecofolk-api"` | no |
+| name | Cloud Run service name (lowercase letters, digits and hyphens). A qa service gets -qa appended (#13). | `string` | `"ecofolk-api"` | no |
 | network | VPC for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.network_id. | `string` | n/a | yes |
 | project_id | GCP project id that owns the service. No default: every caller states its own project. | `string` | n/a | yes |
 | region | Cloud Run region. Must always be northamerica-northeast1 (Montréal), ef#391; pass module.project.region. | `string` | `"northamerica-northeast1"` | no |
@@ -41,5 +42,6 @@ The API on Cloud Run v2: scale-to-zero, Direct VPC egress (ecofolk-infra#19).
 | Name | Description |
 |------|-------------|
 | name | Cloud Run service name. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | uri | The service's run.app URI. Not callable by the public until L-RUN adds the invoker binding. |
 <!-- END_TF_DOCS -->

@@ -1,0 +1,43 @@
+{
+  "xPos": 16,
+  "yPos": 32,
+  "width": 16,
+  "height": 16,
+  "widget": {
+    "title": "Database (Cloud SQL): connections vs tier maximum",
+    "xyChart": {
+      "dataSets": [
+        {
+          "plotType": "LINE",
+          "legendTemplate": "connections",
+          "minAlignmentPeriod": "60s",
+          "timeSeriesQuery": {
+            "timeSeriesFilter": {
+              "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\" resource.type=\"cloudsql_database\" resource.label.database_id=\"${sql_database_id}\"",
+              "aggregation": {
+                "alignmentPeriod": "60s",
+                "perSeriesAligner": "ALIGN_MAX",
+                "crossSeriesReducer": "REDUCE_SUM",
+                "groupByFields": [
+                  "resource.label.database_id"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "thresholds": [
+        {
+          "label": "tier maximum (max_connections)",
+          "value": "__DB_MAX_CONNECTIONS__",
+          "color": "RED",
+          "direction": "ABOVE"
+        }
+      ],
+      "yAxis": {
+        "label": "connections",
+        "scale": "LINEAR"
+      }
+    }
+  }
+}

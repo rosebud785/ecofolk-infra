@@ -41,6 +41,7 @@ The API on Cloud Run v2: scale-to-zero, Direct VPC egress (ecofolk-infra#19).
 
 | Name | Description |
 |------|-------------|
+| env | The plain environment variables set on the container (non-secret), for environments' tests (#114). |
 | name | Cloud Run service name. |
 | uri | The service's run.app URI. Not callable by the public until L-RUN adds the invoker binding. |
 <!-- END_TF_DOCS -->

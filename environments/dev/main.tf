@@ -45,6 +45,21 @@ module "network" {
   depends_on = [module.project]
 }
 
+# Docker repository for the API image (issue #119): ecofolk#408's local deploy script pushes here. Location is
+# the module's own pinned default (northamerica-northeast1, ef#391); its two cleanup policies bound storage.
+# depends_on so artifactregistry.googleapis.com is enabled first.
+#
+# LOCAL FOLLOW-UP (ecofolk#1109): roles/artifactregistry.writer on this repository for the deploy identity
+# that pushes the image, and roles/artifactregistry.reader on it for the Cloud Run service agent that pulls
+# it. IAM is not managed in this public repo.
+module "artifact_registry" {
+  source        = "../../modules/artifact_registry"
+  project_id    = var.project_id
+  repository_id = "ecofolk"
+
+  depends_on = [module.project]
+}
+
 # Cloud SQL Postgres 16, private IP only (issue #18). Region is the module's own pinned default, per the
 # #18 spec; depends_on so sqladmin is enabled and the PSA peering exists before the instance asks for a
 # private IP.
@@ -80,6 +95,25 @@ module "sql_off_hours" {
   depends_on = [module.project]
 }
 
+# The API's one base URL (#114, Architect ruling (a)): the DETERMINISTIC run.app form,
+# https://SERVICE-PROJECT_NUMBER.REGION.run.app (https://cloud.google.com/run/docs/triggering/https-request
+# #deterministic). It is NOT module.cloudrun_api.uri, which is the hash form (<svc>-<hash>-<rc>.a.run.app),
+# a different string; and reading .uri into the service's own env would be a Terraform cycle. The project
+# number is read at plan time, so it never appears in this public repo. This ONE local feeds the service's
+# INTERNAL_AUDIENCE_BASE and both scheduler jobs' api_url (so each job's uri AND OIDC audience), and the API
+# compares the token's audience to it byte for byte: a second near-copy would 401 every call silently.
+# If invoker access is ever restricted, Cloud Run's own audience check accepts any of the service's URLs
+# (Architect, #114; cite the Cloud Run authentication page when that day comes), so this form stays valid.
+# Tested in tests/internal_oidc.tftest.hcl.
+data "google_project" "this" {
+  project_id = var.project_id
+}
+
+locals {
+  api_base_url        = "https://${var.api_service_name}-${data.google_project.this.number}.${module.project.region}.run.app"
+  sweep_invoker_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+}
+
 # The API on Cloud Run v2, scale-to-zero (issue #19). Region from module.project, egress into the subnet
 # from module.network; depends_on so run.googleapis.com is enabled and the subnet exists first. The image
 # stays the module's placeholder: deploys (ef#408) own it.
@@ -100,9 +134,18 @@ module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = var.project_id
   region          = module.project.region
+  name            = var.api_service_name
   service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
   network         = module.network.network_id
   subnetwork      = module.network.subnet_id
+
+  # Internal routes on Google OIDC (#114, ecofolk#1092 / PR #1108): the API verifies each scheduler call's ID
+  # token against INTERNAL_AUDIENCE_BASE + route path and INTERNAL_INVOKER_EMAIL. No static sweep secret is
+  # mapped on the service. Non-secret values only.
+  env = {
+    INTERNAL_AUDIENCE_BASE = local.api_base_url
+    INTERNAL_INVOKER_EMAIL = local.sweep_invoker_email
+  }
 
   # Secret Manager secrets mapped as secret_key_ref at "latest" (issue #66). Three, not four: the retired sweep shared secret is
   # gone from the API (ecofolk#1108, one OIDC verifier on /internal), so no env var is mapped for it. A name
@@ -131,8 +174,8 @@ module "idle_sit_sweep" {
   source           = "../../modules/idle_sit_sweep"
   project_id       = var.project_id
   region           = module.project.region
-  api_url          = module.cloudrun_api.uri
-  invoker_sa_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+  api_url          = local.api_base_url
+  invoker_sa_email = local.sweep_invoker_email
   sweep_schedule   = "0 5-21/2 * * *"
 
   depends_on = [module.project]
@@ -150,8 +193,8 @@ module "sync_usgs_water" {
   source           = "../../modules/sync_usgs_water"
   project_id       = var.project_id
   region           = module.project.region
-  api_url          = module.cloudrun_api.uri
-  invoker_sa_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+  api_url          = local.api_base_url
+  invoker_sa_email = local.sweep_invoker_email
 
   depends_on = [module.project]
 }
@@ -276,6 +319,11 @@ output "auth_domain" {
 output "web_default_url" {
   value       = module.web_hosting.default_url
   description = "The dev web app's Hosting URL (https://<site>.web.app), for the API's CORS allowlist."
+}
+
+output "artifact_registry_repository_id" {
+  value       = module.artifact_registry.repository_id
+  description = "Id of the dev Artifact Registry Docker repository the ecofolk#408 deploy pushes the API image to (#119)."
 }
 
 output "billing_killswitch_topic" {

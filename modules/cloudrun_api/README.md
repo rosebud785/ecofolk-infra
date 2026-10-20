@@ -33,6 +33,7 @@ The API on Cloud Run v2: scale-to-zero, Direct VPC egress (ecofolk-infra#19).
 | network | VPC for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.network_id. | `string` | n/a | yes |
 | project_id | GCP project id that owns the service. No default: every caller states its own project. | `string` | n/a | yes |
 | region | Cloud Run region. Must always be northamerica-northeast1 (Montréal), ef#391; pass module.project.region. | `string` | `"northamerica-northeast1"` | no |
+| secret_env | Env var name -> Secret Manager secret, mapped by secret_key_ref at version latest. References only, never values. | `map(string)` | `{}` | no |
 | service_account | Email of the runtime service account the service runs as. Created locally (L-RUN), never here. | `string` | n/a | yes |
 | subnetwork | Subnet for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.subnet_id. | `string` | n/a | yes |
 

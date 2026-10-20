@@ -7,3 +7,8 @@ output "name" {
   value       = google_cloud_run_v2_service.api.name
   description = "Cloud Run service name."
 }
+
+output "env" {
+  value       = var.env
+  description = "The plain environment variables set on the container (non-secret), for environments' tests (#114)."
+}

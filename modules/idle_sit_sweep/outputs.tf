@@ -8,6 +8,11 @@ output "audience" {
   description = "The OIDC audience the job's ID token carries (the endpoint URL); the API must expect exactly this."
 }
 
+output "uri" {
+  value       = google_cloud_scheduler_job.sweep.http_target[0].uri
+  description = "The URL the job POSTs to; equals audience (#114's test asserts it)."
+}
+
 output "scheduler_jobs" {
   value = [{
     name      = google_cloud_scheduler_job.sweep.name

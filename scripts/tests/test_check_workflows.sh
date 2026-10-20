@@ -445,7 +445,7 @@ permissions:
   contents: write
 jobs:
   a:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA
@@ -630,7 +630,7 @@ permissions:
   contents: write
 jobs:
   a:
-    if: \${{ github.ref == 'refs/heads/main' && github.actor == 'x' }}
+    if: \${{ github.ref == 'refs/heads/main' && github.ref_protected && github.actor == 'x' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA
@@ -642,7 +642,7 @@ permissions:
   contents: read
 jobs:
   a:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     uses: acme/repo/.github/workflows/x.yml@$SHA
     secrets: inherit
     runs-on: ubuntu-latest
@@ -669,7 +669,7 @@ permissions:
   contents: write
 jobs:
   a:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA
@@ -681,7 +681,7 @@ env:
   T: \${{ secrets.DEPLOY_KEY }}
 jobs:
   a:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA
@@ -996,6 +996,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA # v4 not pull_request
+EOF2
+
+# --- #82: GitHub's == is case-insensitive, so the ref guard alone is satisfied by a branch named `Main` -----
+
+run_case rule8_ref_guard_without_ref_protected fail 'privileged without an' bad82a.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule8_ref_guard_with_unrelated_term_only fail 'privileged without an' bad82b.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' && github.actor == 'x'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule8_ref_protected_alone_is_not_the_main_guard fail 'privileged without an' bad82c.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref_protected
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule8_ref_protected_equals_true_ok pass - ok82a.yml <<EOF2
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' && github.ref_protected == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
 EOF2
 
 if [ $failures -ne 0 ]; then

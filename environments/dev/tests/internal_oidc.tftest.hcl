@@ -21,7 +21,7 @@ override_resource {
 override_data {
   target = data.google_project.this
   values = {
-    number = "123456789012"
+    number = "1234567890"
   }
 }
 
@@ -36,7 +36,7 @@ run "audience_base_is_one_value_everywhere" {
   command = plan
 
   assert {
-    condition     = module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"] == "https://ecofolk-api-123456789012.northamerica-northeast1.run.app"
+    condition     = module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"] == "https://ecofolk-api-1234567890.northamerica-northeast1.run.app"
     error_message = "INTERNAL_AUDIENCE_BASE must be the deterministic run.app URL https://<service>-<project number>.<region>.run.app"
   }
 

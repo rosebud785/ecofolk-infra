@@ -15,6 +15,14 @@ variable "api_service_account_id" {
   description = "Account id (the part before @) of the Cloud Run API's runtime service account in the dev project."
 }
 
+# #114: the Cloud Run service name is a variable because the deterministic run.app URL
+# (local.api_base_url) is built from it; it is also what names the service itself.
+variable "api_service_name" {
+  type        = string
+  default     = "ecofolk-api"
+  description = "Cloud Run service name of the dev API. Feeds the service and the deterministic run.app base URL the internal OIDC audience uses (#114)."
+}
+
 # Issue #20: the dev web app's bare hostname, added to the auth config's authorized domains next to
 # localhost. Default null: the Hosting site's <site>.web.app (#22) is used instead, so the keyless apply,
 # which sets only TF_VAR_project_id, still runs; set TF_VAR_web_host once a custom dev domain exists.

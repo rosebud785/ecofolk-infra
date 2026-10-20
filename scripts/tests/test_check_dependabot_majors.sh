@@ -95,6 +95,48 @@ version: 2
 updates: [unclosed
 Y
 
+# Coverage (Architect, #124): every dir holding a versions.tf must be listed. Fixture repo roots with the
+# yml passed explicitly alongside the root.
+mkroot() { rm -rf "$tmp/root"; mkdir -p "$tmp/root/modules/a" "$tmp/root/modules/b" "$tmp/root/environments/dev" \
+  "$tmp/root/modules/a/.terraform/x" "$tmp/root/.git"
+  : >"$tmp/root/modules/a/versions.tf"; : >"$tmp/root/modules/b/versions.tf"; : >"$tmp/root/environments/dev/versions.tf"
+  : >"$tmp/root/modules/a/.terraform/x/versions.tf"; }   # the .terraform copy must NOT count
+cover_case() {  # cover_case <name> <expected rc> <pattern> <  yaml on stdin>
+  local name=$1 want=$2 pattern=$3 f="$tmp/$1.yml" out rc
+  cat >"$f"; mkroot
+  out=$(bash "$guard" "$f" "$tmp/root" 2>&1); rc=$?
+  if [ "$rc" -ne "$want" ]; then echo "FAIL $name: expected rc=$want, got rc=$rc: $out"; failures=$((failures + 1)); return; fi
+  if ! printf '%s' "$out" | grep -qE "$pattern"; then echo "FAIL $name: right rc, wrong reason: $out"; failures=$((failures + 1)); return; fi
+  echo "ok   $name"
+}
+cover_case coverage_all_listed_control 0 'ok \(1 terraform entry ignore semver-major; 3 versions.tf dir' <<'Y'
+version: 2
+updates:
+  - package-ecosystem: terraform
+    directories: [/environments/dev, /modules/a, /modules/b]
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+Y
+cover_case coverage_glob_counts 0 '3 versions.tf dir' <<'Y'
+version: 2
+updates:
+  - package-ecosystem: terraform
+    directories: [/environments/dev, '/modules/*']
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+Y
+cover_case coverage_unlisted_module_fails 1 '/modules/b holds a versions.tf but is not in any terraform entry' <<'Y'
+version: 2
+updates:
+  - package-ecosystem: terraform
+    directories: [/environments/dev, /modules/a]
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+Y
+
 if out=$(bash "$guard" "$tmp/missing.yml" 2>&1); then echo "FAIL missing_file: expected failure"; failures=$((failures + 1)); else echo "ok   missing_file"; fi
 
 if out=$(bash "$guard" "$live" 2>&1); then echo "ok   live_dependabot_yml: $out"; else echo "FAIL live_dependabot_yml: $out"; failures=$((failures + 1)); fi

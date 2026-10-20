@@ -15,12 +15,14 @@ updates:
       - /modules/billing_killswitch
       - /modules/cloudrun_api
       - /modules/cloudsql
+      - /modules/idle_sit_sweep
       - /modules/media_bucket
       - /modules/monitoring
       - /modules/network
       - /modules/project
       - /modules/secrets
       - /modules/sql_off_hours
+      - /modules/sync_usgs_water
       - /modules/web_hosting
     schedule:
       interval: weekly

@@ -9,7 +9,7 @@
 #   3. has `secrets` anywhere inside a ${{ }} expression (any spelling; check-workflow-permissions.py) or
 #      `secrets: inherit`, in a workflow with any untrusted trigger (trusted =
 #      push limited to branches: [main], schedule, and workflow_dispatch whose privileged jobs carry
-#      `if: github.ref == 'refs/heads/main'`; see check-workflow-permissions.py);
+#      `if: github.ref == 'refs/heads/main' && github.ref_protected` (== is case-insensitive, #82); see check-workflow-permissions.py);
 #   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt).
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.

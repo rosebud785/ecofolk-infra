@@ -125,9 +125,17 @@ def _push_is_main_only(value: object) -> bool:
     return branches == ["main"]
 
 
+# GitHub's `==` (and contains/startsWith) compare strings CASE-INSENSITIVELY, so `github.ref ==
+# 'refs/heads/main'` is also true on a branch named `Main` or `MAIN` (#82). `github.ref_protected` is true only
+# when a branch protection rule matched the ref, and those patterns are case-sensitive, so it is the case-exact
+# half of the guard: an unprotected `Main` branch can't satisfy it.
+PROTECTED_TERM = re.compile(r"github\.ref_protected(\s*==\s*true)?")
+
+
 def _guarded(job: object) -> bool:
     """True only for the exact good shape of a job-level `if:` (allowlist, so it fails closed): the main-ref
-    guard alone, or the guard followed by `&& <term>`..., after stripping `${{ }}`. The condition may contain no
+    guard followed by `&& github.ref_protected` (case-exact, #82) and optionally more `&& <term>`..., after
+    stripping `${{ }}`. The condition may contain no
     `!`, `||` or parentheses, so a negation (`!(…)`, `!=`) or an OR can never read as a guard. Deliberate
     fail-closed side effect: `… == 'refs/heads/main' && !cancelled()` is rejected (#78, Architect)."""
     cond = job.get("if") if isinstance(job, dict) else None
@@ -137,7 +145,11 @@ def _guarded(job: object) -> bool:
     if re.search(r"[!()]|\|\|", text):
         return False
     first, *rest = [part.strip() for part in text.split("&&")]
-    return bool(REF_GUARD.fullmatch(first)) and all(rest)
+    return (
+        bool(REF_GUARD.fullmatch(first))
+        and all(rest)
+        and any(PROTECTED_TERM.fullmatch(term) for term in rest)
+    )
 
 
 def _unguarded_privileged_dispatch_job(root, loader, text: str) -> str | None:
@@ -191,7 +203,7 @@ def untrusted_trigger(root: yaml.Node, loader: yaml.SafeLoader, text: str = "") 
                 if t == "workflow_dispatch":
                     bad = _unguarded_privileged_dispatch_job(root, loader, text)
                     if bad:
-                        return f"workflow_dispatch (job {bad} is privileged without an `if: github.ref == 'refs/heads/main'` guard)"
+                        return f"workflow_dispatch (job {bad} is privileged without an `if: github.ref == 'refs/heads/main' && github.ref_protected` guard)"
     return None if found else "<no on:>"
 
 

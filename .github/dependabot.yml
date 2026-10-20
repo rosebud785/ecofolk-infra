@@ -27,6 +27,17 @@ updates:
     groups:
       terraform-providers:
         patterns: ['*']
+    # ecofolk-infra#70 (Architect, 2026-10-16, closing PR #68): a provider MAJOR never arrives as an
+    # auto-PR. PR CI (validate, mock-provider `terraform test`) cannot see how a new major plans against
+    # live state; the first real plan would be the main apply, which applies to dev. Minor and patch keep
+    # flowing. scripts/check-dependabot-majors.sh holds this in CI.
+    # Majors are taken by hand, ONE major per PR (google / google-beta 5 -> 6 -> 7 -> 8, per the
+    # provider upgrade guides), each behind a plan-only proof: TF_APPLY_ENABLED off before the merge,
+    # review the plan for no unexpected destroy/replace, then re-enable and apply. Architect-reviewed;
+    # Deployer runs the gate. 5.x stays pinned at `~> 5.0` meanwhile.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: 'chore(deps)'
     open-pull-requests-limit: 5

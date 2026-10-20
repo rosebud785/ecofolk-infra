@@ -104,6 +104,16 @@ module "cloudrun_api" {
   network         = module.network.network_id
   subnetwork      = module.network.subnet_id
 
+  # Secret Manager secrets mapped as secret_key_ref at "latest" (issue #66). Three, not four: SWEEP_TOKEN is
+  # gone from the API (ecofolk#1108, one OIDC verifier on /internal), so no env var is mapped for it. A name
+  # is listed here only once it has an enabled version (ecofolk#936) and the runtime SA has secretAccessor on
+  # it (ecofolk#890); a ref that fails either fails the revision's readiness and blocks every apply after it.
+  # Merges with ecofolk#408's first real deploy, after ecofolk-infra#117 applies and ecofolk#1108 merges.
+  secret_env = {
+    for name in ["POSTGRES_PASSWORD", "POSTGRES_INGEST_PASSWORD", "NOAA_CDO_TOKEN"] :
+    name => module.secrets.secret_ids[name]
+  }
+
   depends_on = [module.project, module.network]
 }
 

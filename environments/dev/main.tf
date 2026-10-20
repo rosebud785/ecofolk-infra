@@ -45,6 +45,21 @@ module "network" {
   depends_on = [module.project]
 }
 
+# Docker repository for the API image (issue #119): ecofolk#408's local deploy script pushes here. Location is
+# the module's own pinned default (northamerica-northeast1, ef#391); its two cleanup policies bound storage.
+# depends_on so artifactregistry.googleapis.com is enabled first.
+#
+# LOCAL FOLLOW-UP (ecofolk#1109): roles/artifactregistry.writer on this repository for the deploy identity
+# that pushes the image, and roles/artifactregistry.reader on it for the Cloud Run service agent that pulls
+# it. IAM is not managed in this public repo.
+module "artifact_registry" {
+  source        = "../../modules/artifact_registry"
+  project_id    = var.project_id
+  repository_id = "ecofolk"
+
+  depends_on = [module.project]
+}
+
 # Cloud SQL Postgres 16, private IP only (issue #18). Region is the module's own pinned default, per the
 # #18 spec; depends_on so sqladmin is enabled and the PSA peering exists before the instance asks for a
 # private IP.
@@ -276,6 +291,11 @@ output "auth_domain" {
 output "web_default_url" {
   value       = module.web_hosting.default_url
   description = "The dev web app's Hosting URL (https://<site>.web.app), for the API's CORS allowlist."
+}
+
+output "artifact_registry_repository_id" {
+  value       = module.artifact_registry.repository_id
+  description = "Id of the dev Artifact Registry Docker repository the ecofolk#408 deploy pushes the API image to (#119)."
 }
 
 output "billing_killswitch_topic" {

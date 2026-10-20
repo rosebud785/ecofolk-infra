@@ -7,9 +7,11 @@
 # 127.0.0.0/8, and an http:// scheme. One good https control
 # must exit 0. Hostnames are placeholders (example.com), never real ones.
 #
-# The k6 half runs the pinned image, never `latest`, so a k6 release can't
-# change the verdict under us. It needs Docker; with no Docker it FAILS
-# rather than skipping, because a skipped inspect proves nothing.
+# The k6 half runs a pinned k6, never `latest`, so a k6 release can't change the
+# verdict under us: the binary at $K6_BIN when set (CI downloads a sha256-pinned
+# tarball), otherwise the pinned image via Docker. With neither it FAILS rather
+# than skipping, because a skipped inspect proves nothing. `k6 inspect` never
+# runs the script, so no target and no token are involved.
 #
 # Usage: bash scripts/tests/test_check_load_target.sh
 # Exit: 0 if every case matches its expected outcome, 1 otherwise.
@@ -99,11 +101,21 @@ if [ "$ran32" -eq 0 ]; then
   fi
 fi
 
-# 3. k6 inspect on the real script, with the pinned image.
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-  check "docker available for k6 inspect" "false"
+# 3. k6 inspect on the real script. K6_BIN (a pinned binary, CI's route, no Docker needed for this
+#    half) wins when set; otherwise the pinned grafana/k6 image, never `latest`.
+k6_inspect() {  # k6_inspect DIR FILE -> prints inspect output, returns k6's exit code
+  if [ -n "${K6_BIN:-}" ]; then
+    (cd "$1" && "$K6_BIN" inspect "$2" 2>&1)
+  else
+    docker run --rm -v "$1:/load:ro" "$K6_IMAGE" inspect "/load/$2" 2>&1
+  fi
+}
+if [ -n "${K6_BIN:-}" ] && ! [ -x "$K6_BIN" ]; then
+  check "K6_BIN is executable ($K6_BIN)" "false"
+elif [ -z "${K6_BIN:-}" ] && { ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; }; then
+  check "k6 available for inspect (K6_BIN or docker)" "false"
 else
-  INSPECT=$(docker run --rm -v "$REPO_ROOT/load:/load:ro" "$K6_IMAGE" inspect /load/beta-20.js 2>&1); RC_I=$?
+  INSPECT=$(k6_inspect "$REPO_ROOT/load" beta-20.js); RC_I=$?
   check "k6 inspect load/beta-20.js: exits 0" "[ $RC_I -eq 0 ]"
   if [ "$RC_I" -eq 0 ]; then
     echo "$INSPECT" > "$WORK/inspect.json"
@@ -116,7 +128,7 @@ else
   # 4. And k6 inspect can go red: a broken script must fail it.
   mkdir -p "$WORK/broken"
   echo 'export default function ( {' > "$WORK/broken/broken.js"
-  docker run --rm -v "$WORK/broken:/load:ro" "$K6_IMAGE" inspect /load/broken.js >/dev/null 2>&1; RC_B=$?
+  k6_inspect "$WORK/broken" broken.js >/dev/null; RC_B=$?
   check "k6 inspect on a broken script: exits non-zero" "[ $RC_B -ne 0 ]"
 fi
 

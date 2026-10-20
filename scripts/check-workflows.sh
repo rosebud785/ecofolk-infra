@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Makes "no credentials on a PR path" mechanical. Fails, naming file:line, if any workflow:
 #   1. contains pull_request_target;
-#   2. permissions, on the PARSED workflow (check-workflow-permissions.py): `write-all` anywhere; `id-token: write`
+#   2. permissions, on the PARSED workflow (check-workflow-permissions.py): an untrusted-trigger workflow with no
+#      permissions block at workflow level or on a job (#65); a duplicate key inside a permissions mapping (#65);
+#      `write-all` anywhere; `id-token: write`
 #      at workflow level, in an untrusted-trigger workflow, or in a job of a file not on the allowlist below; any
 #      permission other than read/none in an untrusted-trigger workflow; a workflow that does not parse;
 #   3. has `secrets` anywhere inside a ${{ }} expression (any spelling; check-workflow-permissions.py) or

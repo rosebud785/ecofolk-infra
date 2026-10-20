@@ -11,6 +11,11 @@ The resolved `permissions` is checked at the workflow level and at every job:
   * in an UNTRUSTED workflow (any trigger outside push-to-main / schedule / guarded workflow_dispatch, unknown
     triggers and an unreadable `on:` included; see untrusted_trigger), every permission value must be `read` or `none`.
 
+  * in an UNTRUSTED workflow, a job with no `permissions` of its own in a workflow with none at the top level
+    FAILS: with no block the job gets the repo/org default token, which can be write-all (#65);
+  * a DUPLICATE key inside any `permissions` mapping fails: YAML keeps the last one, so an earlier grant
+    could be hidden or a later one overridden unseen (#65, Architect's review of #63).
+
 A file that does not parse FAILS the guard: an unreadable workflow is not a clean one.
 
 Rule 3 lives here too: in an UNTRUSTED workflow, ANY `secrets` identifier inside a `${{ }}` expression fails.
@@ -203,6 +208,11 @@ def untrusted_trigger(root: yaml.Node, loader: yaml.SafeLoader, text: str = "") 
 
 
 def check_permissions(node, loader, line, where, on_pr: str | None, allowed, report):
+    if isinstance(node, yaml.MappingNode):
+        loader.flatten_mapping(node)  # merge keys expanded, so a merged-then-redeclared key shows as a duplicate
+        names = [key_name(k) for k, _ in node.value]
+        for name in sorted({n for n in names if names.count(n) > 1}, key=str):
+            report(line, f"duplicate key {name!r} in permissions at {where} (YAML keeps the last; fails the guard)")
     perms = loader.construct_object(node, deep=True)
     if perms == "write-all":
         report(line, f"permissions: write-all at {where} (grants id-token: write and write on everything)")
@@ -261,10 +271,18 @@ def check_file(path: str, allow: set[str]) -> list[str]:
                 # through `secrets:` (inherit/mapping), which neither the permissions rule nor the grep can see.
                 report(1, f"workflow triggered by {on_pr}")
             is_allowed = os.path.basename(path) in allow
-            for k, v in find(root, loader, "permissions"):
+            wf_perms = find(root, loader, "permissions")
+            for k, v in wf_perms:
                 check_permissions(v, loader, k.start_mark.line + 1, "workflow level", on_pr, is_allowed, report)
             for _, jobs in find(root, loader, "jobs"):
                 for jk, job in mapping_items(jobs, loader):
+                    if on_pr and not wf_perms and not find(job, loader, "permissions"):
+                        report(
+                            jk.start_mark.line + 1,
+                            f"job {key_name(jk)} has no permissions: block (and the workflow has none) in a workflow"
+                            f" triggered by {on_pr}; it would get the repo default token. Add `permissions:"
+                            " contents: read` (or `{}`)",
+                        )
                     for k, v in find(job, loader, "permissions"):
                         check_permissions(
                             v, loader, k.start_mark.line + 1, f"job {key_name(jk)}", on_pr, is_allowed, report

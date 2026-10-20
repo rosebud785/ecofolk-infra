@@ -872,6 +872,8 @@ EOF2
 run_case rule3_real_yaml_comment_after_value_ok pass '-' ok9d.yml <<EOF2
 on:
   pull_request:
+permissions:
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
@@ -892,6 +894,8 @@ EOF2
 run_case rule3_secrets_commented_out_ok pass '-' ok9a.yml <<EOF2
 on:
   pull_request:
+permissions:
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
@@ -904,6 +908,8 @@ EOF2
 run_case rule3_secrets_word_outside_expression_ok pass '-' ok9b.yml <<EOF2
 on:
   pull_request:
+permissions:
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
@@ -915,6 +921,8 @@ EOF2
 run_case rule3_github_token_spelling_ok pass '-' ok9c.yml <<EOF2
 on:
   pull_request:
+permissions:
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
@@ -991,11 +999,138 @@ run_case comment_mentions_do_not_count pass - ok5.yml <<EOF2
 # pull_request_target would be bad; id-token: write too
 on:
   push:
+permissions:
+  contents: read
 jobs:
   a:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@$SHA # v4 not pull_request
+EOF2
+
+# --- #65: a PR-triggered workflow with no permissions block gets the repo default token ---------------------
+
+run_case rule6_pr_no_permissions_block fail 'has no permissions: block' bad65a.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule6_pr_one_job_missing_permissions fail 'job b has no permissions: block' bad65b.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@$SHA
+  b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule6_pr_every_job_has_permissions_ok pass - ok65a.yml <<EOF2
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@$SHA
+  b:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule6_pr_empty_workflow_permissions_ok pass - ok65b.yml <<EOF2
+on:
+  pull_request:
+permissions: {}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule6_trusted_push_main_without_permissions_ok pass - ok65c.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+# --- #65: duplicate keys inside a permissions mapping (YAML keeps the last) --------------------------------
+
+run_case rule7_duplicate_key_workflow_level fail "duplicate key 'contents' in permissions" bad65c.yml <<EOF2
+on:
+  pull_request:
+permissions:
+  contents: write
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule7_duplicate_key_job_level_on_push fail "duplicate key 'contents' in permissions at job a" bad65d.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      contents: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule7_duplicate_key_via_merge fail "duplicate key 'contents' in permissions" bad65e.yml <<EOF2
+on:
+  push:
+    branches: [main]
+base: &base
+  contents: read
+permissions:
+  <<: *base
+  contents: write
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule7_distinct_keys_ok pass - ok65d.yml <<EOF2
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$SHA
 EOF2
 
 # --- #82: GitHub's == is case-insensitive, so the ref guard alone is satisfied by a branch named `Main` -----

@@ -142,6 +142,7 @@ bash scripts/tests/test_policy_files.sh
 conftest test --parser hcl2 --combine --policy policy --data policy/data.json $(bash scripts/policy-files.sh)
 bash scripts/tests/test_check_trivyignore.sh && bash scripts/check-trivyignore.sh
 bash scripts/tests/test_check_tf_docs.sh && bash scripts/check-tf-docs.sh
+bash scripts/tests/test_check_load_target.sh   # needs Docker (pinned grafana/k6) and jq
 trivy config --checks-bundle-repository mirror.gcr.io/aquasec/trivy-checks@sha256:b591e9190cff4aa4e385b1a25bccfd9ecf178d3c77fd194e1410b7ce7e1df058 \
   --misconfig-scanners terraform --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore .
 ```

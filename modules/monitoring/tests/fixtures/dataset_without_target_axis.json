@@ -1,0 +1,53 @@
+{
+  "xPos": 24,
+  "width": 24,
+  "height": 16,
+  "widget": {
+    "title": "API (Cloud Run): latency p50 / p95",
+    "xyChart": {
+      "dataSets": [
+        {
+          "plotType": "LINE",
+          "legendTemplate": "p50",
+          "minAlignmentPeriod": "60s",
+          "timeSeriesQuery": {
+            "timeSeriesFilter": {
+              "filter": "metric.type=\"run.googleapis.com/request_latencies\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\"",
+              "aggregation": {
+                "alignmentPeriod": "60s",
+                "perSeriesAligner": "ALIGN_DELTA",
+                "crossSeriesReducer": "REDUCE_PERCENTILE_50",
+                "groupByFields": [
+                  "resource.label.service_name"
+                ]
+              }
+            }
+          },
+          "targetAxis": "Y1"
+        },
+        {
+          "plotType": "LINE",
+          "legendTemplate": "p95",
+          "minAlignmentPeriod": "60s",
+          "timeSeriesQuery": {
+            "timeSeriesFilter": {
+              "filter": "metric.type=\"run.googleapis.com/request_latencies\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${api_service_name}\"",
+              "aggregation": {
+                "alignmentPeriod": "60s",
+                "perSeriesAligner": "ALIGN_DELTA",
+                "crossSeriesReducer": "REDUCE_PERCENTILE_95",
+                "groupByFields": [
+                  "resource.label.service_name"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "yAxis": {
+        "label": "ms",
+        "scale": "LINEAR"
+      }
+    }
+  }
+}

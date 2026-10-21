@@ -12,6 +12,11 @@
 # the connections threshold, is the string "__DB_MAX_CONNECTIONS__" in the file and is swapped for the
 # bare number after rendering.
 #
+# The file is kept in the shape the Monitoring API reads back (#130), or every plan shows an in-place
+# update: each data set carries "targetAxis": "Y1" (the API adds it) and no tile has an xPos or yPos of
+# 0 (the API drops them). tests/dashboard_canonical.tftest.hcl asserts both. Not ignore_changes: that
+# would hide real dashboard changes too.
+#
 # What is deliberately NOT here: no alert policy (alerts.tf owns those), no IAM of any kind.
 # Dashboards are project-level, not regional: nothing here takes a region.
 #

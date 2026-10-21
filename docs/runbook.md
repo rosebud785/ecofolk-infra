@@ -13,6 +13,7 @@ Scope of this draft:
 | [Rollback](#2-rollback) | drafted, from gcloud/Firebase docs; never run |
 | [Restore](#3-restore-from-the-nightly-export) | drafted, with commands from ecofolk-infra#2 and ecofolk-infra#3 |
 | [Rotate](#4-rotate-a-secret-manager-held-credential) | drafted, generic shape |
+| [Go-live checklist](#5-go-live-checklist) | ordering rules only; grows as go-live steps are learned |
 
 Rules for every procedure:
 
@@ -609,3 +610,20 @@ gcloud secrets versions enable <old-version> --secret=<secret-id> --project=<pro
 ### 4.4 Performed
 
 **Performed: <date> by <who>, result**
+
+---
+
+## 5. Go-live checklist
+
+Ordering rules learned the hard way. Each applies to every go-live paste, dev or prod.
+
+- [ ] **A scheduler job must not go live before its destination's IAM.** A paste that SKIPs a gated step
+  means the job it feeds stays disabled until that step runs. Before enabling a Cloud Scheduler job
+  (or any timed export), confirm the identity it runs as can already write to or call its destination.
+  Check the grant, not the Terraform plan: for the nightly export, the instance service account needs
+  object-create on the export bucket (`roles/storage.objectCreator`) before the 05:15 CT job is enabled.
+  Verify with `gcloud storage buckets get-iam-policy gs://<project-id>-sql-exports` (add
+  `--project=<project-id>`), not by waiting for the first run.
+  *Source: ecofolk-infra#135. Four nightly exports failed 2026-10-17 to 2026-10-20 because the instance
+  service account lacked object-create on the export bucket until the 2026-10-20 L-slot paste applied
+  the gated grant.*

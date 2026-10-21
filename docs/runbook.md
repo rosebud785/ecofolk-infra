@@ -619,7 +619,9 @@ Ordering rules learned the hard way. Each applies to every go-live paste, dev or
 
 - [ ] **A scheduler job must not go live before its destination's IAM.** A paste that SKIPs a gated step
   means the job it feeds stays disabled until that step runs. Before enabling a Cloud Scheduler job
-  (or any timed export), confirm the identity it runs as can already write to or call its destination.
+  (or any timed export), confirm that every identity on the path can act: the one the job runs as can
+  call the target API, and the one that writes to the destination can write (for a Cloud SQL export
+  that is the instance's service account, not the scheduler's).
   Check the grant, not the Terraform plan: for the nightly export, the instance service account needs
   object-create on the export bucket (`roles/storage.objectCreator`) before the 05:15 CT job is enabled.
   Verify with `gcloud storage buckets get-iam-policy gs://<project-id>-sql-exports` (add

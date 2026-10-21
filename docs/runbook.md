@@ -9,10 +9,11 @@ Scope of this draft:
 
 | Procedure | State |
 | - | - |
-| [Deploy](#1-deploy) | TBD: ecofolk#408 |
-| [Rollback](#2-rollback) | TBD: ecofolk#408 |
+| [Deploy](#1-deploy) | drafted from ecofolk#408's `deploy-dev.sh` (PR ecofolk#1111); never run |
+| [Rollback](#2-rollback) | drafted, from gcloud/Firebase docs; never run |
 | [Restore](#3-restore-from-the-nightly-export) | drafted, with commands from ecofolk-infra#2 and ecofolk-infra#3 |
 | [Rotate](#4-rotate-a-secret-manager-held-credential) | drafted, generic shape |
+| [Go-live checklist](#5-go-live-checklist) | ordering rules only; grows as go-live steps are learned |
 
 Rules for every procedure:
 
@@ -60,11 +61,228 @@ deciding a limit "didn't work". The configured numbers live in the app repo, not
 
 ## 1. Deploy
 
-**TBD: ecofolk#408.** The deploy pipeline doesn't exist yet. Left empty on purpose.
+**State: DRAFT, never run.** The script is `scripts/deploy/deploy-dev.sh` in the app repo (ecofolk#408, PR
+ecofolk#1111, Architect's ruling (c)). It is a **local** pipeline: no GitHub workflow holds a cloud identity
+(ecofolk#883), so a human runs it from their own shell in an **announced deploy slot**. Nothing is observed
+yet: the first real run fills in §1.4. Items marked *(unobserved)* come from documentation or the script's
+own comments, not from a run on this stack.
+
+What the script does, in order:
+
+1. Refuses a dirty tree, or a `HEAD` that is not `origin/main` after a fetch. Only the main tip deploys.
+2. **Test gate.** It finds the one merged PR whose merge commit is `HEAD` and requires every **required**
+   check of main's branch protection to be `success` on that PR's head. `skipped`, missing or unreadable
+   is a refusal. It makes no gcloud, firebase or docker call before this gate passes.
+3. Builds the API image `linux/amd64`, tags it with the sha, pushes it, resolves the registry digest and runs
+   `gcloud run deploy ecofolk-api --image <repo>@sha256:<digest>`. **By digest, never by tag.** It passes no
+   `--set-env-vars`, `--set-secrets`, `--update-*` or `--service-account`: env, secrets and the runtime
+   service account are Terraform's (this repo). Terraform ignores image changes, so the two do not fight.
+4. `firebase deploy --only hosting` from `packages/web`.
+5. A read-only smoke: the new revision is the latest Ready one and holds 100% of traffic with the pushed
+   digest; `/health` is ok; `/version` reports this sha; the startup log shows the server listening (so
+   the boot-time config guard passed); the web root serves. It prints revision, digest and web version
+   **names only**.
+
+### 1.1 Before the slot
+
+The slot is announced and run by Andy (the impersonator, §1.2). It happens only after **all** of these, in
+this order:
+
+- [ ] **Kill-switch reads ARMED** (ef#885, L-slot rev 3.1).
+- [ ] **infra#117** applied (internal OIDC env and the shared `run.app` base URL).
+- [ ] **ef#1108** merged (one OIDC verifier on `/internal`; `SWEEP_TOKEN` deleted).
+- [ ] **infra#66** merged (Cloud Run `secretKeyRef` env mapping). Applied before the slot or in it, per the
+      announcement.
+- [ ] **infra#119** applied (Artifact Registry repo wired into `environments/dev`). Without it the deploy
+      has no registry to push to, and the script refuses on an unset `ECOFOLK_AR_REPO`.
+- [ ] **ecofolk#1109** done and read back: the keyless `ecofolk-deploy` service account exists with its four
+      resource-scoped grants, **zero keys**, and exactly one member holding `serviceAccountTokenCreator` on it.
+- [ ] **ecofolk#1112** merged (script hardening: rollback line, site name, temp `DOCKER_CONFIG` cleanup).
+- [ ] `deploy-dev.sh` is on `main` (ecofolk#1111) and `HEAD` of your checkout is that exact tip.
+
+### 1.2 Identity
+
+Run it as `ecofolk-deploy`, **impersonated**, from Andy's own account in Cloud Shell. No key file is ever
+created or read, and no credential stays on a fleet machine (ecofolk#1109). Set:
+
+```bash
+export ECOFOLK_DEPLOY_SA=<deploy-sa>   # the ecofolk-deploy address; not written here
+export ECOFOLK_AR_REPO=<repo-id>       # the Artifact Registry repository id (infra#119)
+export VITE_API_BASE_URL=<api-url> VITE_FIREBASE_API_KEY=<key> VITE_MAP_TILE_URL=<tile-url>
+```
+
+The `VITE_*` values are required: a production web build refuses without them. They are the owner's to
+supply in the slot. Never paste them anywhere. The gate reads main's branch protection, which needs a
+GitHub identity that can read it (repo admin). Without one the script refuses by design.
+
+### 1.3 Steps
+
+1. **Read what is serving now (slot start, read-only).** Before anything else:
+
+   ```bash
+   gcloud run services describe ecofolk-api --region <region> \
+     --project=<project-id> --impersonate-service-account=<deploy-sa> \
+     --format='value(status.traffic[0].revisionName,spec.template.spec.containers[0].image)'
+   ```
+
+   **Expected for slot 1:** the image is Google's `hello` placeholder
+   (`us-docker.pkg.dev/cloudrun/container/hello`). No app image has ever been deployed: the module defaults
+   to it and ignores image drift (`modules/cloudrun_api`). **If it shows anything else, stop and tell
+   Architect**: something deployed outside this runbook. Note the revision name; it is the slot's rollback
+   target (§2.2).
+
+2. **Check first.** From a clean checkout at the main tip:
+
+   ```bash
+   scripts/deploy/deploy-dev.sh --check
+   ```
+
+   It checks every tool is on `PATH` (`git gh docker gcloud firebase npm curl`), runs every refusal, then
+   stops before building anything. **Expected:** `gate passed: <sha> is PR #<n>, every required check
+   succeeded`, then `--check: stopping before any build or deploy`. Any `REFUSED:` line is the answer; fix it
+   and re-run. Do not continue past a refusal.
+
+3. **Pre-flight the build host.** `--check` does not exercise `docker buildx`, and the real run builds with a
+   throwaway, empty `DOCKER_CONFIG` that hides per-user plugins in `~/.docker/cli-plugins`. On a host whose
+   only buildx lives there the build fails **after** the gate and **before** any push (it fails closed, but
+   costs a slot). Check it now:
+
+   ```bash
+   DOCKER_CONFIG="$(mktemp -d)" docker buildx version
+   ```
+
+   **Expected:** a version line. Measured working on BigIron (system-wide buildx); **not measured in Cloud
+   Shell** *(unobserved)*. If it errors, the buildx plugin must be installed system-wide before the slot.
+
+4. **The real run:**
+
+   ```bash
+   scripts/deploy/deploy-dev.sh
+   ```
+
+   **Expected final line:** `deployed. revision=<revision> image=<digest> web_version=<name> sha=<sha>`.
+   Copy those names (not env values) into §1.4, **and note the revision that was serving before** (§2.2
+   step 1 reads it).
+
+5. **Smoke test (ecofolk#410, PR ecofolk#1110).** The script's own smoke is read-only. The fuller smoke
+   (sign-in, a sit, a photo upload, read-back, cleanup) is a separate command and has **no trigger yet**
+   (deliberately, per the #883/#408 ruling): run it by hand, against the sha just deployed:
+
+   ```bash
+   npm run smoke --workspace packages/scripts -- --api <api-url> --web <web-url> --expect-sha <sha>
+   ```
+
+   It needs the smoke account (`SMOKE_EMAIL` + `SMOKE_PASSWORD` + `SMOKE_FIREBASE_API_KEY`, or
+   `SMOKE_ID_TOKEN`) in the environment. **Exit 0** all checks passed. **1** a check failed: roll back (§2),
+   because the new revision already holds 100% of traffic. **2** bad arguments or settings: nothing ran.
+   A 409 on open-sit means the smoke account already has a sit open; the run refuses and touches nothing.
+   Smoke-account provisioning is not written yet; until it is, this step cannot be run.
+
+6. **Read-back, names only.** The revision holding 100% of traffic is the one the script printed, with the
+   pushed digest:
+
+   ```bash
+   gcloud run services describe ecofolk-api --region <region> \
+     --project=<project-id> --impersonate-service-account=<deploy-sa> \
+     --format='value(status.latestReadyRevisionName,status.traffic[0].percent)'
+   ```
+
+   Print named fields only, never the whole service object (ecofolk#891).
+
+### 1.4 Performed
+
+**Performed: <date> by <who>, result**
+
+### 1.5 Known gaps (ef-qa on #1111, Architect's stamp)
+
+- **Unobserved until the first slot:** `firebase-tools` honouring the impersonated token
+  (`GOOGLE_OAUTH_ACCESS_TOKEN`), `status.imageDigest` on revisions, and the startup-log "listening" line.
+  If the script's smoke refuses on one of these, that is a finding about the script, not about the deploy:
+  read the revision with the §1.3 step 6 command before deciding.
+- **The registry login token sits on disk** in the throwaway `DOCKER_CONFIG` until the script's exit
+  logout. It lasts about an hour; a killed run (SIGKILL) leaves it there until it expires, and the temp
+  directory is not removed. Treat the Cloud Shell session as holding a short-lived credential until you've
+  closed it (ecofolk#1112 covers the cleanup).
+- **Site name:** the script's smoke URL derives from the project id, while `firebase.json` hard-codes
+  `ecofolk-dev-web`. They agree for the default project only.
+- **No schema step.** The script has no migration step: it deploys the API image and the web bundle and
+  nothing else. A schema change is not part of this procedure and is not undone by §2.
 
 ## 2. Rollback
 
-**TBD: ecofolk#408.** Depends on the deploy pipeline. Left empty on purpose.
+**State: DRAFT, never run.** Every command here is from gcloud and Firebase documentation, not run on this
+stack *(unobserved)*. The deploy keeps every earlier Cloud Run revision, so the API rolls back by moving
+traffic, not by rebuilding.
+
+### 2.1 When
+
+Any of: the smoke (§1.3 step 5) exits 1; the script's own smoke refuses; `/health` or `/ready` is not ok
+after the deploy; or the owner says so. The deploy **already moved 100% of traffic** to the new revision, so
+roll back first and diagnose afterwards.
+
+### 2.2 API (Cloud Run)
+
+1. **Name the revision to go back to.** Use the one that served before the deploy (read in §1.3 step 1).
+   If you didn't note it, list them newest first:
+
+   ```bash
+   gcloud run revisions list --service=ecofolk-api --region <region> \
+     --project=<project-id> --impersonate-service-account=<deploy-sa> --limit=5 \
+     --format='table(metadata.name,metadata.creationTimestamp,status.conditions[0].status)'
+   ```
+
+   The newest is the bad one; take the one below it.
+
+2. **Move all traffic to it:**
+
+   ```bash
+   gcloud run services update-traffic ecofolk-api --to-revisions=<previous-revision>=100 \
+     --region=northamerica-northeast1 --project=<project-id> \
+     --impersonate-service-account=<deploy-sa>
+   ```
+
+   `roles/run.developer` on the service covers this. **Expected:** the command prints the revision now at
+   100%. Re-run the §1.3 step 6 read-back: it should name `<previous-revision>`.
+
+3. **Verify:** `/health` is 200, and `/version` reports the **previous** sha (not the one you deployed).
+
+### 2.3 Web (Firebase Hosting)
+
+Roll the site back to its previous release:
+
+```bash
+firebase hosting:rollback --project <project-id>
+```
+
+Run it from `packages/web`, with the same impersonated token the script uses (`GOOGLE_OAUTH_ACCESS_TOKEN`).
+It asks which site; the site is `ecofolk-dev-web` *(unobserved)*. Verify the web root serves and its version
+is the previous one. If the web deploy never ran (the script stopped before it), skip this section.
+
+### 2.4 Caveats
+
+- **Slot 1: rolling back means "not deployed", which is safe.** Cloud Run has only ever served Google's
+  `hello` placeholder, so the revision serving before the slot (read in §1.3 step 1) is the placeholder
+  carrying the **current** env: each env change Terraform applies (infra#117, infra#66) creates a new
+  placeholder revision, and the placeholder ignores env. Before beta opens, with no users, going back to it
+  is an acceptable state (Architect, ecofolk-infra#121). Slot 1 does not need roll-forward-only.
+- **Slot 2 onwards: the rollback target must postdate the last change to the API's env or secret
+  contract.** A revision carries its own env and secret mapping. Any infra change that renames or removes an
+  env var or secret (as ef#1108 did with `SWEEP_TOKEN`) makes every earlier app revision unsafe to roll back
+  to: that is **roll-forward only**, and the infra PR making the change should announce it. Before using
+  §2.2, check the target revision's creation time against the last such change.
+- **No revision tags.** Do not add one (`--set-tags`): it edits the service's traffic configuration, which
+  Terraform owns. Recording the revision name is enough (ecofolk#1112 makes the script record it).
+- **Web, slot 1:** the Hosting rollback target is probably none, or the default page *(inferred, not
+  measured)*. Read it at slot start with `firebase hosting:channel:list --site ecofolk-dev-web` and the
+  site's releases list, and record what it shows here as measured. If there is no earlier release,
+  `hosting:rollback` has nothing to go back to: leave the web as deployed and fix forward.
+- **Traffic only.** Rolling back moves traffic; it does not undo a Terraform apply, a schema change or a
+  secret rotation. Those have their own procedures (§3, §4).
+- **Do not rebuild to roll back.** A rollback is `update-traffic` to a revision that already exists.
+
+### 2.5 Performed
+
+**Performed: <date> by <who>, result**
 
 ---
 
@@ -392,3 +610,22 @@ gcloud secrets versions enable <old-version> --secret=<secret-id> --project=<pro
 ### 4.4 Performed
 
 **Performed: <date> by <who>, result**
+
+---
+
+## 5. Go-live checklist
+
+Ordering rules learned the hard way. Each applies to every go-live paste, dev or prod.
+
+- [ ] **A scheduler job must not go live before its destination's IAM.** A paste that SKIPs a gated step
+  means the job it feeds stays disabled until that step runs. Before enabling a Cloud Scheduler job
+  (or any timed export), confirm that every identity on the path can act: the one the job runs as can
+  call the target API, and the one that writes to the destination can write (for a Cloud SQL export
+  that is the instance's service account, not the scheduler's).
+  Check the grant, not the Terraform plan: for the nightly export, the instance service account needs
+  object-create on the export bucket (`roles/storage.objectCreator`) before the 05:15 CT job is enabled.
+  Verify with `gcloud storage buckets get-iam-policy gs://<project-id>-sql-exports` (add
+  `--project=<project-id>`), not by waiting for the first run.
+  *Source: ecofolk-infra#135. Four nightly exports failed 2026-10-17 to 2026-10-20 because the instance
+  service account lacked object-create on the export bucket until the 2026-10-20 L-slot paste applied
+  the gated grant.*

@@ -136,6 +136,7 @@ module "monitoring" {
   api_host                         = trimprefix(module.cloudrun_api.uri, "https://")
   web_host                         = var.web_host
   sql_instance_name                = module.cloudsql.instance_name
+  sql_export_job_name              = module.cloudsql.export_job_name
 
   depends_on = [module.project]
 }

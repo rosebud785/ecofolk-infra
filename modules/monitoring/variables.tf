@@ -86,16 +86,31 @@ variable "web_host" {
   }
 }
 
-# Issue #6: the Cloud SQL instance the dashboard's database tiles watch. Default is modules/cloudsql's
-# own instance_name default; the dashboard filters on database_id "<project_id>:<instance>".
+# Issue #6: the Cloud SQL instance the dashboard's database tiles watch (filtered on database_id
+# "<project_id>:<instance>"); #109's stale-export alert names it in its documentation. Default is
+# modules/cloudsql's own instance_name default.
 variable "sql_instance_name" {
   type        = string
   default     = "ecofolk-pg"
-  description = "Name of the Cloud SQL instance the dashboard's database tiles watch (modules/cloudsql's instance_name)."
+  description = "Name of the Cloud SQL instance the dashboard's database tiles watch and the stale-export alert names (modules/cloudsql's instance_name)."
 
   validation {
     condition     = can(regex("^[a-z]([a-z0-9-]{0,96}[a-z0-9])?$", var.sql_instance_name))
     error_message = "sql_instance_name must be a Cloud SQL instance name (lowercase letters, digits and hyphens, max 98 chars)."
+  }
+}
+
+# Issue #109 (Architect ruling on #111): the stale-export alert counts successful runs of this one Cloud
+# Scheduler job. No default: the caller passes modules/cloudsql's export_job_name output, so the id is never
+# a second copy that can drift from the job's real name.
+variable "sql_export_job_name" {
+  type        = string
+  nullable    = false
+  description = "Id of the nightly export's Cloud Scheduler job, for the stale-export alert (pass module.cloudsql.export_job_name)."
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]{1,500}$", var.sql_export_job_name))
+    error_message = "sql_export_job_name must be a Cloud Scheduler job id (letters, digits, hyphens and underscores, max 500 chars), not a full resource path."
   }
 }
 
@@ -123,4 +138,19 @@ variable "env" {
     condition     = contains(["dev", "qa", "prod"], var.env)
     error_message = "env must be \"dev\", \"qa\" or \"prod\"."
   }
+}
+
+# Horizon of the stale-export alert (#109). The Monitoring API caps duration + alignment period at 25 h and
+# the alert policy's precondition requires it to exceed 24 h. Variables only so the tests can drive known-wrong
+# values through the real precondition; callers should not set them.
+variable "sql_export_absence_duration_seconds" {
+  type        = number
+  default     = 68400
+  description = "Absence duration of the stale-export alert, in seconds (19 h). With the alignment period the horizon must be over 24 h and at most 25 h."
+}
+
+variable "sql_export_alignment_period_seconds" {
+  type        = number
+  default     = 21600
+  description = "Alignment period of the stale-export alert, in seconds (6 h). With the absence duration the horizon must be over 24 h and at most 25 h."
 }

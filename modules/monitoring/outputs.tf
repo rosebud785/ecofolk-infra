@@ -3,16 +3,18 @@ output "alert_policy_names" {
     api_5xx_rate           = google_monitoring_alert_policy.api_5xx_rate.name
     db_connection_failures = google_monitoring_alert_policy.db_connection_failures.name
     media_write_failures   = google_monitoring_alert_policy.media_write_failures.name
+    sql_export_stale       = google_monitoring_alert_policy.sql_export_stale.name
   }
-  description = "Resource names of the three alert policies."
+  description = "Resource names of the four alert policies."
 }
 
 output "log_metric_names" {
   value = {
     db_connection_failures = google_logging_metric.db_connection_failures.name
     media_write_failures   = google_logging_metric.media_write_failures.name
+    sql_export_successes   = google_logging_metric.sql_export_successes.name
   }
-  description = "Names of the two log-based metrics (logging.googleapis.com/user/<name>)."
+  description = "Names of the three log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109)."
 }
 
 # Issue #5: for ef#406's alert policies to reference (metric.label.check_id in an uptime_check filter).
@@ -37,6 +39,7 @@ output "resource_names" {
   value = [
     "google_logging_metric/${google_logging_metric.db_connection_failures.name}",
     "google_logging_metric/${google_logging_metric.media_write_failures.name}",
+    "google_logging_metric/${google_logging_metric.sql_export_successes.name}",
   ]
   description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
 }

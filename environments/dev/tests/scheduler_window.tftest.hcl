@@ -6,7 +6,7 @@
 # (a test can read module outputs, not resources inside modules). dev_plan also fails if a module this root
 # calls declares a google_cloud_scheduler_job but isn't in that output, so a new job can't skip the check.
 #
-# Not run by CI: the tf-test job only tests modules/*. Run it locally:
+# Run by CI (tf-test, #107) with the modules' tests. Run it locally:
 #   terraform -chdir=environments/dev init -backend=false && terraform -chdir=environments/dev test
 mock_provider "google" {}
 mock_provider "google-beta" {}

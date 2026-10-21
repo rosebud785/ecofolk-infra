@@ -141,6 +141,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash scripts/tests/test_check_workflows.sh
       - run: bash scripts/check-workflows.sh
+      # ecofolk-infra#70: provider majors are ignored in dependabot.yml (taken by hand, one per PR).
+      - run: bash scripts/tests/test_check_dependabot_majors.sh
+      - run: bash scripts/check-dependabot-majors.sh
 
   # #33: content secret scan over HEAD's full history. On pull_request HEAD is the merge commit, so that
   # is all of main plus every PR commit (catches a secret added in one PR commit and removed in a later

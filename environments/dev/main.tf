@@ -16,12 +16,17 @@
 # (northamerica-northeast1, ef#391) is the single source of truth, and a provider-level region would be a
 # second place that has to agree with it. Every regional resource takes its region from that module.
 #
-# env (#13): every module that names or labels a resource takes env = "dev". Dev's names stay as they were;
-# the QA namespace (environments/qa) shares this project, and its env = "qa" suffixes its names with -qa.
+# env (#13): every module that names or labels a resource takes env = local.env ("dev", set once below). Dev's
+# names stay as they were; the QA namespace (environments/qa) shares this project, and its env = "qa" suffixes
+# its names with -qa. tests/dev_names.tftest.hcl pins dev's existing names as literals.
 terraform {
   backend "gcs" {
     prefix = "dev"
   }
+}
+
+locals {
+  env = "dev"
 }
 
 provider "google" {
@@ -43,7 +48,7 @@ module "project" {
 module "network" {
   source     = "../../modules/network"
   project_id = var.project_id
-  env        = "dev"
+  env        = local.env
   region     = module.project.region
 
   depends_on = [module.project]
@@ -59,6 +64,7 @@ module "network" {
 module "artifact_registry" {
   source        = "../../modules/artifact_registry"
   project_id    = var.project_id
+  env           = local.env
   repository_id = "ecofolk"
 
   depends_on = [module.project]
@@ -75,7 +81,7 @@ module "artifact_registry" {
 module "cloudsql" {
   source                       = "../../modules/cloudsql"
   project_id                   = var.project_id
-  env                          = "dev"
+  env                          = local.env
   private_network              = module.network.network_self_link
   export_service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 
@@ -93,7 +99,7 @@ module "cloudsql" {
 module "sql_off_hours" {
   source                = "../../modules/sql_off_hours"
   project_id            = var.project_id
-  env                   = "dev"
+  env                   = local.env
   region                = module.project.region
   instance_name         = module.cloudsql.instance_name
   service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -139,7 +145,7 @@ locals {
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = var.project_id
-  env             = "dev"
+  env             = local.env
   region          = module.project.region
   name            = var.api_service_name
   service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -180,7 +186,7 @@ module "cloudrun_api" {
 module "idle_sit_sweep" {
   source           = "../../modules/idle_sit_sweep"
   project_id       = var.project_id
-  env              = "dev"
+  env              = local.env
   region           = module.project.region
   api_url          = local.api_base_url
   invoker_sa_email = local.sweep_invoker_email
@@ -200,7 +206,7 @@ module "idle_sit_sweep" {
 module "sync_usgs_water" {
   source           = "../../modules/sync_usgs_water"
   project_id       = var.project_id
-  env              = "dev"
+  env              = local.env
   region           = module.project.region
   api_url          = local.api_base_url
   invoker_sa_email = local.sweep_invoker_email
@@ -220,7 +226,7 @@ module "secrets" {
   source     = "../../modules/secrets"
   project_id = var.project_id
   region     = module.project.region
-  env        = "dev"
+  env        = local.env
 
   depends_on = [module.project]
 }
@@ -245,7 +251,7 @@ module "auth" {
 module "media_bucket" {
   source     = "../../modules/media_bucket"
   project_id = var.project_id
-  env        = "dev"
+  env        = local.env
 
   depends_on = [module.project]
 }
@@ -257,7 +263,7 @@ module "media_bucket" {
 module "web_hosting" {
   source     = "../../modules/web_hosting"
   project_id = var.project_id
-  env        = "dev"
+  env        = local.env
 
   providers = {
     google-beta = google-beta
@@ -279,7 +285,7 @@ module "web_hosting" {
 module "billing_killswitch" {
   source     = "../../modules/billing_killswitch"
   project_id = var.project_id
-  env        = "dev"
+  env        = local.env
   region     = module.project.region
 
   depends_on = [module.project]
@@ -302,7 +308,7 @@ module "billing_killswitch" {
 module "monitoring" {
   source                           = "../../modules/monitoring"
   project_id                       = var.project_id
-  env                              = "dev"
+  env                              = local.env
   api_service_name                 = module.cloudrun_api.name
   notification_channels            = var.alert_notification_channels
   db_connection_failure_log_filter = var.db_connection_failure_log_filter
@@ -363,6 +369,7 @@ output "resource_names" {
   value = concat(
     module.project.resource_names,
     module.network.resource_names,
+    module.artifact_registry.resource_names,
     module.cloudsql.resource_names,
     module.sql_off_hours.resource_names,
     module.cloudrun_api.resource_names,

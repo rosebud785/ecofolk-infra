@@ -54,6 +54,12 @@ run "dev_plan" {
     condition     = length(output.resource_names) > 0 && length(distinct(output.resource_names)) == length(output.resource_names)
     error_message = "dev's resource_names must be non-empty and have no duplicates: ${jsonencode(output.resource_names)}"
   }
+
+  # #125's Artifact Registry repository is in dev's composition, so the collision check below covers it.
+  assert {
+    condition     = contains(output.resource_names, "google_artifact_registry_repository/ecofolk")
+    error_message = "dev's resource_names must include #125's Artifact Registry repository ecofolk: ${jsonencode(output.resource_names)}"
+  }
 }
 
 run "qa_plan" {
@@ -107,8 +113,8 @@ run "composition_is_covered" {
 
   # Keeps the call regex from passing by matching nothing.
   assert {
-    condition     = output.qa_calls == tolist(["cloudrun_api", "sql_database"]) && length(output.dev_calls) == 13
-    error_message = "expected qa to call cloudrun_api and sql_database and dev to make 13 module calls, found qa ${jsonencode(output.qa_calls)}, dev ${jsonencode(output.dev_calls)}"
+    condition     = output.qa_calls == tolist(["cloudrun_api", "sql_database"]) && length(output.dev_calls) == 14
+    error_message = "expected qa to call cloudrun_api and sql_database and dev to make 14 module calls, found qa ${jsonencode(output.qa_calls)}, dev ${jsonencode(output.dev_calls)}"
   }
 
   assert {
@@ -181,5 +187,43 @@ run "known_wrong_unsuffixed_service_collides" {
   assert {
     condition     = length(setintersection(toset(run.dev_plan.resource_names), toset(output.resource_names))) == 1
     error_message = "an env = dev Cloud Run service in the same project must collide with dev's ecofolk-api"
+  }
+}
+
+# The same for #125's Artifact Registry repository: env = dev in the same project collides with dev's
+# "ecofolk"; env = qa (ecofolk-qa) doesn't.
+run "known_wrong_unsuffixed_repository_collides" {
+  command = plan
+
+  module {
+    source = "../../modules/artifact_registry"
+  }
+
+  variables {
+    env           = "dev"
+    repository_id = "ecofolk"
+  }
+
+  assert {
+    condition     = length(setintersection(toset(run.dev_plan.resource_names), toset(output.resource_names))) == 1
+    error_message = "an env = dev Artifact Registry repository ecofolk in the same project must collide with dev's"
+  }
+}
+
+run "qa_repository_does_not_collide" {
+  command = plan
+
+  module {
+    source = "../../modules/artifact_registry"
+  }
+
+  variables {
+    env           = "qa"
+    repository_id = "ecofolk"
+  }
+
+  assert {
+    condition     = tolist(output.resource_names) == tolist(["google_artifact_registry_repository/ecofolk-qa"]) && length(setintersection(toset(run.dev_plan.resource_names), toset(output.resource_names))) == 0
+    error_message = "an env = qa repository must be ecofolk-qa and not collide with dev's names, got ${jsonencode(output.resource_names)}"
   }
 }

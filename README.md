@@ -67,6 +67,9 @@ media bucket. It runs as dev's existing runtime SA: no new IAM or WIF.
 - **No project-level isolation.** A bad dev apply can touch QA resources; C7's env rule and the separate
   state are the guard. `environments/qa/tests` asserts that no resource name collides between dev and
   qa, and that the qa root never declares a `google_sql_database_instance`.
+- **Dev's names don't move.** `environments/dev/tests/dev_names.tftest.hcl` pins dev's existing names as
+  literals (`ecofolk-pg`, `ecofolk-api`, the three buckets, the four secret ids): a rename would be a
+  destroy-and-create on the push-to-main apply. Dev's calls all take `env` from one `local.env`.
 - `infra-apply.yml` applies `environments/dev` only, so QA is planned and applied locally from `main`.
 
 ## Module docs (generated, checked in CI)

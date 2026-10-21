@@ -4,8 +4,6 @@
     "columns": 48,
     "tiles": [
       {
-        "xPos": 0,
-        "yPos": 0,
         "width": 24,
         "height": 16,
         "widget": {
@@ -14,6 +12,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "requests",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -35,7 +34,6 @@
       },
       {
         "xPos": 24,
-        "yPos": 0,
         "width": 24,
         "height": 16,
         "widget": {
@@ -44,6 +42,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "p50",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -60,6 +59,7 @@
               },
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "p95",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -80,7 +80,6 @@
         }
       },
       {
-        "xPos": 0,
         "yPos": 16,
         "width": 24,
         "height": 16,
@@ -90,6 +89,7 @@
             "dataSets": [
               {
                 "plotType": "STACKED_BAR",
+                "targetAxis": "Y1",
                 "legendTemplate": "5xx",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -120,6 +120,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "instances",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -140,7 +141,6 @@
         }
       },
       {
-        "xPos": 0,
         "yPos": 32,
         "width": 16,
         "height": 16,
@@ -150,6 +150,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "CPU utilization",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -178,6 +179,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "connections",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -211,6 +213,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "disk utilization",
                 "minAlignmentPeriod": "60s",
                 "timeSeriesQuery": {
@@ -229,7 +232,6 @@
         }
       },
       {
-        "xPos": 0,
         "yPos": 48,
         "width": 48,
         "height": 16,
@@ -239,6 +241,7 @@
             "dataSets": [
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "API /health",
                 "minAlignmentPeriod": "300s",
                 "timeSeriesQuery": {
@@ -255,6 +258,7 @@
               },
               {
                 "plotType": "LINE",
+                "targetAxis": "Y1",
                 "legendTemplate": "web /",
                 "minAlignmentPeriod": "300s",
                 "timeSeriesQuery": {

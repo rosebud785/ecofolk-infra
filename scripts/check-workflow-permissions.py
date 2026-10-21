@@ -11,6 +11,11 @@ The resolved `permissions` is checked at the workflow level and at every job:
   * in an UNTRUSTED workflow (any trigger outside push-to-main / schedule / guarded workflow_dispatch, unknown
     triggers and an unreadable `on:` included; see untrusted_trigger), every permission value must be `read` or `none`.
 
+  * in an UNTRUSTED workflow, a job with no `permissions` of its own in a workflow with none at the top level
+    FAILS: with no block the job gets the repo/org default token, which can be write-all (#65);
+  * a DUPLICATE key inside any `permissions` mapping fails: YAML keeps the last one, so an earlier grant
+    could be hidden or a later one overridden unseen (#65, Architect's review of #63).
+
 A file that does not parse FAILS the guard: an unreadable workflow is not a clean one.
 
 Rule 3 lives here too: in an UNTRUSTED workflow, ANY `secrets` identifier inside a `${{ }}` expression fails.
@@ -120,9 +125,17 @@ def _push_is_main_only(value: object) -> bool:
     return branches == ["main"]
 
 
+# GitHub's `==` (and contains/startsWith) compare strings CASE-INSENSITIVELY, so `github.ref ==
+# 'refs/heads/main'` is also true on a branch named `Main` or `MAIN` (#82). `github.ref_protected` is true only
+# when a branch protection rule matched the ref, and those patterns are case-sensitive, so it is the case-exact
+# half of the guard: an unprotected `Main` branch can't satisfy it.
+PROTECTED_TERM = re.compile(r"github\.ref_protected(\s*==\s*true)?")
+
+
 def _guarded(job: object) -> bool:
     """True only for the exact good shape of a job-level `if:` (allowlist, so it fails closed): the main-ref
-    guard alone, or the guard followed by `&& <term>`..., after stripping `${{ }}`. The condition may contain no
+    guard followed by `&& github.ref_protected` (case-exact, #82) and optionally more `&& <term>`..., after
+    stripping `${{ }}`. The condition may contain no
     `!`, `||` or parentheses, so a negation (`!(…)`, `!=`) or an OR can never read as a guard. Deliberate
     fail-closed side effect: `… == 'refs/heads/main' && !cancelled()` is rejected (#78, Architect)."""
     cond = job.get("if") if isinstance(job, dict) else None
@@ -132,7 +145,11 @@ def _guarded(job: object) -> bool:
     if re.search(r"[!()]|\|\|", text):
         return False
     first, *rest = [part.strip() for part in text.split("&&")]
-    return bool(REF_GUARD.fullmatch(first)) and all(rest)
+    return (
+        bool(REF_GUARD.fullmatch(first))
+        and all(rest)
+        and any(PROTECTED_TERM.fullmatch(term) for term in rest)
+    )
 
 
 def _unguarded_privileged_dispatch_job(root, loader, text: str) -> str | None:
@@ -186,11 +203,16 @@ def untrusted_trigger(root: yaml.Node, loader: yaml.SafeLoader, text: str = "") 
                 if t == "workflow_dispatch":
                     bad = _unguarded_privileged_dispatch_job(root, loader, text)
                     if bad:
-                        return f"workflow_dispatch (job {bad} is privileged without an `if: github.ref == 'refs/heads/main'` guard)"
+                        return f"workflow_dispatch (job {bad} is privileged without an `if: github.ref == 'refs/heads/main' && github.ref_protected` guard)"
     return None if found else "<no on:>"
 
 
 def check_permissions(node, loader, line, where, on_pr: str | None, allowed, report):
+    if isinstance(node, yaml.MappingNode):
+        loader.flatten_mapping(node)  # merge keys expanded, so a merged-then-redeclared key shows as a duplicate
+        names = [key_name(k) for k, _ in node.value]
+        for name in sorted({n for n in names if names.count(n) > 1}, key=str):
+            report(line, f"duplicate key {name!r} in permissions at {where} (YAML keeps the last; fails the guard)")
     perms = loader.construct_object(node, deep=True)
     if perms == "write-all":
         report(line, f"permissions: write-all at {where} (grants id-token: write and write on everything)")
@@ -249,10 +271,18 @@ def check_file(path: str, allow: set[str]) -> list[str]:
                 # through `secrets:` (inherit/mapping), which neither the permissions rule nor the grep can see.
                 report(1, f"workflow triggered by {on_pr}")
             is_allowed = os.path.basename(path) in allow
-            for k, v in find(root, loader, "permissions"):
+            wf_perms = find(root, loader, "permissions")
+            for k, v in wf_perms:
                 check_permissions(v, loader, k.start_mark.line + 1, "workflow level", on_pr, is_allowed, report)
             for _, jobs in find(root, loader, "jobs"):
                 for jk, job in mapping_items(jobs, loader):
+                    if on_pr and not wf_perms and not find(job, loader, "permissions"):
+                        report(
+                            jk.start_mark.line + 1,
+                            f"job {key_name(jk)} has no permissions: block (and the workflow has none) in a workflow"
+                            f" triggered by {on_pr}; it would get the repo default token. Add `permissions:"
+                            " contents: read` (or `{}`)",
+                        )
                     for k, v in find(job, loader, "permissions"):
                         check_permissions(
                             v, loader, k.start_mark.line + 1, f"job {key_name(jk)}", on_pr, is_allowed, report

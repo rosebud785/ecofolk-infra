@@ -15,6 +15,14 @@ variable "api_service_account_id" {
   description = "Account id (the part before @) of the Cloud Run API's runtime service account in the dev project."
 }
 
+# #114: the Cloud Run service name is a variable because the deterministic run.app URL
+# (local.api_base_url) is built from it; it is also what names the service itself.
+variable "api_service_name" {
+  type        = string
+  default     = "ecofolk-api"
+  description = "Cloud Run service name of the dev API. Feeds the service and the deterministic run.app base URL the internal OIDC audience uses (#114)."
+}
+
 # Issue #20: the dev web app's bare hostname, added to the auth config's authorized domains next to
 # localhost. Default null: the Hosting site's <site>.web.app (#22) is used instead, so the keyless apply,
 # which sets only TF_VAR_project_id, still runs; set TF_VAR_web_host once a custom dev domain exists.
@@ -35,11 +43,11 @@ variable "ops_scheduler_service_account_id" {
 
 # Issue #17 (Architect's OIDC redesign on PR #86): the sweep invoker SA is created locally (L1(a)), with no
 # roles, under exactly this id; only the id is named here, so the email follows the project id. The idle-sit
-# sweep job's OIDC token is minted for it.
+# sweep job's OIDC token is minted for it, and so is sync-usgs-water's (#98, reuses this SA).
 variable "sweep_invoker_service_account_id" {
   type        = string
   default     = "sweep-invoker"
-  description = "Account id (the part before @) of the idle-sit sweep's invoker service account in the dev project (#17)."
+  description = "Account id (the part before @) of the invoker service account for the idle-sit sweep (#17) and sync-usgs-water (#98) jobs in the dev project."
 }
 
 # Issue #90 spec (b), Architect ruling row 3256: channel resource names only, never an address (#24,

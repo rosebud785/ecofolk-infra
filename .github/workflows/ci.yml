@@ -40,6 +40,9 @@ jobs:
 
   # ecofolk-infra#8: `terraform test` per module, against `mock_provider "google"` only (no credentials,
   # no GCP). A module without a tests/*.tftest.hcl fails the job: every module PR adds its own tests.
+  # ecofolk-infra#107: the same for each environments/* ROOT that has tests/*.tftest.hcl (dev's scheduler-window
+  # test, #99). A root without tests is skipped, but at least one root must have them, so a moved or renamed
+  # test can't silently drop out of CI.
   tf-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -48,7 +51,7 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
-      - name: init + test each module
+      - name: init + test each module and environment root
         run: |
           set -euo pipefail
           n=0
@@ -68,6 +71,21 @@ jobs:
             echo "::endgroup::"
           done
           echo "tested $n module(s)"
+          e=0
+          for d in environments/*; do
+            [ -d "$d" ] || continue
+            ls "$d"/tests/*.tftest.hcl >/dev/null 2>&1 || continue
+            e=$((e + 1))
+            echo "::group::$d"
+            terraform -chdir="$d" init -backend=false -input=false
+            terraform -chdir="$d" test -no-color || fail=1
+            echo "::endgroup::"
+          done
+          echo "tested $e environment root(s)"
+          if [ "$e" -eq 0 ]; then
+            echo "::error::no environments/*/tests/*.tftest.hcl found (#107)"
+            fail=1
+          fi
           exit $fail
 
   # ecofolk-infra#6: jq parses every checked-in dashboard JSON (modules/*/dashboards/*.json). Zero files
@@ -123,6 +141,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash scripts/tests/test_check_workflows.sh
       - run: bash scripts/check-workflows.sh
+      # ecofolk-infra#70: provider majors are ignored in dependabot.yml (taken by hand, one per PR).
+      - run: bash scripts/tests/test_check_dependabot_majors.sh
+      - run: bash scripts/check-dependabot-majors.sh
 
   # #33: content secret scan over HEAD's full history. On pull_request HEAD is the merge commit, so that
   # is all of main plus every PR commit (catches a secret added in one PR commit and removed in a later
@@ -218,3 +239,30 @@ jobs:
         run: |
           trivy config --checks-bundle-repository "$TRIVY_CHECKS_BUNDLE" --misconfig-scanners terraform \
             --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore .
+
+  # ecofolk-infra#16 (Architect ruling on PR #116): the load-test authoring half's guard and k6 script,
+  # tested with NO credentials and NO target. k6 is the pinned v1.3.0 Linux amd64 release tarball, checked
+  # against a sha256 copied from that release's k6-v1.3.0-checksums.txt and hardcoded here (never fetched
+  # at run time), then extracted into $RUNNER_TEMP/bin. test_check_load_target.sh runs `k6 inspect` only,
+  # never `k6 run`, so nothing is sent anywhere; it also re-runs the guard under bash 3.2 in the
+  # digest-pinned bash container (#76). No third-party action, no secrets, no id-token.
+  load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      K6_VERSION: 1.3.0
+      K6_SHA256: 84d26fc1f7bc03e02f2e016b3b1b20c032e05dfe461fca82de4e3a6ebe72ddbd
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install k6 (pinned, sha256-verified)
+        run: |
+          set -euo pipefail
+          tgz="k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tgz" \
+            "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/$tgz"
+          echo "${K6_SHA256}  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP/bin" --strip-components=1 "k6-v${K6_VERSION}-linux-amd64/k6"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: load-target guard + k6 inspect (never k6 run)
+        run: K6_BIN="$RUNNER_TEMP/bin/k6" bash scripts/tests/test_check_load_target.sh

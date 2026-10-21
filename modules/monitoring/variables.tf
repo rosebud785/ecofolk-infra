@@ -126,3 +126,18 @@ variable "db_max_connections" {
     error_message = "db_max_connections must be a positive whole number."
   }
 }
+
+# Horizon of the stale-export alert (#109). The Monitoring API caps duration + alignment period at 25 h and
+# the alert policy's precondition requires it to exceed 24 h. Variables only so the tests can drive known-wrong
+# values through the real precondition; callers should not set them.
+variable "sql_export_absence_duration_seconds" {
+  type        = number
+  default     = 68400
+  description = "Absence duration of the stale-export alert, in seconds (19 h). With the alignment period the horizon must be over 24 h and at most 25 h."
+}
+
+variable "sql_export_alignment_period_seconds" {
+  type        = number
+  default     = 21600
+  description = "Alignment period of the stale-export alert, in seconds (6 h). With the absence duration the horizon must be over 24 h and at most 25 h."
+}

@@ -11,6 +11,7 @@ variables {
   media_write_failure_log_filter   = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""
   api_host                         = "api.example.test"
   web_host                         = "web.example.test"
+  sql_export_job_name              = "ecofolk-pg-nightly-export"
 }
 
 run "both_checks_are_https_every_5_minutes_from_3_regions" {

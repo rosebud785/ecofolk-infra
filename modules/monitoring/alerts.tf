@@ -47,13 +47,12 @@ locals {
   #   - Scheduler writes one entry when an attempt starts and one when it finishes; the finish entry's
   #     jsonPayload."@type" is google.cloud.scheduler.logging.AttemptFinished;
   #   - an HTTP target's attempt succeeds on a response code in [200, 299] (HttpTarget, Scheduler API).
-  #     The finish entry's httpRequest.status as the carrier of that code is NOT yet confirmed against
-  #     Google's Cloud Scheduler logging page (see the PR); a range test only matches a present value, so
-  #     an attempt with no response (token mint failure, deadline) can't match;
+  #     The finish entry's httpRequest.status carries that code (confirmed live: 200 on a success, 412 on
+  #     failed attempts; #111 c6317181637). A range test only matches a present value, so an attempt with
+  #     no response (token mint failure, deadline) can't match;
   #   - resource.type cloud_scheduler_job, labelled with the job's id: this job only.
   # The filter is a pure AND of these clauses, with no OR and no NOT: tests/monitoring.tftest.hcl checks
   # its structure, because one OR anywhere would let a failed attempt count as a success.
-  # UNVERIFIED until the first dev apply plus the next morning's run: no real entry has been read.
   sql_export_success_filter = join(" AND ", [
     "resource.type=\"cloud_scheduler_job\"",
     "resource.labels.job_id=\"${var.sql_export_job_name}\"",
@@ -62,12 +61,14 @@ locals {
     "httpRequest.status<300",
   ])
 
-  # The job runs every 24 h, but a metric-absence duration can be at most 23.5 h (the API's maximum;
-  # the spec's 48 h isn't possible). On its own that would page every morning just before the next run.
-  # A 6 h alignment window keeps the night's success visible for 6 h after it lands, so the alert fires
-  # about 29.5 h after the last success: around 10:45 CT the morning after a missed export.
-  sql_export_absence_duration = "84600s" # 23.5 h, the maximum
-  sql_export_alignment_period = "21600s" # 6 h; alerting allows up to 25 h
+  # The job runs every 24 h. The API caps a metric-absence HORIZON, duration + alignment period
+  # combined, at 25 h (an API-side check CI can't see: #111's first apply 400'd on 29.5 h), and the
+  # ruled 48 h isn't possible. The horizon must also exceed 24 h, or the alert pages every morning just
+  # before the next run. So 19 h + 6 h = 25 h: the 6 h alignment window keeps a night's success visible
+  # for 6 h after it lands, and the alert fires about 25 h after the last success, around 11:15Z the
+  # morning after a missed 10:15Z export. The policy's precondition enforces 24 h < horizon <= 25 h.
+  sql_export_absence_duration = "${var.sql_export_absence_duration_seconds}s" # 19 h
+  sql_export_alignment_period = "${var.sql_export_alignment_period_seconds}s" # 6 h
 }
 
 # 1. API 5xx rate. Two conditions, combined with AND: both must hold over the same 10-minute window.
@@ -267,8 +268,18 @@ resource "google_monitoring_alert_policy" "sql_export_stale" {
   combiner              = "OR"
   notification_channels = var.notification_channels
 
+  lifecycle {
+    precondition {
+      condition = (
+        var.sql_export_absence_duration_seconds + var.sql_export_alignment_period_seconds > 86400 &&
+        var.sql_export_absence_duration_seconds + var.sql_export_alignment_period_seconds <= 90000
+      )
+      error_message = "the stale-export horizon (absence duration + alignment period) must be over 24 h, or it pages every morning before the next daily run, and at most 25 h, the Monitoring API's cap on the two combined."
+    }
+  }
+
   conditions {
-    display_name = "No successful nightly export job run (about 29.5 h)"
+    display_name = "No successful nightly export job run (about 25 h)"
 
     condition_absent {
       filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.sql_export_successes.name}\" AND resource.type=\"cloud_scheduler_job\""
@@ -293,7 +304,7 @@ resource "google_monitoring_alert_policy" "sql_export_stale" {
 
       **What a successful run proves, and what it does not:** a success means the job fired **and the Cloud SQL Admin API accepted the export request** (a 2xx response). It does **not** prove the export then completed: the export runs asynchronously after that. Completion is checked by runbook §3.2 step 1 (`gcloud sql operations list … --filter="operationType=EXPORT"`). So this alert catches the job not firing, being paused or deleted, a permission regression, or the API rejecting the request; it can stay quiet while accepted exports fail later.
 
-      **First thing to check:** Cloud Scheduler → `${var.sql_export_job_name}` → View logs: did it run, and what status did it get back (a 403 is a permission regression on the scheduler's service account)? Then Cloud SQL → `${var.sql_instance_name}` → Operations, for the last EXPORT and its error. Then the bucket `${var.project_id}-sql-exports`: the live object's updated time is the last good export.
+      **First thing to check:** Cloud Scheduler → `${var.sql_export_job_name}` → View logs: did it run, and what status did it get back (a 403 is a permission regression on the scheduler's service account; a 412 FAILED_PRECONDITION with no EXPORT operation created was the instance's service account missing objectCreator on the bucket, #135)? Then Cloud SQL → `${var.sql_instance_name}` → Operations, for the last EXPORT and its error. Then the bucket `${var.project_id}-sql-exports`: the live object's updated time is the last good export.
 
       **Runbook:** [§3, Restore from the nightly export](https://github.com/rosebud785/ecofolk-infra/blob/main/docs/runbook.md#3-restore-from-the-nightly-export); §3.2 step 1 confirms whether an export completed.
     EOT

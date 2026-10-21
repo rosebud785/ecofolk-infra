@@ -42,6 +42,8 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | media_write_failure_log_filter | Cloud Logging filter matching one log entry per failed media upload/write by the API. Supplied by L-ALERT. | `string` | n/a | yes |
 | notification_channels | Notification channel resource names (projects/<project>/notificationChannels/<n>) every policy notifies. IDs only: never an address. | `list(string)` | n/a | yes |
 | project_id | GCP project id the alert policies and log-based metrics live in. No default: every caller states its own project. | `string` | n/a | yes |
+| sql_export_absence_duration_seconds | Absence duration of the stale-export alert, in seconds (19 h). With the alignment period the horizon must be over 24 h and at most 25 h. | `number` | `68400` | no |
+| sql_export_alignment_period_seconds | Alignment period of the stale-export alert, in seconds (6 h). With the absence duration the horizon must be over 24 h and at most 25 h. | `number` | `21600` | no |
 | sql_export_job_name | Id of the nightly export's Cloud Scheduler job, for the stale-export alert (pass module.cloudsql.export_job_name). | `string` | n/a | yes |
 | sql_instance_name | Name of the Cloud SQL instance the dashboard's database tiles watch and the stale-export alert names (modules/cloudsql's instance_name). | `string` | `"ecofolk-pg"` | no |
 | web_host | Hostname of the EcoFolk web build (modules/web_hosting: <project>-web.web.app), probed at https://<web_host>/. | `string` | n/a | yes |

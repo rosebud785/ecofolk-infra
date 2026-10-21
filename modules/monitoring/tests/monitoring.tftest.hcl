@@ -391,10 +391,13 @@ run "sql_export_policy_is_absent_on_exactly_that_metric" {
     error_message = "the stale-export policy's absence condition must watch exactly the ecofolk-sql-export-successes metric on cloud_scheduler_job"
   }
 
-  # The API caps a metric-absence duration at 23.5 h, short of the ruled 48 h.
+  # The API caps duration + alignment at 25 h; over 24 h so a daily gap is covered (#109, ruling on #111).
   assert {
-    condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "84600s"
-    error_message = "the absence duration must be 84600s (23.5 h, the API maximum)"
+    condition = (
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "68400s" &&
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].aggregations[0].alignment_period == "21600s"
+    )
+    error_message = "the stale-export alert must be 68400s (19 h) + 21600s (6 h) = 25 h"
   }
 
   assert {
@@ -431,4 +434,57 @@ run "rejects_a_job_name_that_is_a_resource_path" {
   }
 
   expect_failures = [var.sql_export_job_name]
+}
+
+# The horizon rule, driven through the policy's real precondition. The first run is the old 23.5 h + 6 h
+# (29.5 h), which the Monitoring API rejected; the second is 17 h + 6 h (23 h), which would page every
+# morning before the next daily run. Both must fail; the 25 h and 24.5 h (fallback) cases must pass.
+run "sql_export_horizon_over_25h_is_rejected" {
+  command = plan
+  variables {
+    sql_export_absence_duration_seconds = 84600
+    sql_export_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sql_export_stale]
+}
+
+run "sql_export_horizon_of_24h_or_less_is_rejected" {
+  command = plan
+  variables {
+    sql_export_absence_duration_seconds = 61200
+    sql_export_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sql_export_stale]
+}
+
+run "sql_export_horizon_of_exactly_24h_is_rejected" {
+  command = plan
+  variables {
+    sql_export_absence_duration_seconds = 64800
+    sql_export_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sql_export_stale]
+}
+
+run "sql_export_horizon_of_25h_passes" {
+  command = plan
+  assert {
+    condition = (
+      var.sql_export_absence_duration_seconds + var.sql_export_alignment_period_seconds > 86400 &&
+      var.sql_export_absence_duration_seconds + var.sql_export_alignment_period_seconds <= 90000
+    )
+    error_message = "the default horizon must be over 24 h and at most 25 h"
+  }
+}
+
+run "sql_export_fallback_horizon_of_24_5h_passes" {
+  command = plan
+  variables {
+    sql_export_absence_duration_seconds = 66600
+    sql_export_alignment_period_seconds = 21600
+  }
+  assert {
+    condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "66600s"
+    error_message = "the fallback duration must flow through to the policy"
+  }
 }

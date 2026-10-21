@@ -14,3 +14,9 @@ output "resource_names" {
   value       = ["google_cloud_run_v2_service/${google_cloud_run_v2_service.api.name}"]
   description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
 }
+
+# Named env_vars, not env, since #13 (as the variable is).
+output "env_vars" {
+  value       = var.env_vars
+  description = "The plain environment variables set on the container (non-secret), for environments' tests (#114)."
+}

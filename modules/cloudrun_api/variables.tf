@@ -80,7 +80,7 @@ variable "subnetwork" {
   }
 }
 
-# Non-secret values only. Secrets come later as secret_key_ref to Secret Manager secret names (ef#399).
+# Non-secret values only. Secrets go in secret_env below.
 # Named env_vars, not env, since #13: `env` is the environment name every module takes.
 variable "env_vars" {
   type        = map(string)
@@ -98,5 +98,24 @@ variable "env" {
   validation {
     condition     = contains(["dev", "qa", "prod"], var.env)
     error_message = "env must be \"dev\", \"qa\" or \"prod\"."
+  }
+}
+
+# ecofolk-infra#66. Env var name -> Secret Manager secret (id or relative name; pass module.secrets.secret_ids[...]).
+# Each becomes a secret_key_ref at "latest": the revision fails readiness if the secret has no enabled version or
+# the runtime SA lacks secretAccessor (ecofolk#936, #890), so a name is added here only once both hold.
+variable "secret_env" {
+  type        = map(string)
+  default     = {}
+  description = "Env var name -> Secret Manager secret, mapped by secret_key_ref at version latest. References only, never values."
+
+  validation {
+    condition     = alltrue([for k in keys(var.secret_env) : can(regex("^[A-Z][A-Z0-9_]*$", k))])
+    error_message = "secret_env keys must be env-var-style names (upper-case letters, digits, underscores)."
+  }
+
+  validation {
+    condition     = alltrue([for v in values(var.secret_env) : length(v) > 0])
+    error_message = "secret_env values must be non-empty secret references."
   }
 }

@@ -19,11 +19,21 @@ import base64
 import json
 import logging
 import os
+import sys
 
 import functions_framework
 
-logging.basicConfig(level=logging.INFO)
+# Not logging.basicConfig: it does nothing once the root logger has a handler, and functions-framework
+# installs one at WARNING before this module is imported, so every INFO "no unlink:" line was dropped
+# (#132). The logger gets its own stdout handler instead: plain text lines, which Cloud Run records as
+# textPayload. propagate=False so the root handler doesn't log each line twice.
 log = logging.getLogger("killswitch")
+log.setLevel(logging.INFO)
+if not log.handlers:
+    _handler = logging.StreamHandler(sys.stdout)
+    _handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+    log.addHandler(_handler)
+log.propagate = False
 
 DEFAULT_ALLOWLIST = "ecofolk-dev"
 DEFAULT_BUDGET_DISPLAY_NAME = "ecofolk-dev-killswitch"

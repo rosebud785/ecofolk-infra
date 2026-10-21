@@ -28,16 +28,36 @@ run "one_dashboard_in_the_project_with_valid_json" {
     error_message = "the rendered dashboard_json must be valid JSON"
   }
 
-  # GCP's Threshold reference allows only label, value and targetAxis on an xyChart threshold: "Color is
-  # not allowed in a XyChart" and "Direction is not allowed in a XyChart". A mock provider never sees the
-  # API's 400 (#94's first apply failed on color), so the shape is guarded here as an allowlist.
+  # The Monitoring API's Threshold (#104), checked against the v1 discovery document (revision 20261011)
+  # and google/monitoring/dashboard/v1/metrics.proto on 2026-10-20:
+  #   https://cloud.google.com/monitoring/api/ref_v3/rest/v1/projects.dashboards#Threshold
+  # Its fields are label, value, color, direction and targetAxis, but "Color is not allowed in a XyChart"
+  # and "Direction is not allowed in a XyChart", so an xyChart threshold may carry only label, value and
+  # targetAxis. A mock provider never sees the API's 400 (#94's first apply failed on tile 5's
+  # "color": "RED", "direction": "ABOVE"), so the shape is guarded here as an allowlist.
   assert {
     condition = alltrue(flatten([
       for t in jsondecode(google_monitoring_dashboard.ecofolk.dashboard_json).mosaicLayout.tiles : [
-        for th in try(t.widget.xyChart.thresholds, []) : alltrue([for k in keys(th) : contains(["label", "value", "targetAxis"], k)])
+        for th in try(t.widget.xyChart.thresholds, []) : alltrue([
+          for k in keys(th) : contains(["label", "value", "targetAxis"], k)
+        ])
       ]
     ]))
     error_message = "an xyChart threshold may carry only label, value and targetAxis: the Monitoring API refuses color and direction"
+  }
+
+  # Each enum field a threshold carries must hold one of the API's values (same reference as above).
+  assert {
+    condition = alltrue(flatten([
+      for t in jsondecode(google_monitoring_dashboard.ecofolk.dashboard_json).mosaicLayout.tiles : [
+        for th in try(t.widget.xyChart.thresholds, []) : (
+          contains(["COLOR_UNSPECIFIED", "YELLOW", "RED"], try(th.color, "COLOR_UNSPECIFIED")) &&
+          contains(["DIRECTION_UNSPECIFIED", "ABOVE", "BELOW"], try(th.direction, "DIRECTION_UNSPECIFIED")) &&
+          contains(["TARGET_AXIS_UNSPECIFIED", "Y1", "Y2"], try(th.targetAxis, "TARGET_AXIS_UNSPECIFIED"))
+        )
+      ]
+    ]))
+    error_message = "a threshold's color, direction or targetAxis is not a Monitoring API enum value"
   }
 
   assert {
@@ -281,5 +301,82 @@ run "xychart_threshold_allowlist_refuses_color_and_direction" {
   assert {
     condition     = var.project_id == "ecofolk-dev" && alltrue([for k in keys(jsondecode("{\"label\":\"x\",\"value\":1,\"targetAxis\":\"Y1\"}")) : contains(["label", "value", "targetAxis"], k)])
     error_message = "the allowlist must accept label, value and targetAxis"
+  }
+}
+
+# #104 known-wrong: tests/fixtures/tile5_rejected_2026-10-19.json is tile 5 (the connections tile, 0-based
+# index 5) exactly as #94 applied it on 2026-10-19, when the Monitoring API answered 400. The field
+# allowlist above, run over it, must refuse it. Its color and direction (RED, ABOVE) are valid enum values,
+# so only the allowlist catches it: the enum check below must still accept it.
+run "known_wrong_tile5_threshold_of_2026_10_19_is_refused" {
+  command = plan
+
+  assert {
+    condition = var.project_id == "ecofolk-dev" && !alltrue([
+      for th in jsondecode(file("${path.module}/tests/fixtures/tile5_rejected_2026-10-19.json")).widget.xyChart.thresholds : alltrue([
+        for k in keys(th) : contains(["label", "value", "targetAxis"], k)
+      ])
+    ])
+    error_message = "the xyChart threshold allowlist must refuse tile 5's rejected 2026-10-19 threshold"
+  }
+
+  assert {
+    condition = var.project_id == "ecofolk-dev" && alltrue([
+      for th in jsondecode(file("${path.module}/tests/fixtures/tile5_rejected_2026-10-19.json")).widget.xyChart.thresholds : (
+        contains(["COLOR_UNSPECIFIED", "YELLOW", "RED"], try(th.color, "COLOR_UNSPECIFIED")) &&
+        contains(["DIRECTION_UNSPECIFIED", "ABOVE", "BELOW"], try(th.direction, "DIRECTION_UNSPECIFIED")) &&
+        contains(["TARGET_AXIS_UNSPECIFIED", "Y1", "Y2"], try(th.targetAxis, "TARGET_AXIS_UNSPECIFIED"))
+      )
+    ])
+    error_message = "RED and ABOVE are API enum values: the enum check must accept them (the allowlist is what refuses tile 5)"
+  }
+}
+
+# Known-wrongs for the enum check: the same predicate must refuse a value that isn't in the API's enum.
+run "threshold_enum_check_refuses_values_outside_the_api_enums" {
+  command = plan
+
+  assert {
+    condition = var.project_id == "ecofolk-dev" && !alltrue([
+      for th in [jsondecode("{\"label\":\"x\",\"value\":1,\"color\":\"GREEN\"}")] : (
+        contains(["COLOR_UNSPECIFIED", "YELLOW", "RED"], try(th.color, "COLOR_UNSPECIFIED")) &&
+        contains(["DIRECTION_UNSPECIFIED", "ABOVE", "BELOW"], try(th.direction, "DIRECTION_UNSPECIFIED")) &&
+        contains(["TARGET_AXIS_UNSPECIFIED", "Y1", "Y2"], try(th.targetAxis, "TARGET_AXIS_UNSPECIFIED"))
+      )
+    ])
+    error_message = "the enum check must refuse color GREEN (not in the API's Color enum)"
+  }
+
+  assert {
+    condition = var.project_id == "ecofolk-dev" && !alltrue([
+      for th in [jsondecode("{\"label\":\"x\",\"value\":1,\"direction\":\"UP\"}")] : (
+        contains(["COLOR_UNSPECIFIED", "YELLOW", "RED"], try(th.color, "COLOR_UNSPECIFIED")) &&
+        contains(["DIRECTION_UNSPECIFIED", "ABOVE", "BELOW"], try(th.direction, "DIRECTION_UNSPECIFIED")) &&
+        contains(["TARGET_AXIS_UNSPECIFIED", "Y1", "Y2"], try(th.targetAxis, "TARGET_AXIS_UNSPECIFIED"))
+      )
+    ])
+    error_message = "the enum check must refuse direction UP (not in the API's Direction enum)"
+  }
+
+  assert {
+    condition = var.project_id == "ecofolk-dev" && !alltrue([
+      for th in [jsondecode("{\"label\":\"x\",\"value\":1,\"targetAxis\":\"Y3\"}")] : (
+        contains(["COLOR_UNSPECIFIED", "YELLOW", "RED"], try(th.color, "COLOR_UNSPECIFIED")) &&
+        contains(["DIRECTION_UNSPECIFIED", "ABOVE", "BELOW"], try(th.direction, "DIRECTION_UNSPECIFIED")) &&
+        contains(["TARGET_AXIS_UNSPECIFIED", "Y1", "Y2"], try(th.targetAxis, "TARGET_AXIS_UNSPECIFIED"))
+      )
+    ])
+    error_message = "the enum check must refuse targetAxis Y3 (not in the API's TargetAxis enum)"
+  }
+
+  assert {
+    condition = var.project_id == "ecofolk-dev" && alltrue([
+      for th in [jsondecode("{\"label\":\"x\",\"value\":1,\"targetAxis\":\"Y2\"}")] : (
+        contains(["COLOR_UNSPECIFIED", "YELLOW", "RED"], try(th.color, "COLOR_UNSPECIFIED")) &&
+        contains(["DIRECTION_UNSPECIFIED", "ABOVE", "BELOW"], try(th.direction, "DIRECTION_UNSPECIFIED")) &&
+        contains(["TARGET_AXIS_UNSPECIFIED", "Y1", "Y2"], try(th.targetAxis, "TARGET_AXIS_UNSPECIFIED"))
+      )
+    ])
+    error_message = "the enum check must accept targetAxis Y2"
   }
 }

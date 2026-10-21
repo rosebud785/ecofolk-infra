@@ -7,11 +7,13 @@
 # The image defaults to Google's public placeholder and Terraform ignores later changes to it: deploys
 # (ef#408, local) set the real image, and a later apply must not roll it back.
 #
+# Secrets (ecofolk-infra#66): `secret_env` maps env var names to Secret Manager secret ids, each as a
+# value_source { secret_key_ref } at version "latest". No value is ever written here; `env_vars` stays
+# non-secret values only. The module takes the list as a variable so a future secret is added by the caller.
+#
 # What is deliberately NOT here (Architect spec on #19):
 #   - no IAM of any kind: the runtime service account, the apply identity's actAs on it, and the
 #     `allUsers` -> roles/run.invoker binding that makes the API callable are local follow-up (L-RUN below);
-#   - no secrets: `env_vars` takes non-secret values only. Secrets come later as secret_key_ref to Secret
-#     Manager secret names (ef#399, local);
 #   - no custom domain or domain mapping (ef#404/#670), and no deploy CI (ef#408).
 #
 # Needs run.googleapis.com (modules/project) and the subnet (modules/network); callers order them with
@@ -80,6 +82,20 @@ resource "google_cloud_run_v2_service" "api" {
         content {
           name  = env.key
           value = env.value
+        }
+      }
+
+      # Secret-backed env vars (#66): by reference only, never a literal.
+      dynamic "env" {
+        for_each = var.secret_env
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
         }
       }
     }

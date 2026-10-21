@@ -94,4 +94,5 @@ gcloud scheduler jobs describe idle-sit-sweep --project=ecofolk-dev \
 | job_name | Name of the idle-sit sweep Cloud Scheduler job. |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | scheduler_jobs | This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). |
+| uri | The URL the job POSTs to; equals audience (#114's test asserts it). |
 <!-- END_TF_DOCS -->

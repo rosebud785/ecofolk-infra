@@ -150,6 +150,62 @@ run "env_vars_follows_the_variable" {
   }
 }
 
+# ecofolk-infra#66: the three secrets are secret_key_ref at "latest" to the matching container, no literal,
+# and SWEEP_TOKEN (deleted from the API by ecofolk#1108) is not in the service env.
+run "secret_env_is_secret_key_ref_with_no_literal" {
+  command = plan
+
+  variables {
+    env_vars = {
+      NODE_ENV = "production"
+    }
+    secret_env = {
+      POSTGRES_PASSWORD        = "projects/ecofolk-dev/secrets/POSTGRES_PASSWORD"
+      POSTGRES_INGEST_PASSWORD = "projects/ecofolk-dev/secrets/POSTGRES_INGEST_PASSWORD"
+      NOAA_CDO_TOKEN           = "projects/ecofolk-dev/secrets/NOAA_CDO_TOKEN"
+    }
+  }
+
+  assert {
+    condition = (
+      length([for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e if length(e.value_source) > 0]) == 3 &&
+      alltrue([
+        for e in google_cloud_run_v2_service.api.template[0].containers[0].env :
+        e.value_source[0].secret_key_ref[0].secret == "projects/ecofolk-dev/secrets/${e.name}" &&
+        e.value_source[0].secret_key_ref[0].version == "latest" &&
+        (e.value == null || e.value == "")
+        if length(e.value_source) > 0
+      ])
+    )
+    error_message = "each of the three secret env vars must be a secret_key_ref at latest to its matching secret, with no literal value"
+  }
+
+  assert {
+    condition     = !contains([for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e.name], "SWEEP_TOKEN")
+    error_message = "SWEEP_TOKEN must not be in the service env (ecofolk#1108 deletes it)"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_service.api.template[0].containers[0].env) == 4 &&
+      length([for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e if e.name == "NODE_ENV" && e.value == "production"]) == 1
+    )
+    error_message = "plain env_vars must keep working alongside secret_env"
+  }
+}
+
+run "rejects_a_lowercase_secret_env_name" {
+  command = plan
+
+  variables {
+    secret_env = {
+      postgres_password = "projects/ecofolk-dev/secrets/POSTGRES_PASSWORD"
+    }
+  }
+
+  expect_failures = [var.secret_env]
+}
+
 # A lifecycle block isn't visible in the plan, so read the module's own source instead.
 run "image_changes_are_ignored" {
   command = plan

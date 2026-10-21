@@ -45,3 +45,16 @@ variable "psa_prefix_length" {
     error_message = "psa_prefix_length must be between 20 and 24 (a /20 or smaller, and at least the /24 Cloud SQL needs)."
   }
 }
+
+# #13: dev, qa or prod. It is the PSA range's `env` label (the VPC and subnet take no labels) and it
+# suffixes each resource name: dev and prod each own a project, so their names stay as they are; a qa
+# call would end in -qa. qa reuses dev's network today and doesn't call this module.
+variable "env" {
+  type        = string
+  description = "Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa."
+
+  validation {
+    condition     = contains(["dev", "qa", "prod"], var.env)
+    error_message = "env must be \"dev\", \"qa\" or \"prod\"."
+  }
+}

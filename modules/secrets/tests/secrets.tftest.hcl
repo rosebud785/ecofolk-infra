@@ -142,3 +142,57 @@ run "rejects_a_repeated_name" {
 
   expect_failures = [var.secret_names]
 }
+
+# Issue #13: env. dev keeps the contract names; qa would suffix each with _QA; the env label follows var.env.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = sort([for s in google_secret_manager_secret.secret : s.secret_id]) == sort(var.secret_names)
+    error_message = "dev must keep the contract names exactly"
+  }
+
+  assert {
+    condition     = alltrue([for s in google_secret_manager_secret.secret : s.labels.env == "dev"])
+    error_message = "every secret must carry env = dev"
+  }
+
+  assert {
+    condition     = sort(output.resource_names) == sort([for n in var.secret_names : "google_secret_manager_secret/${n}"])
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = sort([for s in google_secret_manager_secret.secret : s.secret_id]) == sort([for n in var.secret_names : "${n}_QA"])
+    error_message = "qa must suffix each secret id with _QA"
+  }
+
+  assert {
+    condition     = alltrue([for s in google_secret_manager_secret.secret : s.labels.env == "qa"])
+    error_message = "every secret must carry env = qa"
+  }
+
+  assert {
+    condition     = sort(output.resource_names) == sort([for n in var.secret_names : "google_secret_manager_secret/${n}_QA"])
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
+}

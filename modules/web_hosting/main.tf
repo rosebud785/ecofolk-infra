@@ -19,6 +19,11 @@
 # roles/editor; if the first apply 403s on firebase.projects.update or firebasehosting.sites.create,
 # the narrowest role (roles/firebase.admin, or roles/firebasehosting.admin for the site alone) is added
 # locally. The deploy identity for ecofolk#408 needs its own role there; that is not this module's.
+locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+}
+
 resource "google_firebase_project" "this" {
   provider = google-beta
   project  = var.project_id
@@ -27,5 +32,5 @@ resource "google_firebase_project" "this" {
 resource "google_firebase_hosting_site" "web" {
   provider = google-beta
   project  = google_firebase_project.this.project
-  site_id  = "${var.project_id}-web"
+  site_id  = "${var.project_id}-web${local.env_suffix}"
 }

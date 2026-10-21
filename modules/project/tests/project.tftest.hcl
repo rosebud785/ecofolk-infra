@@ -139,3 +139,14 @@ run "every_api_is_on_the_given_project_and_kept_on_destroy" {
     error_message = "project_id output must echo var.project_id"
   }
 }
+
+# Issue #13: resource_names lists every API this module enables, one per project, so environments/qa's
+# collision test catches a qa root that calls this module on dev's project.
+run "resource_names_lists_every_api" {
+  command = plan
+
+  assert {
+    condition     = sort(output.resource_names) == sort([for a in var.enabled_apis : "google_project_service/${a}"])
+    error_message = "resource_names must list google_project_service/<api> for every enabled API (#13), got ${jsonencode(output.resource_names)}"
+  }
+}

@@ -41,3 +41,15 @@ output "scheduler_jobs" {
   }]
   description = "This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99)."
 }
+
+# #13: every name this module gives a resource, as <type>/<name>, for environments/qa's test that no
+# name collides between dev and qa.
+output "resource_names" {
+  value = [
+    "google_sql_database_instance/${google_sql_database_instance.postgres.name}",
+    "google_sql_database/${google_sql_database.ecofolk.name}",
+    "google_storage_bucket/${google_storage_bucket.sql_exports.name}",
+    "google_cloud_scheduler_job/${google_cloud_scheduler_job.sql_export.name}",
+  ]
+  description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
+}

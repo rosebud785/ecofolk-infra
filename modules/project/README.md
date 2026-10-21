@@ -36,4 +36,5 @@ Enables the BUILD_PLAN §11.1 APIs on one project.
 |------|-------------|
 | project_id | The GCP project id this module was instantiated for. |
 | region | The (pinned) region this module was instantiated for. Always northamerica-northeast1 — see variables.tf. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 <!-- END_TF_DOCS -->

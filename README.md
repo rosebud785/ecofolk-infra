@@ -5,12 +5,15 @@ secret, and no pull-request path may obtain cloud credentials (`scripts/check-wo
 
 ```
 environments/dev/    root module, project ecofolk-dev; applied keyless from main (.github/workflows/infra-apply.yml)
+environments/qa/     root module, the QA/test namespace inside ecofolk-dev (#13): own state prefix `qa`, its own Cloud Run
+                     service and database on dev's network and SQL instance; never applied by CI
 environments/prod/   root module, project ecofolk-prod: the shared modules at prod sizing (#12); CI only validates it,
                      no workflow may plan or apply it (scripts/check-workflows.sh rule 5)
 modules/project/     reusable: enables the §11.1 APIs on one project
 modules/artifact_registry/  reusable: region-pinned Docker repo with cleanup policies (#4)
 modules/network/     reusable: VPC, subnet, Private Service Access for Cloud SQL private IP (#1)
 modules/cloudsql/    reusable: Cloud SQL Postgres 16, private IP only, backups on, IAM auth flag (#18)
+modules/sql_database/ reusable: one env's own database (ecofolk_qa) on an existing instance; user name only, no user (#13)
 modules/cloudrun_api/ reusable: the API on Cloud Run v2, scale-to-zero, Direct VPC egress (#19)
 modules/auth/        reusable: Firebase Auth config, email + password on, no IdP secrets (#20)
 modules/media_bucket/ reusable: private GCS media bucket, Montréal, abort-multipart lifecycle only (#21)
@@ -45,6 +48,29 @@ A real `terraform plan` or `apply` runs only from `main`, after a reviewed PR ha
 credentials and need none, and prove a change with the checks below (`terraform test` against mock
 providers, policy, lint). Dev is applied from `main` by `infra-apply.yml`; `environments/prod` is never
 applied by CI, and `ecofolk-prod` stays unlinked from billing until go-live.
+
+## QA namespace (#13)
+
+QA is a namespace inside `ecofolk-dev`, not a third project (Andy, 2026-10-09). `environments/qa` is its
+own root with state prefix `qa` in the same bucket. It looks up dev's VPC, subnet, Cloud SQL instance and
+media bucket, and owns only `ecofolk-api-qa` (Cloud Run), the `ecofolk_qa` database with user name
+`ecofolk_qa_app` (the user and its password are made out of band, L-SQL), and the `qa/` prefix in dev's
+media bucket. It runs as dev's existing runtime SA: no new IAM or WIF.
+
+- **Every module takes `env`** (`dev`, `qa` or `prod`). It is the `env` label on each resource whose type
+  takes labels, and it suffixes names: dev and prod keep their names (each owns a project), and qa's
+  end in `-qa` (`_qa` / `_QA` where the name can't take a hyphen). C7's `policy/env.rego` refuses a named
+  resource whose name doesn't reference `var.env` or `local.env_suffix`, or a labelled one with no `env`
+  label.
+- **QA shares dev's SQL instance**, so #14's off-hours stop (22:15–04:45 CT) also stops QA, and #15's
+  unlink of `ecofolk-dev` takes QA down too. Both are accepted for a test env and match its ops hours.
+- **No project-level isolation.** A bad dev apply can touch QA resources; C7's env rule and the separate
+  state are the guard. `environments/qa/tests` asserts that no resource name collides between dev and
+  qa, and that the qa root never declares a `google_sql_database_instance`.
+- **Dev's names don't move.** `environments/dev/tests/dev_names.tftest.hcl` pins dev's existing names as
+  literals (`ecofolk-pg`, `ecofolk-api`, the three buckets, the four secret ids): a rename would be a
+  destroy-and-create on the push-to-main apply. Dev's calls all take `env` from one `local.env`.
+- `infra-apply.yml` applies `environments/dev` only, so QA is planned and applied locally from `main`.
 
 ## Module docs (generated, checked in CI)
 
@@ -92,6 +118,8 @@ a tracked `*.tf.json` fails the job, because the HCL parser can't read it):
   `google_secret_manager_secret_iam_*` outside a `local-only/` path; secrets here are empty containers (#32);
 - billing kill-switch: every `project_allowlist` (variable default or module argument) is a literal list
   with no `*-prod` id (#15);
+- env (#13, `policy/env.rego`): every named resource's name references `var.env` or `local.env_suffix`,
+  and every resource whose type takes labels carries an `env` label (`var.env`, or `dev`, `qa`, `prod`);
 - every `module` source is a local path (`./` or `../`) that resolves to a directory with tracked `*.tf`,
   so no remote or unresolvable module hides resources from the rules.
 
@@ -130,7 +158,7 @@ against `mock_provider "google"`: no credentials, no GCP calls (#8). The rule:
 ```bash
 terraform fmt -check -recursive
 for m in modules/*/; do [ -d "$m/tests" ] && terraform -chdir="$m" init -backend=false -input=false && terraform -chdir="$m" test; done
-cd environments/dev && terraform init -backend=false -input=false && terraform validate
+for e in dev qa; do terraform -chdir=environments/$e init -backend=false -input=false && terraform -chdir=environments/$e validate && terraform -chdir=environments/$e test; done
 bash scripts/tests/test_check_region_pin.sh && bash scripts/check-region-pin.sh
 bash scripts/tests/test_check_workflows.sh && bash scripts/check-workflows.sh
 bash scripts/tests/test_restore_from_export.sh

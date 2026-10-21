@@ -7,6 +7,7 @@ mock_provider "google" {}
 
 variables {
   project_id = "ecofolk-dev"
+  env        = "dev"
 }
 
 run "topic_has_the_architect_name_and_stays_in_montreal" {
@@ -240,4 +241,63 @@ run "rejects_a_bad_service_account_id" {
   }
 
   expect_failures = [var.service_account_id]
+}
+
+# Issue #13: env. dev only: the names are unchanged, every label is env = dev, and qa and prod are refused.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_pubsub_topic.budget.name == "ecofolk-dev-killswitch" && google_cloudfunctions2_function.killswitch.name == "ecofolk-dev-killswitch" && google_storage_bucket.source.name == "ecofolk-dev-killswitch-src"
+    error_message = "dev must keep the topic, function and bucket names"
+  }
+
+  assert {
+    condition     = google_pubsub_topic.budget.labels.env == "dev" && google_storage_bucket.source.labels.env == "dev" && google_cloudfunctions2_function.killswitch.labels.env == "dev"
+    error_message = "every labelled resource must carry env = dev"
+  }
+
+  assert {
+    condition = sort(output.resource_names) == sort([
+      "google_project_service/cloudfunctions.googleapis.com",
+      "google_project_service/eventarc.googleapis.com",
+      "google_project_service/pubsub.googleapis.com",
+      "google_project_service/cloudbilling.googleapis.com",
+      "google_pubsub_topic/ecofolk-dev-killswitch",
+      "google_storage_bucket/ecofolk-dev-killswitch-src",
+      "google_cloudfunctions2_function/ecofolk-dev-killswitch",
+    ])
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
+}
+
+run "env_refuses_qa" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  expect_failures = [var.env]
+}
+
+run "env_refuses_prod" {
+  command = plan
+
+  variables {
+    env = "prod"
+  }
+
+  expect_failures = [var.env]
 }

@@ -19,11 +19,11 @@ variable "project_id" {
 variable "name" {
   type        = string
   default     = "ecofolk-api"
-  description = "Cloud Run service name (lowercase letters, digits and hyphens)."
+  description = "Cloud Run service name (lowercase letters, digits and hyphens). A qa service gets -qa appended (#13)."
 
   validation {
-    condition     = can(regex("^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$", var.name))
-    error_message = "name must start with a lowercase letter and contain only lowercase letters, digits and hyphens (max 49 chars)."
+    condition     = can(regex("^[a-z]([a-z0-9-]{0,44}[a-z0-9])?$", var.name))
+    error_message = "name must start with a lowercase letter and contain only lowercase letters, digits and hyphens (max 46 chars, so the -qa suffix still fits Cloud Run's 49)."
   }
 }
 
@@ -81,10 +81,24 @@ variable "subnetwork" {
 }
 
 # Non-secret values only. Secrets go in secret_env below.
-variable "env" {
+# Named env_vars, not env, since #13: `env` is the environment name every module takes.
+variable "env_vars" {
   type        = map(string)
   default     = {}
   description = "Plain environment variables for the container. NON-SECRET values only: this lands in state and in the public repo."
+}
+
+# #13: dev, qa or prod. It is each resource's `env` label (where the type takes labels) and it suffixes
+# each resource name: dev and prod each own a project, so their names stay as they are; qa is a namespace
+# inside ecofolk-dev, so its names end in -qa and can't collide with dev's.
+variable "env" {
+  type        = string
+  description = "Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa."
+
+  validation {
+    condition     = contains(["dev", "qa", "prod"], var.env)
+    error_message = "env must be \"dev\", \"qa\" or \"prod\"."
+  }
 }
 
 # ecofolk-infra#66. Env var name -> Secret Manager secret (id or relative name; pass module.secrets.secret_ids[...]).

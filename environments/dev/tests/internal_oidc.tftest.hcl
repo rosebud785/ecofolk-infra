@@ -39,32 +39,32 @@ run "audience_base_is_one_value_everywhere" {
   command = plan
 
   assert {
-    condition     = module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"] == "https://ecofolk-api-1234567890.northamerica-northeast1.run.app"
+    condition     = module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"] == "https://ecofolk-api-1234567890.northamerica-northeast1.run.app"
     error_message = "INTERNAL_AUDIENCE_BASE must be the deterministic run.app URL https://<service>-<project number>.<region>.run.app"
   }
 
   assert {
-    condition     = can(regex("^https://[a-z0-9-]+-[0-9]+\\.[a-z0-9-]+\\.run\\.app$", module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"]))
+    condition     = can(regex("^https://[a-z0-9-]+-[0-9]+\\.[a-z0-9-]+\\.run\\.app$", module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]))
     error_message = "INTERNAL_AUDIENCE_BASE must match ^https://<service>-<digits>.<region>.run.app$ (the deterministic form, not the hash .a.run.app form)"
   }
 
   assert {
-    condition     = trimsuffix(module.idle_sit_sweep.audience, "/internal/sweep-idle-sits") == module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"]
+    condition     = trimsuffix(module.idle_sit_sweep.audience, "/internal/sweep-idle-sits") == module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]
     error_message = "the idle-sit sweep job's audience, minus its path, must equal INTERNAL_AUDIENCE_BASE exactly (a mismatch 401s every call, silently)"
   }
 
   assert {
-    condition     = trimsuffix(module.sync_usgs_water.audience, "/internal/sync-usgs-water") == module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"]
+    condition     = trimsuffix(module.sync_usgs_water.audience, "/internal/sync-usgs-water") == module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]
     error_message = "the sync-usgs-water job's audience, minus its path, must equal INTERNAL_AUDIENCE_BASE exactly (a mismatch 401s every call, silently)"
   }
 
   assert {
-    condition     = module.idle_sit_sweep.audience == "${module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"]}/internal/sweep-idle-sits"
+    condition     = module.idle_sit_sweep.audience == "${module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]}/internal/sweep-idle-sits"
     error_message = "the sweep audience must be INTERNAL_AUDIENCE_BASE + /internal/sweep-idle-sits, with the path actually present"
   }
 
   assert {
-    condition     = module.sync_usgs_water.audience == "${module.cloudrun_api.env["INTERNAL_AUDIENCE_BASE"]}/internal/sync-usgs-water"
+    condition     = module.sync_usgs_water.audience == "${module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]}/internal/sync-usgs-water"
     error_message = "the sync audience must be INTERNAL_AUDIENCE_BASE + /internal/sync-usgs-water, with the path actually present"
   }
 }
@@ -87,12 +87,12 @@ run "invoker_is_set_and_no_static_token_is_mapped" {
   command = plan
 
   assert {
-    condition     = module.cloudrun_api.env["INTERNAL_INVOKER_EMAIL"] == format("%s@%s.iam.gserviceaccount.com", "sweep-invoker", "ecofolk-dev")
+    condition     = module.cloudrun_api.env_vars["INTERNAL_INVOKER_EMAIL"] == format("%s@%s.iam.gserviceaccount.com", "sweep-invoker", "ecofolk-dev")
     error_message = "INTERNAL_INVOKER_EMAIL must be the sweep-invoker service account email, built from the variable, not a literal"
   }
 
   assert {
-    condition     = !contains(keys(module.cloudrun_api.env), "SWEEP_TOKEN")
+    condition     = !contains(keys(module.cloudrun_api.env_vars), "SWEEP_TOKEN")
     error_message = "SWEEP_TOKEN must not be mapped on the Cloud Run service (internal routes are on OIDC, #114)"
   }
 }

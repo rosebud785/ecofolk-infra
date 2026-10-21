@@ -21,3 +21,10 @@ output "scheduler_jobs" {
   }]
   description = "This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99)."
 }
+
+# #13: every name this module gives a resource, as <type>/<name>, for environments/qa's test that no
+# name collides between dev and qa.
+output "resource_names" {
+  value       = ["google_cloud_scheduler_job/${google_cloud_scheduler_job.sweep.name}"]
+  description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
+}

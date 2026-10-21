@@ -7,6 +7,7 @@ mock_provider "google" {}
 
 variables {
   project_id                       = "ecofolk-dev"
+  env                              = "dev"
   notification_channels            = ["projects/ecofolk-dev/notificationChannels/1234567890"]
   db_connection_failure_log_filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.db_connect_failed\""
   media_write_failure_log_filter   = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""

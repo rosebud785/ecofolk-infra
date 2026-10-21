@@ -11,3 +11,10 @@ output "scheduler_jobs" {
   }]
   description = "This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). Empty when enable_off_hours is false."
 }
+
+# #13: every name this module gives a resource, as <type>/<name>, for environments/qa's test that no
+# name collides between dev and qa.
+output "resource_names" {
+  value       = [for j in google_cloud_scheduler_job.this : "google_cloud_scheduler_job/${j.name}"]
+  description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
+}

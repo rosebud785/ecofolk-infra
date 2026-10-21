@@ -8,7 +8,7 @@
 # (ef#408, local) set the real image, and a later apply must not roll it back.
 #
 # Secrets (ecofolk-infra#66): `secret_env` maps env var names to Secret Manager secret ids, each as a
-# value_source { secret_key_ref } at version "latest". No value is ever written here; `env` stays
+# value_source { secret_key_ref } at version "latest". No value is ever written here; `env_vars` stays
 # non-secret values only. The module takes the list as a variable so a future secret is added by the caller.
 #
 # What is deliberately NOT here (Architect spec on #19):
@@ -27,10 +27,19 @@
 #      then the cold start measurement (first-request latency after scale-to-zero, 5 runs, report the
 #      median) once the real image is deployed; roles/cloudsql.client and
 #      roles/secretmanager.secretAccessor (per named secret) to ef#399.
+locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+}
+
 resource "google_cloud_run_v2_service" "api" {
   project  = var.project_id
-  name     = var.name
+  name     = "${var.name}${local.env_suffix}"
   location = var.region
+
+  labels = {
+    env = var.env
+  }
 
   # The public API: reachable from the internet once allUsers gets the invoker role (L-RUN, ef#408).
   ingress = "INGRESS_TRAFFIC_ALL"
@@ -69,7 +78,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       dynamic "env" {
-        for_each = var.env
+        for_each = var.env_vars
         content {
           name  = env.key
           value = env.value

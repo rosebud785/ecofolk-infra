@@ -165,3 +165,47 @@ run "rejects_unknown_env" {
 
   expect_failures = [var.env]
 }
+
+# Issue #13: env. dev keeps the bucket name; qa would get its own -qa bucket; the env label follows var.env.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_storage_bucket.media.name == "ecofolk-dev-media" && google_storage_bucket.media.labels.env == "dev"
+    error_message = "dev must keep ecofolk-dev-media, labelled env = dev"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_storage_bucket/ecofolk-dev-media"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_storage_bucket.media.name == "ecofolk-dev-media-qa" && google_storage_bucket.media.labels.env == "qa"
+    error_message = "qa must get ecofolk-dev-media-qa, labelled env = qa"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_storage_bucket/ecofolk-dev-media-qa"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
+}

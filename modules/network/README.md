@@ -29,6 +29,7 @@ VPC, subnet, and Private Service Access for Cloud SQL private IP (ecofolk-infra#
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa. | `string` | n/a | yes |
 | name | Name of the VPC; also the prefix of the subnet and PSA range names. | `string` | `"ecofolk"` | no |
 | project_id | GCP project id the network lives in. | `string` | n/a | yes |
 | psa_prefix_length | Prefix length of the Private Service Access range. Between 20 and 24 inclusive. | `number` | `20` | no |
@@ -41,6 +42,7 @@ VPC, subnet, and Private Service Access for Cloud SQL private IP (ecofolk-infra#
 |------|-------------|
 | network_id | Relative resource name (.id) of the VPC (Cloud Run v2 vpc_access network). |
 | network_self_link | Self-link of the VPC (Cloud SQL private_network). |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | subnet_id | Relative resource name (.id) of the subnet (Cloud Run v2 Direct VPC egress subnetwork). |
 | subnet_self_link | Self-link of the subnet. |
 <!-- END_TF_DOCS -->

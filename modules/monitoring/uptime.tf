@@ -29,6 +29,7 @@ locals {
 resource "google_monitoring_uptime_check_config" "api_health" {
   project          = var.project_id
   display_name     = "EcoFolk API: /health"
+  user_labels      = { env = var.env }
   period           = local.uptime_period
   timeout          = local.uptime_timeout
   selected_regions = local.uptime_checker_regions
@@ -53,6 +54,7 @@ resource "google_monitoring_uptime_check_config" "api_health" {
 resource "google_monitoring_uptime_check_config" "web_root" {
   project          = var.project_id
   display_name     = "EcoFolk web: /"
+  user_labels      = { env = var.env }
   period           = local.uptime_period
   timeout          = local.uptime_timeout
   selected_regions = local.uptime_checker_regions

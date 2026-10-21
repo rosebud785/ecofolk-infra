@@ -26,6 +26,9 @@
 # them the Eventarc trigger can't deliver the Pub/Sub message to the function.
 # IAM is never written in this repo by a cloud session.
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   service_account_email = "${var.service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 
   # APIs this module needs beyond modules/project's list (run, cloudbuild, artifactregistry and storage
@@ -50,14 +53,14 @@ resource "google_project_service" "apis" {
 # The budget (created locally) publishes its notifications here. Messages are stored in Montréal only.
 resource "google_pubsub_topic" "budget" {
   project = var.project_id
-  name    = var.topic_name
+  name    = "${var.topic_name}${local.env_suffix}"
 
   message_storage_policy {
     allowed_persistence_regions = [var.region]
   }
 
   labels = {
-    env       = "dev"
+    env       = var.env
     component = "billing-killswitch"
   }
 
@@ -76,7 +79,7 @@ data "archive_file" "source" {
 # Holds only the build source zip. Private, uniform access (C7 storage rule), Montréal.
 resource "google_storage_bucket" "source" {
   project  = var.project_id
-  name     = "${var.project_id}-killswitch-src"
+  name     = "${var.project_id}-killswitch-src${local.env_suffix}"
   location = upper(var.region)
 
   uniform_bucket_level_access = true
@@ -86,20 +89,20 @@ resource "google_storage_bucket" "source" {
   force_destroy = true
 
   labels = {
-    env       = "dev"
+    env       = var.env
     component = "billing-killswitch"
   }
 }
 
 resource "google_storage_bucket_object" "source" {
   bucket = google_storage_bucket.source.name
-  name   = "billing-killswitch-${data.archive_file.source.output_md5}.zip"
+  name   = "billing-killswitch${local.env_suffix}-${data.archive_file.source.output_md5}.zip"
   source = data.archive_file.source.output_path
 }
 
 resource "google_cloudfunctions2_function" "killswitch" {
   project     = var.project_id
-  name        = var.function_name
+  name        = "${var.function_name}${local.env_suffix}"
   location    = var.region
   description = "Unlinks billing from an allowlisted dev project when budget ${var.budget_display_name} reaches ${var.unlink_threshold} x its amount (ecofolk-infra#15)."
 
@@ -143,7 +146,7 @@ resource "google_cloudfunctions2_function" "killswitch" {
   }
 
   labels = {
-    env       = "dev"
+    env       = var.env
     component = "billing-killswitch"
   }
 

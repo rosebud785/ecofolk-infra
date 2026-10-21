@@ -5,6 +5,7 @@ mock_provider "google-beta" {}
 
 variables {
   project_id = "ecofolk-dev"
+  env        = "dev"
 }
 
 run "firebase_is_added_to_the_given_project" {
@@ -80,4 +81,48 @@ run "rejects_a_malformed_project_id" {
   }
 
   expect_failures = [var.project_id]
+}
+
+# Issue #13: env. dev keeps the site id; qa would get -qa (and would still collide on the one-per-project Firebase project).
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_firebase_hosting_site.web.site_id == "ecofolk-dev-web"
+    error_message = "dev must keep the site id ecofolk-dev-web"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_firebase_project/ecofolk-dev", "google_firebase_hosting_site/ecofolk-dev-web"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_firebase_hosting_site.web.site_id == "ecofolk-dev-web-qa"
+    error_message = "qa must suffix the site id with -qa"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_firebase_project/ecofolk-dev", "google_firebase_hosting_site/ecofolk-dev-web-qa"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }

@@ -32,8 +32,8 @@ run "dev_repository_id" {
   }
 }
 
-# The module call passes only source, project_id, repository_id and depends_on: no region (the module's
-# pinned default) and nothing else that could change what the policies run below see.
+# The module call passes only source, project_id, env (#13, from local.env), repository_id and depends_on: no
+# region (the module's pinned default) and nothing else that could change what the policies run below see.
 run "dev_call_args" {
   command = plan
 
@@ -52,8 +52,8 @@ run "dev_call_args" {
   }
 
   assert {
-    condition     = output.arguments == tolist(["depends_on", "project_id", "repository_id", "source"])
-    error_message = "module \"artifact_registry\" must pass only project_id, repository_id and depends_on (region from the module default), got ${jsonencode(output.arguments)}"
+    condition     = output.arguments == tolist(["depends_on", "env", "project_id", "repository_id", "source"])
+    error_message = "module \"artifact_registry\" must pass only project_id, env, repository_id and depends_on (region from the module default), got ${jsonencode(output.arguments)}"
   }
 }
 
@@ -66,6 +66,7 @@ run "dev_repository_cleanup_policies" {
 
   variables {
     project_id    = "ecofolk-dev"
+    env           = "dev"
     repository_id = "ecofolk"
   }
 

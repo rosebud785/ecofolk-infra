@@ -26,7 +26,7 @@ Private GCS media bucket in Montréal, with an abort-multipart lifecycle rule on
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| env | Environment name, set as the bucket's `env` label. | `string` | n/a | yes |
+| env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa. | `string` | n/a | yes |
 | project_id | GCP project id that owns the bucket. The bucket is named <project_id>-media (globally unique). No default. | `string` | n/a | yes |
 | region | Bucket location (lower-case; the bucket gets it upper-cased). Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |
 
@@ -36,4 +36,5 @@ Private GCS media bucket in Montréal, with an abort-multipart lifecycle rule on
 |------|-------------|
 | bucket_name | The media bucket's name (<project_id>-media). |
 | bucket_url | The media bucket's gs:// URL. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 <!-- END_TF_DOCS -->

@@ -6,6 +6,7 @@ mock_provider "google" {}
 
 variables {
   project_id    = "ecofolk-dev"
+  env           = "dev"
   instance_name = "ecofolk-pg"
   # Built with format(), not written as a literal address (.gitleaks.toml's gcp-service-account-address
   # rule). The Architect's name default on #14: ops-scheduler, the same account as #2.
@@ -155,4 +156,53 @@ run "rejects_a_non_service_account_email" {
   }
 
   expect_failures = [var.service_account_email]
+}
+
+# Issue #13: env. dev only: the job names are unchanged, and qa (which shares the instance) and prod are refused.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = sort([for j in google_cloud_scheduler_job.this : j.name]) == tolist(["ecofolk-pg-off-hours-start", "ecofolk-pg-off-hours-stop"])
+    error_message = "dev must keep both job names"
+  }
+
+  assert {
+    condition = sort(output.resource_names) == tolist([
+      "google_cloud_scheduler_job/ecofolk-pg-off-hours-start",
+      "google_cloud_scheduler_job/ecofolk-pg-off-hours-stop",
+    ])
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
+}
+
+run "env_refuses_qa" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  expect_failures = [var.env]
+}
+
+run "env_refuses_prod" {
+  command = plan
+
+  variables {
+    env = "prod"
+  }
+
+  expect_failures = [var.env]
 }

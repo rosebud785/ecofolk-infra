@@ -69,4 +69,5 @@ this repo**. The module's tests fail if one appears.
 |------|-------------|
 | auth_domain | The project's Firebase auth domain (<project>.firebaseapp.com), for the web build's Firebase config. |
 | authorized_domains | The authorized domains set on the config. |
+| resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 <!-- END_TF_DOCS -->

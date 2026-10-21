@@ -15,6 +15,7 @@ variables {
   api_host                         = "api.example.test"
   web_host                         = "web.example.test"
   sql_export_job_name              = "ecofolk-pg-nightly-export"
+  env                              = "dev"
 }
 
 run "rendered_dashboard_is_in_the_api_canonical_shape" {

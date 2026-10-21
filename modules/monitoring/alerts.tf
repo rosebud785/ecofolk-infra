@@ -23,6 +23,9 @@
 # ID in repo variable ALERT_CHANNEL_IDS, and wiring this module into environments/dev.
 
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   # Every request to the API service, and the 5xx subset of it.
   api_requests_filter = join(" AND ", [
     "metric.type=\"run.googleapis.com/request_count\"",
@@ -75,6 +78,7 @@ locals {
 resource "google_monitoring_alert_policy" "api_5xx_rate" {
   project               = var.project_id
   display_name          = "EcoFolk API: 5xx rate over 5%"
+  user_labels           = { env = var.env }
   combiner              = "AND"
   notification_channels = var.notification_channels
 
@@ -144,7 +148,7 @@ resource "google_monitoring_alert_policy" "api_5xx_rate" {
 # 2. DB connection failures.
 resource "google_logging_metric" "db_connection_failures" {
   project     = var.project_id
-  name        = "ecofolk-db-connection-failures"
+  name        = "ecofolk-db-connection-failures${local.env_suffix}"
   description = "API log entries for a failed database connection attempt (ecofolk-infra#24). Filter supplied by L-ALERT."
   filter      = var.db_connection_failure_log_filter
 
@@ -158,6 +162,7 @@ resource "google_logging_metric" "db_connection_failures" {
 resource "google_monitoring_alert_policy" "db_connection_failures" {
   project               = var.project_id
   display_name          = "EcoFolk API: database connection failures"
+  user_labels           = { env = var.env }
   combiner              = "OR"
   notification_channels = var.notification_channels
 
@@ -197,7 +202,7 @@ resource "google_monitoring_alert_policy" "db_connection_failures" {
 # 3. Media write failures.
 resource "google_logging_metric" "media_write_failures" {
   project     = var.project_id
-  name        = "ecofolk-media-write-failures"
+  name        = "ecofolk-media-write-failures${local.env_suffix}"
   description = "API log entries for a failed media upload/write to the media bucket (ecofolk-infra#24). Filter supplied by L-ALERT."
   filter      = var.media_write_failure_log_filter
 
@@ -211,6 +216,7 @@ resource "google_logging_metric" "media_write_failures" {
 resource "google_monitoring_alert_policy" "media_write_failures" {
   project               = var.project_id
   display_name          = "EcoFolk API: media write failures"
+  user_labels           = { env = var.env }
   combiner              = "OR"
   notification_channels = var.notification_channels
 
@@ -251,7 +257,7 @@ resource "google_monitoring_alert_policy" "media_write_failures" {
 # morning after the first apply.
 resource "google_logging_metric" "sql_export_successes" {
   project     = var.project_id
-  name        = "ecofolk-sql-export-successes"
+  name        = "ecofolk-sql-export-successes${local.env_suffix}"
   description = "Successful (2xx) attempts of the nightly Cloud SQL export's Cloud Scheduler job, from its execution log (ecofolk-infra#109)."
   filter      = local.sql_export_success_filter
 
@@ -267,6 +273,7 @@ resource "google_monitoring_alert_policy" "sql_export_stale" {
   display_name          = "EcoFolk database: nightly export job has not succeeded"
   combiner              = "OR"
   notification_channels = var.notification_channels
+  user_labels           = { env = var.env }
 
   lifecycle {
     precondition {

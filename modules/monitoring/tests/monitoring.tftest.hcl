@@ -6,6 +6,7 @@ mock_provider "google" {}
 
 variables {
   project_id                       = "ecofolk-dev"
+  env                              = "dev"
   notification_channels            = ["projects/ecofolk-dev/notificationChannels/1234567890"]
   db_connection_failure_log_filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.db_connect_failed\""
   media_write_failure_log_filter   = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""
@@ -273,6 +274,86 @@ run "rejects_a_bad_service_name" {
   }
 
   expect_failures = [var.api_service_name]
+}
+
+# Issue #13: env. dev keeps the log-based metric names; qa would get -qa; alert policies and uptime checks carry the env user label.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_logging_metric.db_connection_failures.name == "ecofolk-db-connection-failures" && google_logging_metric.media_write_failures.name == "ecofolk-media-write-failures"
+    error_message = "dev must keep both log-based metric names"
+  }
+
+  assert {
+    condition     = alltrue([for p in [google_monitoring_alert_policy.api_5xx_rate, google_monitoring_alert_policy.db_connection_failures, google_monitoring_alert_policy.media_write_failures, google_monitoring_alert_policy.sql_export_stale] : p.user_labels.env == "dev"])
+    error_message = "every alert policy (including sql_export_stale) must carry env = dev"
+  }
+
+  assert {
+    condition     = google_monitoring_uptime_check_config.api_health.user_labels.env == "dev" && google_monitoring_uptime_check_config.web_root.user_labels.env == "dev"
+    error_message = "both uptime checks must carry env = dev"
+  }
+
+  assert {
+    condition = output.resource_names == [
+      "google_logging_metric/ecofolk-db-connection-failures",
+      "google_logging_metric/ecofolk-media-write-failures",
+      "google_logging_metric/ecofolk-sql-export-successes",
+    ]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_logging_metric.db_connection_failures.name == "ecofolk-db-connection-failures-qa" && google_logging_metric.media_write_failures.name == "ecofolk-media-write-failures-qa"
+    error_message = "qa must suffix both log-based metric names with -qa"
+  }
+
+  assert {
+    condition = (
+      google_logging_metric.sql_export_successes.name == "ecofolk-sql-export-successes-qa" &&
+      strcontains(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].filter, "logging.googleapis.com/user/ecofolk-sql-export-successes-qa\"")
+    )
+    error_message = "qa must suffix the export metric with -qa and the stale-export alert must watch it"
+  }
+
+  assert {
+    condition     = strcontains(google_monitoring_alert_policy.db_connection_failures.conditions[0].condition_threshold[0].filter, "logging.googleapis.com/user/ecofolk-db-connection-failures-qa\"")
+    error_message = "the DB alert must watch the env's own metric"
+  }
+
+  assert {
+    condition     = alltrue([for p in [google_monitoring_alert_policy.api_5xx_rate, google_monitoring_alert_policy.db_connection_failures, google_monitoring_alert_policy.media_write_failures, google_monitoring_alert_policy.sql_export_stale] : p.user_labels.env == "qa"])
+    error_message = "every alert policy (including sql_export_stale) must carry env = qa"
+  }
+
+  assert {
+    condition = output.resource_names == [
+      "google_logging_metric/ecofolk-db-connection-failures-qa",
+      "google_logging_metric/ecofolk-media-write-failures-qa",
+      "google_logging_metric/ecofolk-sql-export-successes-qa",
+    ]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }
 
 # Issue #109 (Architect ruling on #111): the stale-export alert. The metric counts successful attempts of

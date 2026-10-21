@@ -20,13 +20,16 @@
 # account, on this bucket only. IAM is never written in this repo by a cloud session. No HMAC key is ever
 # created: the app reaches the bucket through ADC (ecofolk#926).
 locals {
+  # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+
   abort_multipart_after_days = 1
   soft_delete_seconds        = 7 * 24 * 60 * 60
 }
 
 resource "google_storage_bucket" "media" {
   project       = var.project_id
-  name          = "${var.project_id}-media"
+  name          = "${var.project_id}-media${local.env_suffix}"
   location      = upper(var.region)
   storage_class = "STANDARD"
 

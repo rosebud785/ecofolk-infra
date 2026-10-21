@@ -5,6 +5,7 @@ mock_provider "google" {}
 
 variables {
   project_id      = "ecofolk-dev"
+  env             = "dev"
   service_account = "ecofolk-api@ecofolk-dev.iam.gserviceaccount.com"
   # Relative resource names (.id), as module.network's network_id/subnet_id outputs are; Cloud Run v2
   # rejects an https self-link here (#45).
@@ -123,15 +124,15 @@ run "container_settings" {
 
   assert {
     condition     = length(google_cloud_run_v2_service.api.template[0].containers[0].env) == 0
-    error_message = "env must default to empty"
+    error_message = "env_vars must default to empty"
   }
 }
 
-run "env_follows_the_variable" {
+run "env_vars_follows_the_variable" {
   command = plan
 
   variables {
-    env = {
+    env_vars = {
       NODE_ENV  = "production"
       LOG_LEVEL = "info"
     }
@@ -142,10 +143,10 @@ run "env_follows_the_variable" {
       length(google_cloud_run_v2_service.api.template[0].containers[0].env) == 2 &&
       alltrue([
         for e in google_cloud_run_v2_service.api.template[0].containers[0].env :
-        lookup(var.env, e.name, null) == e.value
+        lookup(var.env_vars, e.name, null) == e.value
       ])
     )
-    error_message = "env must hold exactly the plain name/value pairs of var.env"
+    error_message = "env must hold exactly the plain name/value pairs of var.env_vars"
   }
 }
 
@@ -155,7 +156,7 @@ run "secret_env_is_secret_key_ref_with_no_literal" {
   command = plan
 
   variables {
-    env = {
+    env_vars = {
       NODE_ENV = "production"
     }
     secret_env = {
@@ -189,7 +190,7 @@ run "secret_env_is_secret_key_ref_with_no_literal" {
       length(google_cloud_run_v2_service.api.template[0].containers[0].env) == 4 &&
       length([for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e if e.name == "NODE_ENV" && e.value == "production"]) == 1
     )
-    error_message = "plain env must keep working alongside secret_env"
+    error_message = "plain env_vars must keep working alongside secret_env"
   }
 }
 
@@ -283,4 +284,58 @@ run "rejects_a_subnetwork_self_link" {
   }
 
   expect_failures = [var.subnetwork]
+}
+
+# Issue #13: env. dev keeps the service name; qa gets -qa; the env label follows var.env.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_service.api.name == "ecofolk-api"
+    error_message = "dev must keep the service name ecofolk-api"
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.api.labels.env == "dev"
+    error_message = "the service must carry env = dev"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_cloud_run_v2_service/ecofolk-api"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.api.name == "ecofolk-api-qa" && output.name == "ecofolk-api-qa"
+    error_message = "qa must name the service ecofolk-api-qa"
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.api.labels.env == "qa"
+    error_message = "the service must carry env = qa"
+  }
+
+  assert {
+    condition     = output.resource_names == ["google_cloud_run_v2_service/ecofolk-api-qa"]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }

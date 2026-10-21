@@ -11,6 +11,7 @@ mock_provider "google" {}
 
 variables {
   project_id = "ecofolk-dev"
+  env        = "dev"
   # The provider checks the self-link shape even under mock_provider, so this must look real.
   # (.tftest.hcl files are outside scripts/check-region-pin.sh's *.tf/*.tfvars scan.)
   private_network = "projects/ecofolk-dev/global/networks/ecofolk"
@@ -411,4 +412,83 @@ run "declares_no_iam_or_keys" {
     ])
     error_message = "the module must not declare IAM, service-account or key resources (local follow-up only)"
   }
+}
+
+# Issue #13: env. dev keeps every name; qa would suffix each; the env labels follow var.env.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_sql_database_instance.postgres.name == "ecofolk-pg" && google_sql_database.ecofolk.name == "ecofolk"
+    error_message = "dev must keep the instance ecofolk-pg and the database ecofolk"
+  }
+
+  assert {
+    condition     = google_storage_bucket.sql_exports.name == "ecofolk-dev-sql-exports" && google_cloud_scheduler_job.sql_export.name == "ecofolk-pg-nightly-export"
+    error_message = "dev must keep the export bucket and job names"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.postgres.settings[0].user_labels.env == "dev" && google_storage_bucket.sql_exports.labels.env == "dev"
+    error_message = "the instance and export bucket must carry env = dev"
+  }
+
+  assert {
+    condition = output.resource_names == [
+      "google_sql_database_instance/ecofolk-pg",
+      "google_sql_database/ecofolk",
+      "google_storage_bucket/ecofolk-dev-sql-exports",
+      "google_cloud_scheduler_job/ecofolk-pg-nightly-export",
+    ]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.postgres.name == "ecofolk-pg-qa" && google_sql_database.ecofolk.name == "ecofolk_qa"
+    error_message = "qa must suffix the instance (-qa) and the database (_qa)"
+  }
+
+  assert {
+    condition     = google_storage_bucket.sql_exports.name == "ecofolk-dev-sql-exports-qa" && google_cloud_scheduler_job.sql_export.name == "ecofolk-pg-qa-nightly-export"
+    error_message = "qa must suffix the export bucket and job"
+  }
+
+  assert {
+    condition     = jsondecode(base64decode(google_cloud_scheduler_job.sql_export.http_target[0].body)).exportContext.databases == ["ecofolk_qa"]
+    error_message = "the export must name the env's own database"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.postgres.settings[0].user_labels.env == "qa" && google_storage_bucket.sql_exports.labels.env == "qa"
+    error_message = "the instance and export bucket must carry env = qa"
+  }
+
+  assert {
+    condition = output.resource_names == [
+      "google_sql_database_instance/ecofolk-pg-qa",
+      "google_sql_database/ecofolk_qa",
+      "google_storage_bucket/ecofolk-dev-sql-exports-qa",
+      "google_cloud_scheduler_job/ecofolk-pg-qa-nightly-export",
+    ]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }

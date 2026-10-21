@@ -18,11 +18,17 @@
 # LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/secretmanager.secretAccessor for the API's runtime service
 # account, on each of these secrets only (google_secret_manager_secret_iam_member, never project-wide).
 # IAM is never written in this repo by a cloud session.
+locals {
+  # #13: dev and prod keep the contract names (each owns its project); a namespace env (qa) gets _<ENV>,
+  # since secret ids are env-var-style.
+  env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
+}
+
 resource "google_secret_manager_secret" "secret" {
   for_each = toset(var.secret_names)
 
   project   = var.project_id
-  secret_id = each.value
+  secret_id = "${each.value}${upper(replace(local.env_suffix, "-", "_"))}"
 
   replication {
     user_managed {

@@ -4,6 +4,7 @@ mock_provider "google" {}
 
 variables {
   project_id = "ecofolk-dev"
+  env        = "dev"
   region     = "northamerica-northeast1"
 }
 
@@ -121,4 +122,66 @@ run "rejects_a_non_cidr_subnet" {
   }
 
   expect_failures = [var.subnet_cidr]
+}
+
+# Issue #13: env. dev keeps every name; qa would suffix each; the PSA range carries the env label.
+
+run "env_dev_keeps_its_names_and_labels" {
+  command = plan
+
+  assert {
+    condition     = google_compute_network.vpc.name == "ecofolk" && google_compute_subnetwork.subnet.name == "ecofolk-northamerica-northeast1" && google_compute_global_address.psa.name == "ecofolk-psa"
+    error_message = "dev must keep the VPC, subnet and PSA range names"
+  }
+
+  assert {
+    condition     = google_compute_global_address.psa.labels.env == "dev"
+    error_message = "the PSA range must carry env = dev"
+  }
+
+  assert {
+    condition = output.resource_names == [
+      "google_compute_network/ecofolk",
+      "google_compute_subnetwork/ecofolk-northamerica-northeast1",
+      "google_compute_global_address/ecofolk-psa",
+    ]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_qa_suffixes_names_and_labels" {
+  command = plan
+
+  variables {
+    env = "qa"
+  }
+
+  assert {
+    condition     = google_compute_network.vpc.name == "ecofolk-qa" && google_compute_subnetwork.subnet.name == "ecofolk-qa-northamerica-northeast1" && google_compute_global_address.psa.name == "ecofolk-qa-psa"
+    error_message = "qa must suffix the VPC, subnet and PSA range names"
+  }
+
+  assert {
+    condition     = google_compute_global_address.psa.labels.env == "qa"
+    error_message = "the PSA range must carry env = qa"
+  }
+
+  assert {
+    condition = output.resource_names == [
+      "google_compute_network/ecofolk-qa",
+      "google_compute_subnetwork/ecofolk-qa-northamerica-northeast1",
+      "google_compute_global_address/ecofolk-qa-psa",
+    ]
+    error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
+  }
+}
+
+run "env_refuses_staging" {
+  command = plan
+
+  variables {
+    env = "staging"
+  }
+
+  expect_failures = [var.env]
 }

@@ -5,6 +5,11 @@
 # settings.activationPolicy through the Cloud SQL Admin API: NEVER at 22:15 CT (stopped), ALWAYS at
 # 04:45 CT (running). Ops hours are 07:00–22:00 CT.
 #
+# INVARIANT (ef#894, docs/alerting-policy.md): the 22:15-04:45 CT stop window is the reason every
+# DB-touching Cloud Scheduler job must be time_zone America/Chicago with no run inside it. The DB
+# connection failure alert (modules/monitoring) cannot be time-scoped in a log filter, so a run in the
+# window is a false page.
+#
 # Dev only. environments/dev is the only caller, and var.project_id refuses a *-prod project, so a prod
 # composition (#12) that instantiates this module fails at plan. Stopping dev also stops the QA namespace
 # (#13 shares the instance); that is intended.

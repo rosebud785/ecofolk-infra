@@ -155,6 +155,8 @@ resource "google_monitoring_alert_policy" "db_connection_failures" {
       **What broke:** the EcoFolk API logged at least one failed database connection in the last 5 minutes. Requests that need the database are failing.
 
       **First thing to check:** Cloud SQL → the instance's Overview: is it RUNNING (not stopped, restarting or in maintenance)? Then its connection count against the limit, then the API's logs for the connection error text (refused, timeout, or auth).
+
+      **Scheduler invariant (ef#894):** this alert cannot be time-scoped in a log filter, so every DB-touching Cloud Scheduler job must be `time_zone` America/Chicago with no run inside the 22:15–04:45 CT dev SQL stop. A job that runs in that window pages here. See docs/alerting-policy.md.
     EOT
   }
 }

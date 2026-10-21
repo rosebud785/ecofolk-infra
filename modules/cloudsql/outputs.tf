@@ -32,3 +32,12 @@ output "export_job_name" {
   value       = google_cloud_scheduler_job.sql_export.name
   description = "Name of the Cloud Scheduler job that runs the nightly export."
 }
+
+output "scheduler_jobs" {
+  value = [{
+    name      = google_cloud_scheduler_job.sql_export.name
+    schedule  = google_cloud_scheduler_job.sql_export.schedule
+    time_zone = google_cloud_scheduler_job.sql_export.time_zone
+  }]
+  description = "This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99)."
+}

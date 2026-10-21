@@ -457,6 +457,16 @@ run "sql_export_horizon_of_24h_or_less_is_rejected" {
   expect_failures = [google_monitoring_alert_policy.sql_export_stale]
 }
 
+# Just over the cap: pins the upper bound at exactly 90000s (25 h).
+run "sql_export_horizon_just_over_25h_is_rejected" {
+  command = plan
+  variables {
+    sql_export_absence_duration_seconds = 68401
+    sql_export_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sql_export_stale]
+}
+
 run "sql_export_horizon_of_exactly_24h_is_rejected" {
   command = plan
   variables {
@@ -486,5 +496,19 @@ run "sql_export_fallback_horizon_of_24_5h_passes" {
   assert {
     condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "66600s"
     error_message = "the fallback duration must flow through to the policy"
+  }
+}
+
+# The horizon variables exist so the tests can drive known-wrongs; no root may set them, or the policy's
+# 24 h < horizon <= 25 h defaults could be overridden without a test noticing.
+run "roots_do_not_set_the_horizon_test_variables" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for f in fileset("${path.module}/../../environments", "*/*.tf") :
+      !can(regex("sql_export_(absence_duration|alignment_period)_seconds", file("${path.module}/../../environments/${f}")))
+    ])
+    error_message = "no environments/* root may set sql_export_absence_duration_seconds or sql_export_alignment_period_seconds"
   }
 }

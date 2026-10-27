@@ -6,7 +6,9 @@
 #      for what it watches, not the store;
 #   4. stale SQL export     — an absence alert on a log-based metric over the nightly export job's Cloud
 #      Scheduler execution log: no successful run (modules/cloudsql/export.tf) in about a day
-#      (ecofolk-infra#109, #96).
+#      (ecofolk-infra#109, #96);
+#   5. failed SQL export attempt — a log-match alert on any non-2xx finish of that same job, so a refused
+#      export pages the night it happens (ecofolk-infra#109 rework, Architect plan on #135).
 #
 # What is deliberately NOT here (Architect spec on #24):
 #   - no google_monitoring_notification_channel: the channel is email (owner's ruling) and is made by
@@ -62,6 +64,20 @@ locals {
     "jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\"",
     "httpRequest.status>=200",
     "httpRequest.status<300",
+  ])
+
+  # Failed attempts of the same job (#109 rework). The success metric is sparse (one point a night, and
+  # none on a failing night), so an absence condition on it never armed; a log-match condition fires on
+  # the failure entry itself. Same three clauses as the success filter's scope, with the status clause
+  # negated: NOT (2xx) also matches a finish entry with no httpRequest.status (a token mint failure or a
+  # deadline), which a "status>=300" range test would miss. A pure AND of three clauses; the last is the
+  # one NOT. tests/monitoring.tftest.hcl checks it, with known-wrongs for a 2xx-only filter and a missing
+  # job id.
+  sql_export_failure_filter = join(" AND ", [
+    "resource.type=\"cloud_scheduler_job\"",
+    "resource.labels.job_id=\"${var.sql_export_job_name}\"",
+    "jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\"",
+    "NOT (httpRequest.status>=200 AND httpRequest.status<300)",
   ])
 
   # The job runs every 24 h. The API caps a metric-absence HORIZON, duration + alignment period
@@ -252,9 +268,10 @@ resource "google_monitoring_alert_policy" "media_write_failures" {
 }
 
 # 4. Stale SQL export (#109, #96 option 2). #100 keeps the last good export when the nightly job fails;
-# this makes the failure visible. Absence conditions only arm once the metric has written a point, so the
-# alert is quiet until the first successful run the metric sees: Deployer checks that point exists the
-# morning after the first apply.
+# this makes the failure visible. It is a threshold on the success count (< 1 per window) with missing data
+# treated as a violation: the first version used condition_absent, which Monitoring never fired on this
+# sparse log-based metric (one point in 6 failed nights, 2026-10-21 to 10-27). This policy covers "the job
+# stopped firing at all"; policy 5 covers an attempt that fired and failed.
 resource "google_logging_metric" "sql_export_successes" {
   project     = var.project_id
   name        = "ecofolk-sql-export-successes${local.env_suffix}"
@@ -286,11 +303,16 @@ resource "google_monitoring_alert_policy" "sql_export_stale" {
   }
 
   conditions {
-    display_name = "No successful nightly export job run (about 25 h)"
+    display_name = "Fewer than 1 successful nightly export job run (about 25 h)"
 
-    condition_absent {
-      filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.sql_export_successes.name}\" AND resource.type=\"cloud_scheduler_job\""
-      duration = local.sql_export_absence_duration
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.sql_export_successes.name}\" AND resource.type=\"cloud_scheduler_job\""
+      comparison      = "COMPARISON_LT"
+      threshold_value = 1
+      duration        = local.sql_export_absence_duration
+
+      # No data at all is a violation: a metric with no points is exactly the failure this catches.
+      evaluation_missing_data = "EVALUATION_MISSING_DATA_ACTIVE"
 
       aggregations {
         alignment_period     = local.sql_export_alignment_period
@@ -312,6 +334,46 @@ resource "google_monitoring_alert_policy" "sql_export_stale" {
       **What a successful run proves, and what it does not:** a success means the job fired **and the Cloud SQL Admin API accepted the export request** (a 2xx response). It does **not** prove the export then completed: the export runs asynchronously after that. Completion is checked by runbook §3.2 step 1 (`gcloud sql operations list … --filter="operationType=EXPORT"`). So this alert catches the job not firing, being paused or deleted, a permission regression, or the API rejecting the request; it can stay quiet while accepted exports fail later.
 
       **First thing to check:** Cloud Scheduler → `${var.sql_export_job_name}` → View logs: did it run, and what status did it get back (a 403 is a permission regression on the scheduler's service account; a 412 FAILED_PRECONDITION with no EXPORT operation created was the instance's service account missing objectCreator on the bucket, #135)? Then Cloud SQL → `${var.sql_instance_name}` → Operations, for the last EXPORT and its error. Then the bucket `${var.project_id}-sql-exports`: the live object's updated time is the last good export.
+
+      **Runbook:** [§3, Restore from the nightly export](https://github.com/rosebud785/ecofolk-infra/blob/main/docs/runbook.md#3-restore-from-the-nightly-export); §3.2 step 1 confirms whether an export completed.
+    EOT
+  }
+}
+
+# 5. Failed SQL export attempt (#109 rework). Fires on the first non-2xx finish of the export job, from
+# the Scheduler execution log: a refused export (the 412s from 2026-10-22, #135) pages the same night.
+# A log-match condition must be the only condition in its policy and needs a notification rate limit;
+# the incident closes itself so the next night's failure opens a new one.
+resource "google_monitoring_alert_policy" "sql_export_attempt_failed" {
+  project               = var.project_id
+  display_name          = "EcoFolk database: nightly export attempt failed"
+  combiner              = "OR"
+  notification_channels = var.notification_channels
+  user_labels           = { env = var.env }
+
+  conditions {
+    display_name = "Export job attempt finished with a non-2xx status"
+
+    condition_matched_log {
+      filter = local.sql_export_failure_filter
+    }
+  }
+
+  alert_strategy {
+    notification_rate_limit {
+      period = "3600s"
+    }
+    auto_close = "86400s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = <<-EOT
+      **What broke:** an attempt of the Cloud Scheduler job `${var.sql_export_job_name}` finished with a non-2xx response (or none). Its nightly 05:15 CT export of the Cloud SQL instance `${var.sql_instance_name}` was refused or not sent, so tonight's export did not happen. The stored exports are safe (#96), but the newest one is now a day older.
+
+      **First thing to check:** Cloud Scheduler → `${var.sql_export_job_name}` → View logs, for the status of the attempt. A 403 is a permission regression on the scheduler's service account; a 412 FAILED_PRECONDITION with no EXPORT operation created is the Cloud SQL instance's service account lacking `roles/storage.objectAdmin` on the bucket `${var.project_id}-sql-exports` (overwriting the fixed-name object needs delete as well as create; #135). Then Cloud SQL → `${var.sql_instance_name}` → Operations, for the last EXPORT and its error.
+
+      **Related alert:** "nightly export job has not succeeded" is the companion that fires when the job stops running at all, or when no success has landed in about a day.
 
       **Runbook:** [§3, Restore from the nightly export](https://github.com/rosebud785/ecofolk-infra/blob/main/docs/runbook.md#3-restore-from-the-nightly-export); §3.2 step 1 confirms whether an export completed.
     EOT

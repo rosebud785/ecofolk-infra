@@ -80,3 +80,25 @@ run "dev_keeps_its_existing_names" {
     error_message = "dev must have exactly its three existing buckets and four secret ids, got ${jsonencode(output.resource_names)}"
   }
 }
+
+# ecofolk#1169: the migrate job is named ecofolk-migrate, runs as the keyless migrate SA on the API's subnet,
+# and that SA is the Cloud SQL IAM database user (so the job's DB identity can't drift from the user Terraform
+# creates). Literals, as above: never derive them.
+run "migrate_job_wiring" {
+  command = plan
+
+  assert {
+    condition     = module.migrate_job.name == "ecofolk-migrate"
+    error_message = "the dev migrate job must be ecofolk-migrate, got ${module.migrate_job.name}"
+  }
+
+  assert {
+    condition     = module.migrate_job.env_vars["DB_IAM_USER"] == format("%s@%s.iam", "ecofolk-migrate", "ecofolk-dev")
+    error_message = "the job's DB_IAM_USER must be the migrate SA's IAM database user name"
+  }
+
+  assert {
+    condition     = contains(module.cloudsql.resource_names, format("google_sql_user/%s@%s.iam", "ecofolk-migrate", "ecofolk-dev"))
+    error_message = "module.cloudsql must create the migrate SA's IAM database user"
+  }
+}

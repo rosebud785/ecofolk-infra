@@ -100,3 +100,12 @@ test_env_alert_policy_user_labels_fail if {
 test_env_alert_policy_user_labels_pass if {
 	count(deny_env) == 0 with input as tf("modules/x/main.tf", "google_monitoring_alert_policy", {"display_name": "x", "user_labels": {"env": "${var.env}"}})
 }
+
+test_env_iam_sql_user_exempt_pass if {
+	count(deny_env) == 0 with input as tf("modules/x/main.tf", "google_sql_user", {"name": "${trimsuffix(var.sa, \".gserviceaccount.com\")}", "type": "CLOUD_IAM_SERVICE_ACCOUNT"})
+}
+
+test_env_builtin_sql_user_still_checked_fail if {
+	msgs := deny_env with input as tf("modules/x/main.tf", "google_sql_user", {"name": "app", "type": "BUILT_IN"})
+	denied_with(msgs, "must carry env")
+}

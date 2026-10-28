@@ -6,8 +6,9 @@
 # backup windows, PITR) and, in export.tf, a nightly export to a bucket that outlives the instance.
 #
 # What is deliberately NOT here (Architect spec on #18):
-#   - no google_sql_user and no random_password: Terraform never manages secret values. App and IAM
-#     database users are local follow-up L-SQL;
+#   - no random_password, and no google_sql_user of type BUILT_IN: Terraform never manages secret values.
+#     The ONE user it does manage is the migrate job's CLOUD_IAM_SERVICE_ACCOUNT user (ecofolk#1169): keyless,
+#     no password, nothing secret. Other app and IAM database users are local follow-up L-SQL;
 #   - the `postgis` and `vector` extensions: the app's migrations create them, and Cloud SQL needs no
 #     flag for either;
 #   - no HA (availability_type stays ZONAL).
@@ -80,6 +81,20 @@ resource "google_sql_database_instance" "postgres" {
   lifecycle {
     ignore_changes = [settings[0].activation_policy]
   }
+}
+
+# ecofolk#1169: the migrate job's IAM database user. A CLOUD_IAM_SERVICE_ACCOUNT user has no password, so
+# nothing secret is written here; the name is the service account's email without ".gserviceaccount.com"
+# (Cloud SQL's form for a service account user). Off (count 0) while migrate_service_account_email is unset.
+# The grants (cloudsqlsuperuser for CREATE EXTENSION, default privileges for the runtime user) are local
+# follow-up: see modules/migrate_job/main.tf item 5.
+resource "google_sql_user" "migrate" {
+  count = var.migrate_service_account_email == null ? 0 : 1
+
+  project  = var.project_id
+  instance = google_sql_database_instance.postgres.name
+  name     = trimsuffix(var.migrate_service_account_email, ".gserviceaccount.com")
+  type     = "CLOUD_IAM_SERVICE_ACCOUNT"
 }
 
 resource "google_sql_database" "ecofolk" {

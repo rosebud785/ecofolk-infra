@@ -1,6 +1,6 @@
 # Issue #18 AC: with a mock provider (no credentials, no GCP), assert the version, region, private-only
 # IP, deletion protection by default, the IAM authentication flag, and that the module declares no
-# google_sql_user.
+# google_sql_user (ecofolk#1169 narrows that: only a CLOUD_IAM_* user, no password).
 # Issue #2 AC (Architect consolidated AC, 2026-10-16): the maintenance window (Sun 05:00 CT), the backup
 # start (05:30 CT), PITR on with 7 days of logs in dev and prod, deletion_protection defaulting to true
 # (above), the export bucket's 30-day lifecycle and enforced public access prevention, and the export
@@ -125,17 +125,90 @@ run "iam_authentication_flag_is_on" {
   }
 }
 
-run "declares_no_sql_user_or_password" {
+run "declares_no_password_user_or_password" {
   command = plan
 
   # A resource that doesn't exist can't be referenced, so read the module's own source instead.
+  # ecofolk#1169: google_sql_user is allowed ONLY with type = "CLOUD_IAM_*" (keyless). random_password, and
+  # any google_sql_user that is not exactly one CLOUD_IAM_* user, stay refused.
   assert {
     condition = alltrue([
       for f in fileset(path.module, "*.tf") :
-      !can(regex("resource\\s+\"(google_sql_user|random_password)\"", file("${path.module}/${f}")))
+      !can(regex("resource\\s+\"random_password\"", file("${path.module}/${f}")))
     ])
-    error_message = "the module must not declare a google_sql_user or random_password resource"
+    error_message = "the module must not declare a random_password resource"
   }
+
+  assert {
+    condition = (
+      length(flatten([for f in fileset(path.module, "*.tf") : regexall("resource\\s+\"google_sql_user\"", file("${path.module}/${f}"))])) ==
+      length(flatten([for f in fileset(path.module, "*.tf") : regexall("type\\s*=\\s*\"CLOUD_IAM_[A-Z_]+\"", file("${path.module}/${f}"))]))
+    )
+    error_message = "every google_sql_user must have type = \"CLOUD_IAM_*\" (no password user, ecofolk#1169)"
+  }
+
+  assert {
+    condition = alltrue([
+      for f in fileset(path.module, "*.tf") :
+      !can(regex("\\bpassword\\s*=", file("${path.module}/${f}")))
+    ])
+    error_message = "the module must not set a password argument"
+  }
+}
+
+# The known-wrong the narrowing keeps: a BUILT_IN (password) user, written the way a careless edit would,
+# is caught by the same pattern the test above applies.
+run "known_wrong_password_user_is_caught" {
+  command = plan
+
+  variables {
+    migrate_service_account_email = null
+  }
+
+  assert {
+    condition = (
+      length(google_sql_user.migrate) == 0 &&
+      length(regexall("resource\\s+\"google_sql_user\"", "resource \"google_sql_user\" \"x\" {\n type = \"BUILT_IN\"\n password = \"p\"\n}")) !=
+      length(regexall("type\\s*=\\s*\"CLOUD_IAM_[A-Z_]+\"", "resource \"google_sql_user\" \"x\" {\n type = \"BUILT_IN\"\n password = \"p\"\n}"))
+    )
+    error_message = "the type check must flag a BUILT_IN user"
+  }
+}
+
+run "no_migrate_user_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(google_sql_user.migrate) == 0
+    error_message = "no DB user unless migrate_service_account_email is set"
+  }
+}
+
+run "migrate_iam_user_is_keyless" {
+  command = plan
+
+  variables {
+    migrate_service_account_email = format("%s@%s.iam.gserviceaccount.com", "ecofolk-migrate", "ecofolk-dev")
+  }
+
+  assert {
+    condition = (
+      google_sql_user.migrate[0].type == "CLOUD_IAM_SERVICE_ACCOUNT" &&
+      google_sql_user.migrate[0].name == format("%s@%s.iam", "ecofolk-migrate", "ecofolk-dev") &&
+      google_sql_user.migrate[0].password == null
+    )
+    error_message = "the migrate user must be CLOUD_IAM_SERVICE_ACCOUNT named <sa>@<project>.iam with no password"
+  }
+}
+
+run "known_wrong_migrate_email_refused" {
+  command = plan
+
+  variables {
+    migrate_service_account_email = "ecofolk-migrate"
+  }
+
+  expect_failures = [var.migrate_service_account_email]
 }
 
 run "outputs_and_database" {

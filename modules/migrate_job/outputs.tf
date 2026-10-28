@@ -14,3 +14,8 @@ output "env_vars" {
   value       = var.env_vars
   description = "The plain environment variables set on the container (non-secret), for environments' tests."
 }
+
+output "secret_env" {
+  value       = var.secret_env
+  description = "Env var name -> Secret Manager secret reference set on the container (references only), for environments' tests."
+}

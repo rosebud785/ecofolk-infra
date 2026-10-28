@@ -34,6 +34,8 @@ owns the schema and may `CREATE EXTENSION postgis, vector`, the API's runtime DB
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| args | Container args: the migrate CLI. Terraform owns them; the deploy script updates the image only. | `list(string)` | ```[ "/app/packages/db/dist/cli/migrate.js" ]``` | no |
+| command | Container entrypoint. Terraform owns it; the deploy script updates the image only. | `list(string)` | ```[ "node" ]``` | no |
 | env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes the job name with -qa. | `string` | n/a | yes |
 | env_vars | Plain environment variables for the container (DB host, name, IAM user). NON-SECRET values only: this lands in state and in the public repo. | `map(string)` | `{}` | no |
 | image | Container image for the first execution. Defaults to Google's public placeholder; the deploy script owns the image. | `string` | `"us-docker.pkg.dev/cloudrun/container/hello"` | no |
@@ -41,6 +43,7 @@ owns the schema and may `CREATE EXTENSION postgis, vector`, the API's runtime DB
 | network | VPC for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.network_id. | `string` | n/a | yes |
 | project_id | GCP project id that owns the job. No default: every caller states its own project. | `string` | n/a | yes |
 | region | Cloud Run region. Must always be northamerica-northeast1 (Montréal), ef#391; pass module.project.region. | `string` | `"northamerica-northeast1"` | no |
+| secret_env | Env var name -> Secret Manager secret, mapped by secret_key_ref at version latest. Only POSTGRES_INGEST_PASSWORD is accepted (the value the migrator sets on the ingest role, not a login). References only, never values. | `map(string)` | `{}` | no |
 | service_account | Email of the keyless migrate service account the job runs as. Created locally, never here. | `string` | n/a | yes |
 | subnetwork | Subnet for Direct VPC egress, as its relative resource name (.id), not self-link; pass module.network.subnet_id. | `string` | n/a | yes |
 | timeout_seconds | Task timeout in seconds. A migration that runs longer fails the execution, and the deploy is refused. | `number` | `600` | no |
@@ -52,4 +55,5 @@ owns the schema and may `CREATE EXTENSION postgis, vector`, the API's runtime DB
 | env_vars | The plain environment variables set on the container (non-secret), for environments' tests. |
 | name | Cloud Run job name, for the deploy script's `gcloud run jobs update/execute` (ecofolk#1169). |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
+| secret_env | Env var name -> Secret Manager secret reference set on the container (references only), for environments' tests. |
 <!-- END_TF_DOCS -->

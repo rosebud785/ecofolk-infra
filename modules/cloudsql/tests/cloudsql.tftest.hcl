@@ -199,6 +199,7 @@ run "migrate_iam_user_is_keyless" {
     )
     error_message = "the migrate user must be CLOUD_IAM_SERVICE_ACCOUNT named <sa>@<project>.iam with no password"
   }
+
 }
 
 run "known_wrong_migrate_email_refused" {

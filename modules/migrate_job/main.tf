@@ -5,10 +5,14 @@
 # executes it with --wait before `gcloud run deploy`). It reaches Cloud SQL's private IP through Direct VPC
 # egress into the same subnet as modules/cloudrun_api, and runs as its own keyless service account, passed in.
 # Database access is IAM auth: the job's SA is a Cloud SQL IAM database user (modules/cloudsql,
-# migrate_service_account_email), so there is no password and no secret_env here.
+# migrate_service_account_email), so the job holds no DB LOGIN secret. Its ONE secret_env is
+# POSTGRES_INGEST_PASSWORD: the value the migrator sets on the ecofolk_ingest role (migration 016), not a login
+# (Architect, ecofolk#1180 ruling (3)); var.secret_env refuses any other name.
 #
-# The image defaults to Google's public placeholder and Terraform ignores later changes to it, as for the API:
-# the deploy script owns the image.
+# Who owns what (Architect, T1): TERRAFORM owns the job's command/args (static: node + the migrate CLI), so the
+# next apply cannot revert them; the DEPLOY SCRIPT owns the image only (`gcloud run jobs update --image`).
+# The image defaults to Google's public placeholder, which never executes: only the deploy script runs the job,
+# after it sets the real image. Terraform ignores later changes to the image alone, as for the API.
 #
 # What is deliberately NOT here (the public-repo boundary, CONTRIBUTING.md): no IAM of any kind.
 #
@@ -20,13 +24,14 @@
 #      updates and executes the job as that identity).
 #   4. roles/run.developer for `ecofolk-deploy` on THIS JOB ONLY (google_cloud_run_v2_job_iam_member), never
 #      project-wide.
-#   5. In the database, once, as a Cloud SQL superuser (Terraform manages no grants): GRANT cloudsqlsuperuser to
-#      the migrator IAM user, so it can CREATE EXTENSION postgis, vector; it then owns every object its
-#      migrations create, i.e. the schema. The API's runtime DB user (today the POSTGRES_PASSWORD user) is
-#      NOT the owner and gets DML only: ALTER DEFAULT PRIVILEGES FOR ROLE <migrator> IN SCHEMA public GRANT
-#      SELECT, INSERT, UPDATE, DELETE ON TABLES (and USAGE, SELECT ON SEQUENCES) TO that user. A grant
-#      migration would have to run as a role that can already grant, so the default-privileges route is the
-#      one used here.
+#   5. roles/secretmanager.secretAccessor for it on the POSTGRES_INGEST_PASSWORD secret ONLY (a secret ref it
+#      cannot read blocks the apply, as for the API's, ecofolk#890).
+#   6. The migrator's cloudsqlsuperuser membership (CREATE EXTENSION postgis, vector), by the Cloud SQL Admin API,
+#      no SQL session: `gcloud sql users assign-roles <migrator> --instance=ecofolk-pg
+#      --type=CLOUD_IAM_SERVICE_ACCOUNT --database-roles=cloudsqlsuperuser`. Architect's ruling (ecofolk#1180, 2a)
+#      wanted google_sql_user.database_roles; the pinned hashicorp/google 5.45.2 has no such argument, so this is
+#      the ruling's own fallback. Idempotent; belongs in the pre-merge paste (before #1180's first run).
+# The runtime user's DML grants are not here: they are the migrate CLI's own post-step (ecofolk#1180).
 locals {
   # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.
   env_suffix = contains(["dev", "prod"], var.env) ? "" : "-${var.env}"
@@ -62,13 +67,29 @@ resource "google_cloud_run_v2_job" "migrate" {
       }
 
       containers {
-        image = var.image
+        image   = var.image
+        command = var.command
+        args    = var.args
 
         dynamic "env" {
           for_each = var.env_vars
           content {
             name  = env.key
             value = env.value
+          }
+        }
+
+        # The one secret ref (see the header): by reference only, never a literal.
+        dynamic "env" {
+          for_each = var.secret_env
+          content {
+            name = env.key
+            value_source {
+              secret_key_ref {
+                secret  = env.value
+                version = "latest"
+              }
+            }
           }
         }
       }

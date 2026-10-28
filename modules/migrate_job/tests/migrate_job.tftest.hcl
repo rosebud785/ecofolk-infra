@@ -56,12 +56,12 @@ run "one_task_no_retries" {
   }
 }
 
-run "no_secret_env_and_image_is_left_to_deploys" {
+run "no_secret_env_by_default_and_image_is_left_to_deploys" {
   command = plan
 
   assert {
     condition     = length([for e in google_cloud_run_v2_job.migrate.template[0].template[0].containers[0].env : e if length(e.value_source) > 0]) == 0
-    error_message = "the migrator uses IAM DB auth: no secret-backed env var"
+    error_message = "the migrator uses IAM DB auth: no secret-backed env var unless the caller passes the one ingest secret"
   }
 
   # lifecycle blocks are not in the plan: read the source.
@@ -69,6 +69,52 @@ run "no_secret_env_and_image_is_left_to_deploys" {
     condition     = can(regex("ignore_changes\\s*=\\s*\\[template\\[0\\]\\.template\\[0\\]\\.containers\\[0\\]\\.image\\]", file("${path.module}/main.tf")))
     error_message = "the module must ignore later image changes (the deploy script owns the image)"
   }
+
+  # Terraform owns command/args (Architect, T1): they must not be in ignore_changes.
+  assert {
+    condition     = !can(regex("ignore_changes[^\\]]*(command|args)", file("${path.module}/main.tf")))
+    error_message = "command and args are Terraform's: they must not be ignored (the deploy script updates the image only)"
+  }
+}
+
+run "terraform_owns_the_command" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_job.migrate.template[0].template[0].containers[0].command == tolist(["node"]) && google_cloud_run_v2_job.migrate.template[0].template[0].containers[0].args == tolist(["/app/packages/db/dist/cli/migrate.js"])
+    error_message = "the job must run node /app/packages/db/dist/cli/migrate.js, set by Terraform"
+  }
+}
+
+run "the_one_ingest_secret_is_a_reference" {
+  command = plan
+
+  variables {
+    secret_env = {
+      POSTGRES_INGEST_PASSWORD = "projects/ecofolk-dev/secrets/POSTGRES_INGEST_PASSWORD"
+    }
+  }
+
+  assert {
+    condition = (
+      length([for e in google_cloud_run_v2_job.migrate.template[0].template[0].containers[0].env : e if length(e.value_source) > 0]) == 1 &&
+      [for e in google_cloud_run_v2_job.migrate.template[0].template[0].containers[0].env : e.name if length(e.value_source) > 0][0] == "POSTGRES_INGEST_PASSWORD" &&
+      [for e in google_cloud_run_v2_job.migrate.template[0].template[0].containers[0].env : e.value_source[0].secret_key_ref[0].version if length(e.value_source) > 0][0] == "latest"
+    )
+    error_message = "exactly one secret env, POSTGRES_INGEST_PASSWORD, as a secret_key_ref at latest"
+  }
+}
+
+run "known_wrong_login_secret_refused" {
+  command = plan
+
+  variables {
+    secret_env = {
+      POSTGRES_PASSWORD = "projects/ecofolk-dev/secrets/POSTGRES_PASSWORD"
+    }
+  }
+
+  expect_failures = [var.secret_env]
 }
 
 run "qa_name_is_suffixed" {

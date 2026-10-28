@@ -102,3 +102,19 @@ run "migrate_job_wiring" {
     error_message = "module.cloudsql must create the migrate SA's IAM database user"
   }
 }
+
+# ecofolk#1180 (Architect ruling, T1 and (3)): the job's runtime-user env and its ONE secret ref come from the root,
+# and the secret is the same Secret Manager ref the API maps.
+run "migrate_job_runtime_user_and_ingest_secret" {
+  command = plan
+
+  assert {
+    condition     = module.migrate_job.env_vars["DB_RUNTIME_USER"] == "ecofolk"
+    error_message = "the job must be told the API's runtime DB user, ecofolk (config.ts default)"
+  }
+
+  assert {
+    condition     = keys(module.migrate_job.secret_env) == tolist(["POSTGRES_INGEST_PASSWORD"])
+    error_message = "the job must map exactly one secret, POSTGRES_INGEST_PASSWORD (its value is module.secrets' id, unknown at plan)"
+  }
+}

@@ -76,7 +76,38 @@ variable "timeout_seconds" {
   }
 }
 
-# Non-secret values only: the migrator uses IAM DB auth, so there is no password to map.
+# Terraform owns the command (Architect, T1): static, so an apply never fights the deploy script, which sets
+# the image only. Defaults are the migrate CLI the app row builds.
+variable "command" {
+  type        = list(string)
+  default     = ["node"]
+  description = "Container entrypoint. Terraform owns it; the deploy script updates the image only."
+}
+
+variable "args" {
+  type        = list(string)
+  default     = ["/app/packages/db/dist/cli/migrate.js"]
+  description = "Container args: the migrate CLI. Terraform owns them; the deploy script updates the image only."
+}
+
+# The ONE secret the job may map: the password the migrator sets on the ecofolk_ingest role. Never a DB login.
+variable "secret_env" {
+  type        = map(string)
+  default     = {}
+  description = "Env var name -> Secret Manager secret, mapped by secret_key_ref at version latest. Only POSTGRES_INGEST_PASSWORD is accepted (the value the migrator sets on the ingest role, not a login). References only, never values."
+
+  validation {
+    condition     = alltrue([for k in keys(var.secret_env) : k == "POSTGRES_INGEST_PASSWORD"])
+    error_message = "secret_env may hold only POSTGRES_INGEST_PASSWORD: the migrator logs in by IAM and the job holds no DB login secret (ecofolk#1180)."
+  }
+
+  validation {
+    condition     = alltrue([for v in values(var.secret_env) : length(v) > 0])
+    error_message = "secret_env values must be non-empty secret references."
+  }
+}
+
+# Non-secret values only: the migrator uses IAM DB auth, so there is no login password to map.
 variable "env_vars" {
   type        = map(string)
   default     = {}

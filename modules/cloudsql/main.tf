@@ -86,8 +86,7 @@ resource "google_sql_database_instance" "postgres" {
 # ecofolk#1169: the migrate job's IAM database user. A CLOUD_IAM_SERVICE_ACCOUNT user has no password, so
 # nothing secret is written here; the name is the service account's email without ".gserviceaccount.com"
 # (Cloud SQL's form for a service account user). Off (count 0) while migrate_service_account_email is unset.
-# The grants (cloudsqlsuperuser for CREATE EXTENSION, default privileges for the runtime user) are local
-# follow-up: see modules/migrate_job/main.tf item 5.
+# cloudsqlsuperuser is a paste step (the pinned provider has no database_roles, see below); the runtime user's DML grants are the migrate CLI's post-step (ecofolk#1180).
 resource "google_sql_user" "migrate" {
   count = var.migrate_service_account_email == null ? 0 : 1
 
@@ -95,6 +94,12 @@ resource "google_sql_user" "migrate" {
   instance = google_sql_database_instance.postgres.name
   name     = trimsuffix(var.migrate_service_account_email, ".gserviceaccount.com")
   type     = "CLOUD_IAM_SERVICE_ACCOUNT"
+
+  # NOT database_roles: the pinned provider (hashicorp/google 5.45.2, the last 5.x) has no such argument on
+  # google_sql_user (terraform validate: "An argument named database_roles is not expected here"). The migrator's
+  # cloudsqlsuperuser membership (CREATE EXTENSION postgis, vector) is Architect's fallback instead: one
+  # `gcloud sql users assign-roles <migrator> --instance=ecofolk-pg --type=CLOUD_IAM_SERVICE_ACCOUNT
+  # --database-roles=cloudsqlsuperuser` in Andy's paste (ecofolk#1180 ruling (2a)). Revisit on a provider major bump.
 }
 
 resource "google_sql_database" "ecofolk" {

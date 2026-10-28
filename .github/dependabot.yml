@@ -18,6 +18,7 @@ updates:
       - /modules/cloudsql
       - /modules/idle_sit_sweep
       - /modules/media_bucket
+      - /modules/migrate_job
       - /modules/monitoring
       - /modules/network
       - /modules/project

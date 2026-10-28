@@ -109,3 +109,8 @@ test_env_builtin_sql_user_still_checked_fail if {
 	msgs := deny_env with input as tf("modules/x/main.tf", "google_sql_user", {"name": "app", "type": "BUILT_IN"})
 	denied_with(msgs, "must carry env")
 }
+
+test_env_iam_user_type_still_checked_fail if {
+	msgs := deny_env with input as tf("modules/x/main.tf", "google_sql_user", {"name": "someone@example.test", "type": "CLOUD_IAM_USER"})
+	denied_with(msgs, "must carry env")
+}

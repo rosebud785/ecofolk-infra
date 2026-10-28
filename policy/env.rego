@@ -56,10 +56,10 @@ env_checked contains r if {
 
 # ecofolk#1169: a Cloud SQL IAM database user's name is not chosen, it IS the service account's identity
 # (<sa>@<project>.iam), so it can't carry var.env; the service account is what is per-environment. Only the
-# CLOUD_IAM_* types are exempt: a password (BUILT_IN) user is still checked, and still refused by modules/cloudsql's test.
+# CLOUD_IAM_SERVICE_ACCOUNT only is exempt (CLOUD_IAM_USER and CLOUD_IAM_GROUP are humans and groups): any other type, BUILT_IN included, is still checked.
 iam_db_user(r) if {
 	r.type == "google_sql_user"
-	startswith(object.get(r.body, "type", ""), "CLOUD_IAM_")
+	r.body.type == "CLOUD_IAM_SERVICE_ACCOUNT"
 }
 
 name_carries_env(v) if {

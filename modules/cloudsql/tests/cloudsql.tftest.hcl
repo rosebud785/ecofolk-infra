@@ -129,7 +129,7 @@ run "declares_no_password_user_or_password" {
   command = plan
 
   # A resource that doesn't exist can't be referenced, so read the module's own source instead.
-  # ecofolk#1169: google_sql_user is allowed ONLY with type = "CLOUD_IAM_*" (keyless). random_password, and
+  # ecofolk#1169: google_sql_user is allowed ONLY with type = "CLOUD_IAM_SERVICE_ACCOUNT" (keyless). random_password, and
   # any google_sql_user that is not exactly one CLOUD_IAM_* user, stay refused.
   assert {
     condition = alltrue([
@@ -142,9 +142,9 @@ run "declares_no_password_user_or_password" {
   assert {
     condition = (
       length(flatten([for f in fileset(path.module, "*.tf") : regexall("resource\\s+\"google_sql_user\"", file("${path.module}/${f}"))])) ==
-      length(flatten([for f in fileset(path.module, "*.tf") : regexall("type\\s*=\\s*\"CLOUD_IAM_[A-Z_]+\"", file("${path.module}/${f}"))]))
+      length(flatten([for f in fileset(path.module, "*.tf") : regexall("type\\s*=\\s*\"CLOUD_IAM_SERVICE_ACCOUNT\"", file("${path.module}/${f}"))]))
     )
-    error_message = "every google_sql_user must have type = \"CLOUD_IAM_*\" (no password user, ecofolk#1169)"
+    error_message = "every google_sql_user must have type = \"CLOUD_IAM_SERVICE_ACCOUNT\" (no password or human user, ecofolk#1169)"
   }
 
   assert {
@@ -169,7 +169,7 @@ run "known_wrong_password_user_is_caught" {
     condition = (
       length(google_sql_user.migrate) == 0 &&
       length(regexall("resource\\s+\"google_sql_user\"", "resource \"google_sql_user\" \"x\" {\n type = \"BUILT_IN\"\n password = \"p\"\n}")) !=
-      length(regexall("type\\s*=\\s*\"CLOUD_IAM_[A-Z_]+\"", "resource \"google_sql_user\" \"x\" {\n type = \"BUILT_IN\"\n password = \"p\"\n}"))
+      length(regexall("type\\s*=\\s*\"CLOUD_IAM_SERVICE_ACCOUNT\"", "resource \"google_sql_user\" \"x\" {\n type = \"BUILT_IN\"\n password = \"p\"\n}"))
     )
     error_message = "the type check must flag a BUILT_IN user"
   }

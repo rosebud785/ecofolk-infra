@@ -1,6 +1,6 @@
 # modules/monitoring
 
-Alerts on the API 5xx rate, DB connections and media write failures, with channels by ID only (ecofolk-infra#24), and on no successful nightly Cloud SQL export (ecofolk-infra#109); HTTPS uptime checks on the API `/health` and the web root (ecofolk-infra#5); one dashboard, its JSON in `dashboards/ecofolk.json` (ecofolk-infra#6).
+Alerts on the API 5xx rate, DB connections and media write failures, with channels by ID only (ecofolk-infra#24), and on a failed or missing nightly Cloud SQL export (ecofolk-infra#109); HTTPS uptime checks on the API `/health` and the web root (ecofolk-infra#5); one dashboard, its JSON in `dashboards/ecofolk.json` (ecofolk-infra#6).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -26,6 +26,7 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | [google_monitoring_alert_policy.api_5xx_rate](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.db_connection_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.media_write_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
+| [google_monitoring_alert_policy.sql_export_attempt_failed](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.sql_export_stale](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_dashboard.ecofolk](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_dashboard) | resource |
 | [google_monitoring_uptime_check_config.api_health](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_uptime_check_config) | resource |
@@ -53,7 +54,7 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 
 | Name | Description |
 |------|-------------|
-| alert_policy_names | Resource names of the four alert policies. |
+| alert_policy_names | Resource names of the five alert policies. |
 | dashboard_id | Resource id of the EcoFolk dashboard. |
 | log_metric_names | Names of the three log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109). |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |

@@ -1,11 +1,12 @@
 output "alert_policy_names" {
   value = {
-    api_5xx_rate           = google_monitoring_alert_policy.api_5xx_rate.name
-    db_connection_failures = google_monitoring_alert_policy.db_connection_failures.name
-    media_write_failures   = google_monitoring_alert_policy.media_write_failures.name
-    sql_export_stale       = google_monitoring_alert_policy.sql_export_stale.name
+    api_5xx_rate              = google_monitoring_alert_policy.api_5xx_rate.name
+    db_connection_failures    = google_monitoring_alert_policy.db_connection_failures.name
+    media_write_failures      = google_monitoring_alert_policy.media_write_failures.name
+    sql_export_stale          = google_monitoring_alert_policy.sql_export_stale.name
+    sql_export_attempt_failed = google_monitoring_alert_policy.sql_export_attempt_failed.name
   }
-  description = "Resource names of the four alert policies."
+  description = "Resource names of the five alert policies."
 }
 
 output "log_metric_names" {

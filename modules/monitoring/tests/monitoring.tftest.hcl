@@ -25,9 +25,10 @@ run "policies_exist_and_notify_the_channels" {
         google_monitoring_alert_policy.db_connection_failures,
         google_monitoring_alert_policy.media_write_failures,
         google_monitoring_alert_policy.sql_export_stale,
+        google_monitoring_alert_policy.sql_export_attempt_failed,
       ] : p.project == "ecofolk-dev" && p.notification_channels == var.notification_channels
     ])
-    error_message = "all four alert policies must exist on var.project_id and notify exactly var.notification_channels"
+    error_message = "all five alert policies must exist on var.project_id and notify exactly var.notification_channels"
   }
 
   assert {
@@ -37,6 +38,7 @@ run "policies_exist_and_notify_the_channels" {
         google_monitoring_alert_policy.db_connection_failures,
         google_monitoring_alert_policy.media_write_failures,
         google_monitoring_alert_policy.sql_export_stale,
+        google_monitoring_alert_policy.sql_export_attempt_failed,
       ] : length(p.documentation) == 1 && length(trimspace(p.documentation[0].content)) > 0 && strcontains(p.documentation[0].content, "What broke") && strcontains(p.documentation[0].content, "First thing to check")
     ])
     error_message = "every policy must carry documentation.content saying what broke and the first thing to check"
@@ -221,7 +223,7 @@ run "outputs" {
   }
 
   assert {
-    condition     = output.alert_policy_names.api_5xx_rate == google_monitoring_alert_policy.api_5xx_rate.name && output.alert_policy_names.sql_export_stale == google_monitoring_alert_policy.sql_export_stale.name
+    condition     = output.alert_policy_names.api_5xx_rate == google_monitoring_alert_policy.api_5xx_rate.name && output.alert_policy_names.sql_export_stale == google_monitoring_alert_policy.sql_export_stale.name && output.alert_policy_names.sql_export_attempt_failed == google_monitoring_alert_policy.sql_export_attempt_failed.name
     error_message = "alert_policy_names must carry the policies' resource names"
   }
 }
@@ -287,8 +289,8 @@ run "env_dev_keeps_its_names_and_labels" {
   }
 
   assert {
-    condition     = alltrue([for p in [google_monitoring_alert_policy.api_5xx_rate, google_monitoring_alert_policy.db_connection_failures, google_monitoring_alert_policy.media_write_failures, google_monitoring_alert_policy.sql_export_stale] : p.user_labels.env == "dev"])
-    error_message = "every alert policy (including sql_export_stale) must carry env = dev"
+    condition     = alltrue([for p in [google_monitoring_alert_policy.api_5xx_rate, google_monitoring_alert_policy.db_connection_failures, google_monitoring_alert_policy.media_write_failures, google_monitoring_alert_policy.sql_export_stale, google_monitoring_alert_policy.sql_export_attempt_failed] : p.user_labels.env == "dev"])
+    error_message = "every alert policy (including the two export ones) must carry env = dev"
   }
 
   assert {
@@ -321,7 +323,7 @@ run "env_qa_suffixes_names_and_labels" {
   assert {
     condition = (
       google_logging_metric.sql_export_successes.name == "ecofolk-sql-export-successes-qa" &&
-      strcontains(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].filter, "logging.googleapis.com/user/ecofolk-sql-export-successes-qa\"")
+      strcontains(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].filter, "logging.googleapis.com/user/ecofolk-sql-export-successes-qa\"")
     )
     error_message = "qa must suffix the export metric with -qa and the stale-export alert must watch it"
   }
@@ -332,8 +334,8 @@ run "env_qa_suffixes_names_and_labels" {
   }
 
   assert {
-    condition     = alltrue([for p in [google_monitoring_alert_policy.api_5xx_rate, google_monitoring_alert_policy.db_connection_failures, google_monitoring_alert_policy.media_write_failures, google_monitoring_alert_policy.sql_export_stale] : p.user_labels.env == "qa"])
-    error_message = "every alert policy (including sql_export_stale) must carry env = qa"
+    condition     = alltrue([for p in [google_monitoring_alert_policy.api_5xx_rate, google_monitoring_alert_policy.db_connection_failures, google_monitoring_alert_policy.media_write_failures, google_monitoring_alert_policy.sql_export_stale, google_monitoring_alert_policy.sql_export_attempt_failed] : p.user_labels.env == "qa"])
+    error_message = "every alert policy (including the two export ones) must carry env = qa"
   }
 
   assert {
@@ -452,31 +454,45 @@ run "no_cloud_sql_audit_log_metric" {
   }
 }
 
-run "sql_export_policy_is_absent_on_exactly_that_metric" {
+run "sql_export_policy_is_a_threshold_on_exactly_that_metric_with_missing_data_active" {
   command = plan
 
   assert {
     condition = (
       length(google_monitoring_alert_policy.sql_export_stale.conditions) == 1 &&
-      length(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent) == 1 &&
-      length(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold) == 0
+      length(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold) == 1 &&
+      length(google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent) == 0
     )
-    error_message = "the stale-export policy must have exactly one condition, a condition_absent"
+    error_message = "the stale-export policy must have exactly one condition, a condition_threshold (condition_absent never fired on this sparse metric, #109 rework)"
   }
 
   assert {
     condition = (
-      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].filter ==
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].filter ==
       "metric.type=\"logging.googleapis.com/user/ecofolk-sql-export-successes\" AND resource.type=\"cloud_scheduler_job\""
     )
-    error_message = "the stale-export policy's absence condition must watch exactly the ecofolk-sql-export-successes metric on cloud_scheduler_job"
+    error_message = "the stale-export policy's threshold condition must watch exactly the ecofolk-sql-export-successes metric on cloud_scheduler_job"
   }
 
-  # The API caps duration + alignment at 25 h; over 24 h so a daily gap is covered (#109, ruling on #111).
+  # Fewer than 1 success in the window; no data at all counts as a violation.
   assert {
     condition = (
-      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "68400s" &&
-      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].aggregations[0].alignment_period == "21600s"
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].comparison == "COMPARISON_LT" &&
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].threshold_value == 1
+    )
+    error_message = "the stale-export threshold must be COMPARISON_LT 1"
+  }
+
+  assert {
+    condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].evaluation_missing_data == "EVALUATION_MISSING_DATA_ACTIVE"
+    error_message = "the stale-export threshold must set evaluation_missing_data = EVALUATION_MISSING_DATA_ACTIVE, or a metric with no points never violates"
+  }
+
+  # Same horizon as before: duration + alignment over 24 h and at most 25 h (#109, ruling on #111).
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].duration == "68400s" &&
+      google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].aggregations[0].alignment_period == "21600s"
     )
     error_message = "the stale-export alert must be 68400s (19 h) + 21600s (6 h) = 25 h"
   }
@@ -575,7 +591,7 @@ run "sql_export_fallback_horizon_of_24_5h_passes" {
     sql_export_alignment_period_seconds = 21600
   }
   assert {
-    condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_absent[0].duration == "66600s"
+    condition     = google_monitoring_alert_policy.sql_export_stale.conditions[0].condition_threshold[0].duration == "66600s"
     error_message = "the fallback duration must flow through to the policy"
   }
 }
@@ -591,5 +607,98 @@ run "roots_do_not_set_the_horizon_test_variables" {
       !can(regex("sql_export_(absence_duration|alignment_period)_seconds", file("${path.module}/../../environments/${f}")))
     ])
     error_message = "no environments/* root may set sql_export_absence_duration_seconds or sql_export_alignment_period_seconds"
+  }
+}
+
+# --- #109 rework: the log-match policy on a failed export attempt (Architect plan on #135) ---------------
+
+run "sql_export_failed_attempt_policy_is_a_lone_log_match_with_a_rate_limit" {
+  command = plan
+
+  assert {
+    condition = (
+      length(google_monitoring_alert_policy.sql_export_attempt_failed.conditions) == 1 &&
+      length(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log) == 1 &&
+      length(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_threshold) == 0 &&
+      length(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_absent) == 0
+    )
+    error_message = "the failed-attempt policy must have exactly one condition, a condition_matched_log (it must be alone in its policy)"
+  }
+
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_attempt_failed.alert_strategy[0].notification_rate_limit[0].period == "3600s" &&
+      google_monitoring_alert_policy.sql_export_attempt_failed.alert_strategy[0].auto_close == "86400s"
+    )
+    error_message = "the failed-attempt policy must rate-limit notifications to 1 h and auto-close its incident"
+  }
+
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_attempt_failed.project == "ecofolk-dev" &&
+      google_monitoring_alert_policy.sql_export_attempt_failed.notification_channels == var.notification_channels
+    )
+    error_message = "the failed-attempt policy must be on var.project_id and notify exactly var.notification_channels (the existing, working channel)"
+  }
+}
+
+run "sql_export_failed_attempt_filter_is_exactly_that_job_and_a_non_2xx_finish" {
+  command = plan
+
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter ==
+      "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"ecofolk-pg-nightly-export\" AND jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\" AND NOT (httpRequest.status>=200 AND httpRequest.status<300)"
+    )
+    error_message = "the failed-attempt filter must be exactly: the scheduler job resource, this job's id, AttemptFinished, and NOT a 2xx status; got: ${google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter}"
+  }
+
+  # Known-wrong: a 2xx-only filter (the success filter) would page on every good night and never on a bad one.
+  assert {
+    condition = (
+      google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter != google_logging_metric.sql_export_successes.filter &&
+      strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter, "NOT (httpRequest.status>=200 AND httpRequest.status<300)") &&
+      !strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter, "AND httpRequest.status>=200 AND httpRequest.status<300")
+    )
+    error_message = "the failed-attempt filter must negate the 2xx range, not be the success filter"
+  }
+
+  # Known-wrong: no job id would match every Scheduler job's failures.
+  assert {
+    condition     = strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter, "resource.labels.job_id=\"ecofolk-pg-nightly-export\"")
+    error_message = "the failed-attempt filter must be scoped to the export job's id"
+  }
+
+  assert {
+    condition     = !can(regex("(?i)(\\bOR\\b)", google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter))
+    error_message = "the failed-attempt filter must hold no OR: one would widen the match beyond this job's finished attempts"
+  }
+}
+
+run "sql_export_failed_attempt_follows_the_job_variable" {
+  command = plan
+
+  variables {
+    sql_export_job_name = "ecofolk-pg-canary-nightly-export"
+  }
+
+  assert {
+    condition = (
+      strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter, "resource.labels.job_id=\"ecofolk-pg-canary-nightly-export\"") &&
+      !strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.conditions[0].condition_matched_log[0].filter, "job_id=\"ecofolk-pg-nightly-export\"")
+    )
+    error_message = "the failed-attempt filter must follow var.sql_export_job_name"
+  }
+}
+
+run "sql_export_failed_attempt_documentation_names_the_fix" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for s in ["What broke", "First thing to check", "`ecofolk-pg-nightly-export`", "412", "roles/storage.objectAdmin", "ecofolk-dev-sql-exports", "runbook.md#3-restore-from-the-nightly-export"] :
+      strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.documentation[0].content, s)
+    ])
+    error_message = "the failed-attempt documentation must say what broke, the first check (a 412 means the instance SA lacks objectAdmin on the bucket) and link runbook §3"
   }
 }

@@ -80,3 +80,41 @@ run "dev_keeps_its_existing_names" {
     error_message = "dev must have exactly its three existing buckets and four secret ids, got ${jsonencode(output.resource_names)}"
   }
 }
+
+# ecofolk#1169: the migrate job is named ecofolk-migrate, runs as the keyless migrate SA on the API's subnet,
+# and that SA is the Cloud SQL IAM database user (so the job's DB identity can't drift from the user Terraform
+# creates). Literals, as above: never derive them.
+run "migrate_job_wiring" {
+  command = plan
+
+  assert {
+    condition     = module.migrate_job.name == "ecofolk-migrate"
+    error_message = "the dev migrate job must be ecofolk-migrate, got ${module.migrate_job.name}"
+  }
+
+  assert {
+    condition     = module.migrate_job.env_vars["DB_IAM_USER"] == format("%s@%s.iam", "ecofolk-migrate", "ecofolk-dev")
+    error_message = "the job's DB_IAM_USER must be the migrate SA's IAM database user name"
+  }
+
+  assert {
+    condition     = contains(module.cloudsql.resource_names, format("google_sql_user/%s@%s.iam", "ecofolk-migrate", "ecofolk-dev"))
+    error_message = "module.cloudsql must create the migrate SA's IAM database user"
+  }
+}
+
+# ecofolk#1180 (Architect ruling, T1 and (3)): the job's runtime-user env and its ONE secret ref come from the root,
+# and the secret is the same Secret Manager ref the API maps.
+run "migrate_job_runtime_user_and_ingest_secret" {
+  command = plan
+
+  assert {
+    condition     = module.migrate_job.env_vars["DB_RUNTIME_USER"] == "ecofolk"
+    error_message = "the job must be told the API's runtime DB user, ecofolk (config.ts default)"
+  }
+
+  assert {
+    condition     = keys(module.migrate_job.secret_env) == tolist(["POSTGRES_INGEST_PASSWORD"])
+    error_message = "the job must map exactly one secret, POSTGRES_INGEST_PASSWORD (its value is module.secrets' id, unknown at plan)"
+  }
+}

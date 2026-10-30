@@ -15,6 +15,13 @@ variable "api_service_account_id" {
   description = "Account id (the part before @) of the Cloud Run API's runtime service account in the dev project."
 }
 
+# ecofolk#1169: the migrate job's SA is created locally, like the API's: only its account id is named here.
+variable "migrate_service_account_id" {
+  type        = string
+  default     = "ecofolk-migrate"
+  description = "Account id (the part before @) of the migrate Cloud Run job's keyless service account in the dev project (ecofolk#1169)."
+}
+
 # #114: the Cloud Run service name is a variable because the deterministic run.app URL
 # (local.api_base_url) is built from it; it is also what names the service itself.
 variable "api_service_name" {

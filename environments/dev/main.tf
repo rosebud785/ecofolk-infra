@@ -27,6 +27,9 @@ terraform {
 
 locals {
   env = "dev"
+
+  # ecofolk#1169: shared by module.cloudsql (the IAM DB user) and module.migrate_job (the identity it runs as).
+  migrate_sa_email = "${var.migrate_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 }
 
 provider "google" {
@@ -84,6 +87,8 @@ module "cloudsql" {
   env                          = local.env
   private_network              = module.network.network_self_link
   export_service_account_email = "${var.ops_scheduler_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+  # ecofolk#1169: the migrate job's keyless IAM database user (CLOUD_IAM_SERVICE_ACCOUNT, no password).
+  migrate_service_account_email = local.migrate_sa_email
 
   depends_on = [module.project, module.network]
 }
@@ -171,6 +176,46 @@ module "cloudrun_api" {
   }
 
   depends_on = [module.project, module.network]
+}
+
+# Schema migrator (ecofolk#1169, G1 part 1): a Cloud Run Job on the API's image digest (ecofolk#408's deploy
+# script updates the image and executes it with --wait before `gcloud run deploy`). Same Direct VPC egress
+# subnet as the API; runs as the keyless migrate SA, which module.cloudsql makes a Cloud SQL IAM DB user. No
+# one secret env (POSTGRES_INGEST_PASSWORD, not a login): IAM DB auth. The image stays the placeholder; the deploy script owns it. env_vars are the
+# non-secret connection facts the app row's migrator reads (names are app row's to confirm).
+#
+# LOCAL FOLLOW-UP (ecofolk#1169), IAM is not managed in this public repo; the full list is in
+# modules/migrate_job/main.tf. BEFORE this merges (merge = apply): create the SA var.migrate_service_account_id
+# with no key, and grant tf-apply roles/iam.serviceAccountUser ON THAT ONE SERVICE ACCOUNT, or the apply 403s on
+# iam.serviceaccounts.actAs and the SQL IAM user cannot be created for a missing account (the #19 pattern).
+# Also BEFORE merge: roles/secretmanager.secretAccessor for it on the POSTGRES_INGEST_PASSWORD secret only (a ref it
+# cannot read blocks the apply). After it: roles/cloudsql.client + roles/cloudsql.instanceUser for it on the project;
+# serviceAccountUser on it and roles/run.developer on THIS JOB ONLY for ecofolk-deploy.
+module "migrate_job" {
+  source          = "../../modules/migrate_job"
+  project_id      = var.project_id
+  env             = local.env
+  region          = module.project.region
+  service_account = local.migrate_sa_email
+  network         = module.network.network_id
+  subnetwork      = module.network.subnet_id
+
+  env_vars = {
+    DB_HOST                     = module.cloudsql.private_ip_address
+    DB_NAME                     = module.cloudsql.database_name
+    DB_IAM_USER                 = trimsuffix(local.migrate_sa_email, ".gserviceaccount.com")
+    DB_INSTANCE_CONNECTION_NAME = module.cloudsql.connection_name
+    # The API's runtime DB user (config.ts default): the migrate CLI grants it DML after migrating (ecofolk#1180).
+    DB_RUNTIME_USER = "ecofolk"
+  }
+
+  # The job's ONE secret (Architect, ecofolk#1180 ruling (3)): the value the migrator sets on ecofolk_ingest, the
+  # same Secret Manager ref the API maps. Not a DB login: the migrator logs in by IAM.
+  secret_env = {
+    POSTGRES_INGEST_PASSWORD = module.secrets.secret_ids["POSTGRES_INGEST_PASSWORD"]
+  }
+
+  depends_on = [module.project, module.network, module.cloudsql]
 }
 
 # Idle-sit sweep (issue #17, Architect's OIDC redesign on PR #86): one Cloud Scheduler job POSTs
@@ -374,6 +419,7 @@ output "resource_names" {
     module.cloudsql.resource_names,
     module.sql_off_hours.resource_names,
     module.cloudrun_api.resource_names,
+    module.migrate_job.resource_names,
     module.idle_sit_sweep.resource_names,
     module.sync_usgs_water.resource_names,
     module.secrets.resource_names,

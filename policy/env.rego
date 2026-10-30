@@ -51,6 +51,15 @@ env_label_values := {"${var.env}", "dev", "qa", "prod"}
 env_checked contains r if {
 	some r in resources
 	not regex.match(`(^|/)local-only/`, r.path)
+	not iam_db_user(r)
+}
+
+# ecofolk#1169: a Cloud SQL IAM database user's name is not chosen, it IS the service account's identity
+# (<sa>@<project>.iam), so it can't carry var.env; the service account is what is per-environment. Only the
+# CLOUD_IAM_SERVICE_ACCOUNT only is exempt (CLOUD_IAM_USER and CLOUD_IAM_GROUP are humans and groups): any other type, BUILT_IN included, is still checked.
+iam_db_user(r) if {
+	r.type == "google_sql_user"
+	r.body.type == "CLOUD_IAM_SERVICE_ACCOUNT"
 }
 
 name_carries_env(v) if {

@@ -23,6 +23,7 @@ Cloud SQL Postgres 16: private IP only, backups on, the IAM auth flag set (ecofo
 | [google_cloud_scheduler_job.sql_export](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_scheduler_job) | resource |
 | [google_sql_database.ecofolk](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database) | resource |
 | [google_sql_database_instance.postgres](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance) | resource |
+| [google_sql_user.migrate](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_user) | resource |
 | [google_storage_bucket.sql_exports](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket) | resource |
 
 ## Inputs
@@ -33,6 +34,7 @@ Cloud SQL Postgres 16: private IP only, backups on, the IAM auth flag set (ecofo
 | env | Environment: dev, qa or prod. Sets the `env` label; qa (a namespace inside ecofolk-dev, #13) also suffixes each resource name with -qa. | `string` | n/a | yes |
 | export_service_account_email | Email of the service account the nightly export job runs as (the ops-scheduler account in the dev project). Created locally, never here. | `string` | n/a | yes |
 | instance_name | Cloud SQL instance name (lowercase letters, digits and hyphens). | `string` | `"ecofolk-pg"` | no |
+| migrate_service_account_email | Email of the migrate job's service account. When set, it becomes a keyless Cloud SQL IAM database user (CLOUD_IAM_SERVICE_ACCOUNT, no password). Created locally, never here. | `string` | `null` | no |
 | private_network | Self-link of the VPC the instance takes its private IP in; pass module.network.network_self_link. | `string` | n/a | yes |
 | project_id | GCP project id that owns the instance. No default: every caller states its own project. | `string` | n/a | yes |
 | region | Cloud SQL region. Must always be northamerica-northeast1 (Montréal), ef#391. | `string` | `"northamerica-northeast1"` | no |

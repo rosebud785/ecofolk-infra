@@ -113,8 +113,8 @@ run "composition_is_covered" {
 
   # Keeps the call regex from passing by matching nothing.
   assert {
-    condition     = output.qa_calls == tolist(["cloudrun_api", "sql_database"]) && length(output.dev_calls) == 14
-    error_message = "expected qa to call cloudrun_api and sql_database and dev to make 14 module calls, found qa ${jsonencode(output.qa_calls)}, dev ${jsonencode(output.dev_calls)}"
+    condition     = output.qa_calls == tolist(["cloudrun_api", "sql_database"]) && length(output.dev_calls) == 15
+    error_message = "expected qa to call cloudrun_api and sql_database and dev to make 15 module calls, found qa ${jsonencode(output.qa_calls)}, dev ${jsonencode(output.dev_calls)}"
   }
 
   assert {

@@ -69,3 +69,15 @@ variable "env" {
     error_message = "env must be \"dev\", \"qa\" or \"prod\"."
   }
 }
+
+# ecofolk#1169: the migrate job's identity. Created locally, never here; null (the default) creates no DB user.
+variable "migrate_service_account_email" {
+  type        = string
+  default     = null
+  description = "Email of the migrate job's service account. When set, it becomes a keyless Cloud SQL IAM database user (CLOUD_IAM_SERVICE_ACCOUNT, no password). Created locally, never here."
+
+  validation {
+    condition     = var.migrate_service_account_email == null || can(regex("^[^@\\s]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", var.migrate_service_account_email))
+    error_message = "migrate_service_account_email must be null or a service account email (<id>@<project>.iam.gserviceaccount.com)."
+  }
+}

@@ -623,7 +623,8 @@ Ordering rules learned the hard way. Each applies to every go-live paste, dev or
   call the target API, and the one that writes to the destination can write (for a Cloud SQL export
   that is the instance's service account, not the scheduler's).
   Check the grant, not the Terraform plan: for the nightly export, the instance service account needs
-  object-create on the export bucket (`roles/storage.objectCreator`) before the 05:15 CT job is enabled.
+  object-create and object-delete on the export bucket (`roles/storage.objectAdmin`; the job overwrites
+  the previous night's fixed-name object, so create alone is not enough) before the 05:15 CT job is enabled.
   Verify with `gcloud storage buckets get-iam-policy gs://<project-id>-sql-exports` (add
   `--project=<project-id>`), not by waiting for the first run.
   *Source: ecofolk-infra#135. Four nightly exports failed 2026-10-17 to 2026-10-20 because the instance

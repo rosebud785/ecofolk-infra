@@ -8,6 +8,9 @@
 # Wired (Architect SPEC OK on #12, 2026-10-16): project, network (C1, #1), cloudsql (ef#398, #18) with C2's
 # ops windows, PITR and nightly export (#2), artifact_registry (C4, #4), cloudrun_api (ef#400, #19), auth
 # (#20), media_bucket (#21, GCS; ef#926 supersedes ef#401's R2) and monitoring (#24, C5 #5, C6 #6).
+# Wired (Architect SPEC OK on #143, 2026-11-02), the modules added since #12, mirroring dev's calls:
+# migrate_job (#140, ecofolk#1169), secrets (#32, container names only), web_hosting (#22), idle_sit_sweep
+# (#17, ecofolk#460) and sync_usgs_water (#98), both schedulers inside the #99 America/Chicago window rule.
 # Dev-only modules are deliberately NOT here: sql_off_hours (#14) and billing_killswitch (#15) refuse a
 # *-prod project.
 #
@@ -23,6 +26,11 @@
 # }
 
 provider "google" {
+  project = local.project_id
+}
+
+# Same keyless ADC as `google`, no credentials argument; used only by modules/web_hosting (#22, #143).
+provider "google-beta" {
   project = local.project_id
 }
 
@@ -66,6 +74,9 @@ module "cloudsql" {
   # go-live: confirm tier (cost review)
   tier                         = "db-f1-micro"
   export_service_account_email = "${var.ops_scheduler_service_account_id}@${local.project_id}.iam.gserviceaccount.com"
+  # ecofolk#1169 (#143): the migrate job's keyless IAM database user (CLOUD_IAM_SERVICE_ACCOUNT, no password),
+  # as in dev. A SQL user, not IAM: the service account itself is L-RUN.
+  migrate_service_account_email = var.migrate_service_account_email
 
   depends_on = [module.project, module.network]
 }
@@ -100,11 +111,119 @@ module "cloudrun_api" {
   depends_on = [module.project, module.network]
 }
 
-# Firebase Auth / Identity Platform config (#20): email + password on, no IdP configs.
+# The API's one base URL for the schedulers' api_url (so each job's uri AND OIDC audience), the same
+# DETERMINISTIC run.app form dev uses (#114): https://SERVICE-PROJECT_NUMBER.REGION.run.app, not
+# module.cloudrun_api.uri (the hash form, a different string). The project number is read at plan time, so it
+# never appears in this public repo.
+data "google_project" "this" {
+  project_id = local.project_id
+}
+
+locals {
+  api_base_url = "https://${module.cloudrun_api.name}-${data.google_project.this.number}.${module.project.region}.run.app"
+}
+
+# Schema migrator (ecofolk#1169, #140; prod wiring #143): a Cloud Run Job on the API's image, mirroring dev's
+# call. Same Direct VPC egress subnet as the API; runs as the keyless migrate SA, which module.cloudsql makes a
+# Cloud SQL IAM DB user. The image stays the placeholder; the deploy script owns it. timeout_seconds stays the
+# module default (600). Non-secret env_vars only; the one secret ref is the ingest password the migrator sets.
+#
+# LOCAL FOLLOW-UP (L-RUN, go-live): create the migrate SA in ecofolk-prod with no key and supply its email as
+# var.migrate_service_account_email; its grants are listed in modules/migrate_job/main.tf. IAM is not managed
+# in this public repo.
+module "migrate_job" {
+  source          = "../../modules/migrate_job"
+  project_id      = local.project_id
+  env             = "prod"
+  region          = module.project.region
+  service_account = var.migrate_service_account_email
+  network         = module.network.network_id
+  subnetwork      = module.network.subnet_id
+
+  env_vars = {
+    DB_HOST                     = module.cloudsql.private_ip_address
+    DB_NAME                     = module.cloudsql.database_name
+    DB_IAM_USER                 = trimsuffix(var.migrate_service_account_email, ".gserviceaccount.com")
+    DB_INSTANCE_CONNECTION_NAME = module.cloudsql.connection_name
+    # The API's runtime DB user (config.ts default), as in dev (ecofolk#1180).
+    DB_RUNTIME_USER = "ecofolk"
+  }
+
+  secret_env = {
+    POSTGRES_INGEST_PASSWORD = module.secrets.secret_ids["POSTGRES_INGEST_PASSWORD"]
+  }
+
+  depends_on = [module.project, module.network, module.cloudsql]
+}
+
+# Idle-sit sweep (#17, ecofolk#460; prod wiring #143): one Cloud Scheduler job POSTs
+# {api}/internal/sweep-idle-sits with a Google-signed OIDC ID token for the invoker SA. Prod passes dev's
+# 0 5-21/2 * * * (America/Chicago), not the module default 0 */2 * * *, which runs inside the #99 window
+# (22:15–04:45 CT, docs/alerting-policy.md). Prod has no off-hours stop, but every environment keeps the rule.
+#
+# LOCAL FOLLOW-UP (L-RUN, go-live): create the invoker SA in ecofolk-prod with no roles and supply its email as
+# var.sweep_invoker_service_account_email. IAM is not managed in this public repo.
+module "idle_sit_sweep" {
+  source           = "../../modules/idle_sit_sweep"
+  project_id       = local.project_id
+  env              = "prod"
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = var.sweep_invoker_service_account_email
+  sweep_schedule   = "0 5-21/2 * * *"
+
+  depends_on = [module.project]
+}
+
+# sync-usgs-water (#98; prod wiring #143): one Cloud Scheduler job POSTs {api}/internal/sync-usgs-water at the
+# module's fixed 0 5,11,17 * * * America/Chicago, outside the #99 window. Same OIDC pattern and the SAME invoker
+# SA as the sweep above; no new SA, binding or actAs here.
+module "sync_usgs_water" {
+  source           = "../../modules/sync_usgs_water"
+  project_id       = local.project_id
+  env              = "prod"
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = var.sweep_invoker_service_account_email
+
+  depends_on = [module.project]
+}
+
+# Secret Manager secret CONTAINERS only, no values (#32, Architect ruling on ecofolk#399; prod wiring #143):
+# the module's default secret_names, the same list dev uses, one user-managed replica each in Montréal.
+#
+# LOCAL FOLLOW-UP (ecofolk#936, go-live): add each secret's value (a version) by hand, never in this repo.
+# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/secretmanager.secretAccessor per named secret for the runtime and
+# migrate SAs. IAM is not managed in this public repo.
+module "secrets" {
+  source     = "../../modules/secrets"
+  project_id = local.project_id
+  region     = module.project.region
+  env        = "prod"
+
+  depends_on = [module.project]
+}
+
+# Firebase Hosting site for the web build (#22; prod wiring #143). Static files only, so no region. Deploys,
+# firebase.json and the custom domain are not here (ecofolk#408, ecofolk#670).
+module "web_hosting" {
+  source     = "../../modules/web_hosting"
+  project_id = local.project_id
+  env        = "prod"
+
+  providers = {
+    google-beta = google-beta
+  }
+
+  depends_on = [module.project]
+}
+
+# Firebase Auth / Identity Platform config (#20): email + password on, no IdP configs. web_host falls back to
+# the Hosting site's <site>.web.app (#22) while var.web_host is unset, as in dev (#143).
 module "auth" {
   source     = "../../modules/auth"
   project_id = local.project_id
-  web_host   = var.web_host
+  web_host   = coalesce(var.web_host, module.web_hosting.default_host)
 
   depends_on = [module.project]
 }
@@ -134,7 +253,7 @@ module "monitoring" {
   db_connection_failure_log_filter = var.db_connection_failure_log_filter
   media_write_failure_log_filter   = var.media_write_failure_log_filter
   api_host                         = trimprefix(module.cloudrun_api.uri, "https://")
-  web_host                         = var.web_host
+  web_host                         = coalesce(var.web_host, module.web_hosting.default_host)
   sql_instance_name                = module.cloudsql.instance_name
   sql_export_job_name              = module.cloudsql.export_job_name
 
@@ -151,3 +270,19 @@ output "sql_connection_name" {
   description = "Prod Cloud SQL instance connection name, for the Cloud SQL connector."
 }
 
+
+output "web_default_url" {
+  value       = module.web_hosting.default_url
+  description = "The prod web app's Hosting URL (https://<site>.web.app), for the API's CORS allowlist."
+}
+
+# Every Cloud Scheduler job in the prod composition (#99), for the prod root tests (#144): each must be
+# America/Chicago and outside the 22:15–04:45 CT window.
+output "scheduler_jobs" {
+  value = concat(
+    module.cloudsql.scheduler_jobs,
+    module.idle_sit_sweep.scheduler_jobs,
+    module.sync_usgs_water.scheduler_jobs,
+  )
+  description = "Every Cloud Scheduler job in the prod composition: name, schedule and time_zone (#99)."
+}

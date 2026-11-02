@@ -16,10 +16,26 @@ variable "ops_scheduler_service_account_id" {
 }
 
 # The prod web app's bare hostname, for the auth config's authorized domains and the web-root uptime check
-# (#5). No default: the prod web host is a go-live decision, not a guess.
+# (#5). The custom prod host is a go-live decision, not a guess; until it is set, the Hosting site's
+# <site>.web.app is used (#143, as in dev).
 variable "web_host" {
   type        = string
-  description = "Bare hostname of the prod web app (no scheme, port or path)."
+  default     = null
+  description = "Bare hostname of the prod web app (no scheme, port or path). Null: the Hosting site's <site>.web.app."
+}
+
+# LOCAL FOLLOW-UP (L-RUN, go-live, #143): the migrate job's SA is created locally, never here. No default: its
+# email is supplied at go-live, not guessed.
+variable "migrate_service_account_email" {
+  type        = string
+  description = "Email of the migrate Cloud Run job's keyless service account in ecofolk-prod (ecofolk#1169). L-RUN go-live follow-up: supplied at go-live, created locally."
+}
+
+# LOCAL FOLLOW-UP (L-RUN, go-live, #143): the OIDC invoker SA for the idle-sit sweep and sync-usgs-water jobs is
+# created locally with no roles, never here. No default.
+variable "sweep_invoker_service_account_email" {
+  type        = string
+  description = "Email of the invoker service account the idle-sit sweep (#17) and sync-usgs-water (#98) jobs mint OIDC tokens for in ecofolk-prod. L-RUN go-live follow-up: supplied at go-live, created locally."
 }
 
 # Channel resource names only, never an address (#24, L-ALERT).

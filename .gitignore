@@ -8,3 +8,6 @@ crash.log
 __pycache__/
 # scripts/tests/test_check_region_pin.sh bash 3.2 fixtures (removed on exit)
 .region-pin-fixtures.*/
+# Worktrees symlink node_modules to the main checkout's (load/ and functions/ tooling).
+# No trailing slash, so the symlink matches too (Architect, 2026-11-02).
+node_modules

@@ -100,7 +100,8 @@ Y
 mkroot() { rm -rf "$tmp/root"; mkdir -p "$tmp/root/modules/a" "$tmp/root/modules/b" "$tmp/root/environments/dev" \
   "$tmp/root/modules/a/.terraform/x" "$tmp/root/.git"
   : >"$tmp/root/modules/a/versions.tf"; : >"$tmp/root/modules/b/versions.tf"; : >"$tmp/root/environments/dev/versions.tf"
-  : >"$tmp/root/modules/a/.terraform/x/versions.tf"; }   # the .terraform copy must NOT count
+  : >"$tmp/root/modules/a/.terraform/x/versions.tf"
+  for d in modules/a modules/b environments/dev; do : >"$tmp/root/$d/.terraform.lock.hcl"; done; }   # the .terraform copy must NOT count
 cover_case() {  # cover_case <name> <expected rc> <pattern> <  yaml on stdin>
   local name=$1 want=$2 pattern=$3 f="$tmp/$1.yml" out rc
   cat >"$f"; mkroot
@@ -132,6 +133,25 @@ version: 2
 updates:
   - package-ecosystem: terraform
     directories: [/environments/dev, /modules/a]
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+Y
+
+# ecofolk-infra#131, known-wrong: a listed dir with no lock file (the shape that failed run 39462303634).
+nolock_case() {
+  local f="$tmp/nolock.yml" out rc
+  cat >"$f"; mkroot; rm -f "$tmp/root/modules/b/.terraform.lock.hcl"
+  out=$(bash "$guard" "$f" "$tmp/root" 2>&1); rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q '/modules/b is a Dependabot terraform directory with no .terraform.lock.hcl' \
+     && ! printf '%s' "$out" | grep -q '/modules/a is a'; then echo "ok   lock_missing_names_only_that_dir"
+  else echo "FAIL lock_missing_names_only_that_dir: rc=$rc: $out"; failures=$((failures + 1)); fi
+}
+nolock_case <<'Y'
+version: 2
+updates:
+  - package-ecosystem: terraform
+    directories: [/environments/dev, /modules/a, /modules/b]
     ignore:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']

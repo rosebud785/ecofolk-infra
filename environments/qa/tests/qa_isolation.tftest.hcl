@@ -69,8 +69,9 @@ run "qa_plan" {
     condition = tolist(output.resource_names) == tolist([
       "google_sql_database/ecofolk_qa",
       "google_cloud_run_v2_service/ecofolk-api-qa",
+      "google_cloud_run_v2_job/ecofolk-migrate-qa",
     ])
-    error_message = "qa must create exactly its own database and Cloud Run service, got ${jsonencode(output.resource_names)}"
+    error_message = "qa must create exactly its own database, Cloud Run service and migrate job, got ${jsonencode(output.resource_names)}"
   }
 
   assert {
@@ -91,6 +92,23 @@ run "qa_plan" {
   assert {
     condition     = module.cloudrun_api.name == "ecofolk-api-qa"
     error_message = "qa's Cloud Run service must be ecofolk-api-qa"
+  }
+
+  # #145: QA's migrator targets ecofolk_qa on dev's instance, as dev's existing runtime SA (no new IAM), with
+  # #13's ecofolk_qa_app as the runtime user name and no Secret Manager ref.
+  assert {
+    condition     = module.migrate_job.name == "ecofolk-migrate-qa" && output.migrate_job_name == "ecofolk-migrate-qa"
+    error_message = "qa's migrate job must be ecofolk-migrate-qa"
+  }
+
+  assert {
+    condition = (
+      module.migrate_job.env_vars["DB_NAME"] == "ecofolk_qa" &&
+      module.migrate_job.env_vars["DB_RUNTIME_USER"] == "ecofolk_qa_app" &&
+      module.migrate_job.env_vars["DB_IAM_USER"] == format("%s@%s.iam", "ecofolk-api", "ecofolk-dev") &&
+      length(module.migrate_job.secret_env) == 0
+    )
+    error_message = "qa's migrate job must target ecofolk_qa as dev's runtime SA with runtime user ecofolk_qa_app and no secret_env, got ${jsonencode(module.migrate_job.env_vars)}"
   }
 }
 
@@ -113,8 +131,8 @@ run "composition_is_covered" {
 
   # Keeps the call regex from passing by matching nothing.
   assert {
-    condition     = output.qa_calls == tolist(["cloudrun_api", "sql_database"]) && length(output.dev_calls) == 15
-    error_message = "expected qa to call cloudrun_api and sql_database and dev to make 15 module calls, found qa ${jsonencode(output.qa_calls)}, dev ${jsonencode(output.dev_calls)}"
+    condition     = output.qa_calls == tolist(["cloudrun_api", "migrate_job", "sql_database"]) && length(output.dev_calls) == 15
+    error_message = "expected qa to call cloudrun_api, migrate_job and sql_database and dev to make 15 module calls, found qa ${jsonencode(output.qa_calls)}, dev ${jsonencode(output.dev_calls)}"
   }
 
   assert {
@@ -187,6 +205,27 @@ run "known_wrong_unsuffixed_service_collides" {
   assert {
     condition     = length(setintersection(toset(run.dev_plan.resource_names), toset(output.resource_names))) == 1
     error_message = "an env = dev Cloud Run service in the same project must collide with dev's ecofolk-api"
+  }
+}
+
+# The same for #145's migrate job: env = dev in the same project is dev's ecofolk-migrate, a collision.
+run "known_wrong_unsuffixed_migrate_job_collides" {
+  command = plan
+
+  module {
+    source = "../../modules/migrate_job"
+  }
+
+  variables {
+    env             = "dev"
+    service_account = format("%s@%s.iam.gserviceaccount.com", "ecofolk-api", "ecofolk-dev")
+    network         = "projects/ecofolk-dev/global/networks/ecofolk"
+    subnetwork      = "projects/ecofolk-dev/regions/northamerica-northeast1/subnetworks/ecofolk-northamerica-northeast1"
+  }
+
+  assert {
+    condition     = length(setintersection(toset(run.dev_plan.resource_names), toset(output.resource_names))) == 1
+    error_message = "an env = dev migrate job in the same project must collide with dev's ecofolk-migrate"
   }
 }
 

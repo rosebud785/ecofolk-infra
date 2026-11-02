@@ -8,7 +8,8 @@
 # What QA reuses from dev, by lookup (data sources, never resources): the VPC and subnet (C1, #1), the
 # Cloud SQL INSTANCE (#18) and the media bucket (#21). What QA owns: its own database and DB user name
 # (modules/sql_database), its own Cloud Run service (modules/cloudrun_api with env = "qa", so
-# ecofolk-api-qa), and its own prefix, qa/, in dev's media bucket. Every name QA creates ends in -qa or _qa,
+# ecofolk-api-qa), its own migrate job (modules/migrate_job, ecofolk-migrate-qa, #145), and its own prefix,
+# qa/, in dev's media bucket. Every name QA creates ends in -qa or _qa,
 # and environments/qa/tests asserts that none collides with dev's and that this root never declares a
 # google_sql_database_instance.
 #
@@ -21,8 +22,8 @@
 # Not applied by CI: .github/workflows/infra-apply.yml applies environments/dev only. This root is planned
 # and applied only from main, after a reviewed merge (README: Plan and apply).
 #
-# No new IAM or WIF (#13): tf-apply's dev-project roles cover it, and the service runs as dev's existing
-# runtime SA (variables.tf).
+# No new IAM or WIF (#13): tf-apply's dev-project roles cover it, and the service and the migrate job (#145)
+# run as dev's existing runtime SA (variables.tf).
 #
 # LOCAL FOLLOW-UP (L-SQL, #13): create the Postgres user output db_user_name on dev's instance, with its
 # password out of band (pipeline design §5); see modules/sql_database/main.tf.
@@ -46,6 +47,9 @@ locals {
   # Objects QA writes in dev's media bucket go under this prefix (#13, Architect wording fix 2026-10-16:
   # a prefix in the GCS media bucket, not R2). The bucket's no-age-delete rule (#21) applies to it too.
   media_prefix = "${local.env}/"
+
+  # Dev's existing runtime SA (#13: no new IAM): ecofolk-api-qa and ecofolk-migrate-qa both run as it.
+  runtime_sa_email = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 }
 
 # Dev's network (C1). Lookups fail the plan if dev's network isn't there, rather than creating another.
@@ -84,9 +88,45 @@ module "cloudrun_api" {
   project_id      = var.project_id
   region          = var.region
   env             = local.env
-  service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
+  service_account = local.runtime_sa_email
   network         = data.google_compute_network.dev.id
   subnetwork      = data.google_compute_subnetwork.dev.id
+}
+
+# QA's schema migrator (#145): modules/migrate_job (#140, ecofolk#1169's schema path) as ecofolk-migrate-qa,
+# against ecofolk_qa on dev's instance, with Direct VPC egress into dev's subnet through the same lookups as
+# the service. The image stays the module's placeholder: deploys (ef#408) own it, and only ef#408's local QA
+# leg executes the job.
+#
+# No new IAM, SA or secret (#13): the job runs as dev's EXISTING runtime SA, the same one as ecofolk-api-qa.
+# DB_IAM_USER is that SA's Cloud SQL IAM user NAME (a string, no google_sql_user here), and DB_RUNTIME_USER is
+# #13's ecofolk_qa_app, a name only (module.sql_database). No secret_env: QA maps no Secret Manager ref.
+#
+# LOCAL FOLLOW-UP (L-SQL, #145; Deployer at ef#408): #140's IAM DB-user pattern needs that SA to be a
+# CLOUD_IAM_SERVICE_ACCOUNT user on dev's instance with rights on ecofolk_qa. Not here (public-repo boundary);
+# the exact steps are in #145's PR.
+module "migrate_job" {
+  source          = "../../modules/migrate_job"
+  project_id      = var.project_id
+  env             = local.env
+  region          = var.region
+  service_account = local.runtime_sa_email
+  network         = data.google_compute_network.dev.id
+  subnetwork      = data.google_compute_subnetwork.dev.id
+
+  env_vars = {
+    DB_HOST                     = data.google_sql_database_instance.dev.private_ip_address
+    DB_NAME                     = module.sql_database.database_name
+    DB_IAM_USER                 = trimsuffix(local.runtime_sa_email, ".gserviceaccount.com")
+    DB_INSTANCE_CONNECTION_NAME = data.google_sql_database_instance.dev.connection_name
+    # QA's runtime DB user (#13): the migrate CLI grants it DML after migrating (ecofolk#1180).
+    DB_RUNTIME_USER = module.sql_database.user_name
+  }
+}
+
+output "migrate_job_name" {
+  value       = module.migrate_job.name
+  description = "QA's migrate job (ecofolk-migrate-qa), for ef#408's `gcloud run jobs update/execute`."
 }
 
 output "api_uri" {
@@ -126,6 +166,7 @@ output "resource_names" {
   value = concat(
     module.sql_database.resource_names,
     module.cloudrun_api.resource_names,
+    module.migrate_job.resource_names,
   )
   description = "Every resource name in the qa composition, as <type>/<name> (#13's dev/qa collision test)."
 }

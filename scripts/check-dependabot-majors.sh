@@ -9,6 +9,7 @@
 # outside Dependabot's view. The root is the second argument, or the grandparent of a file named
 # .github/dependabot.yml; for any other file with no root given, coverage is not checked.
 # Usage: check-dependabot-majors.sh [dependabot.yml [repo-root]]   (default .github/dependabot.yml)
+# Lock coverage (#131): every such directory must also hold a .terraform.lock.hcl.
 # Exit: 0 ok; 1 a terraform entry lacks the ignore, or a versions.tf directory is unlisted (names
 # file:entry / the directory); 2 the file is missing, unparseable or has no terraform entry at all (a guard
 # that finds nothing to check fails rather than passing).
@@ -78,8 +79,21 @@ if root:
                 "(add it so Dependabot watches it, ecofolk-infra#70)"
             )
             bad = 1
+        # ecofolk-infra#131: a listed directory with no .terraform.lock.hcl gives Dependabot no current
+        # version. It then reads "hashicorp/google  needs updating" with an empty version, the
+        # semver-major ignore has nothing to compare against so the newest MAJOR is picked, and the
+        # grouped run dies with InvalidUpdatedDependencies "previous version not provided" (run
+        # 39462303634: "Updating hashicorp/google from  to 8.7.0"), opening no PR for any directory.
+        elif ".terraform.lock.hcl" not in filenames:
+            print(
+                f"{path}: {rel} is a Dependabot terraform directory with no .terraform.lock.hcl; without it "
+                "Dependabot has no previous version and the whole grouped run fails (ecofolk-infra#131). "
+                "Generate it: terraform providers lock -platform=linux_amd64 -platform=darwin_arm64 "
+                "-platform=darwin_amd64 -platform=linux_arm64"
+            )
+            bad = 1
 if bad:
     sys.exit(1)
-cov = f"; {covered} versions.tf dir(s) all listed" if root else ""
+cov = f"; {covered} versions.tf dir(s) all listed, each with a lock file" if root else ""
 print(f"check-dependabot-majors: ok ({len(tf)} terraform entr{'y' if len(tf) == 1 else 'ies'} ignore semver-major{cov})")
 PY

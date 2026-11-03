@@ -20,3 +20,14 @@ provider "registry.terraform.io/hashicorp/google" {
     "zh:f569b65999264a9416862bca5cd2a6177d94ccb0424f3a4ef424428912b9cb3c",
   ]
 }
+
+provider "registry.terraform.io/hashicorp/google-beta" {
+  version     = "5.45.2"
+  constraints = "~> 5.0"
+  hashes = [
+    "h1:05u4yfPyBz4EzIJePkOiIKmoLt0TkCWowNLGHUVmYRY=",
+    "h1:ME/cVZGNln4h166gyo9r7CuunzZ3FEqlIaNyQ0e9yjE=",
+    "h1:XVF2ggQAZkpjLvSPbC1+AKsleIXOp10b84dWoHsEKUE=",
+    "h1:r9Tpv9w6j6hTI7MR7zeaUveGsyt/yNXjCmuO80asz98=",
+  ]
+}

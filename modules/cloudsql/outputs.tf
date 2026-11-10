@@ -53,3 +53,21 @@ output "resource_names" {
   ], [for u in google_sql_user.migrate : "google_sql_user/${u.name}"])
   description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
 }
+
+# #144: the planned protections and windows, so a root's plan test (environments/prod/tests) can assert the
+# values the root actually gets (a test can read module outputs, not resources inside modules).
+output "protections" {
+  value = {
+    deletion_protection         = google_sql_database_instance.postgres.deletion_protection
+    deletion_protection_enabled = google_sql_database_instance.postgres.settings[0].deletion_protection_enabled
+    backup_enabled              = google_sql_database_instance.postgres.settings[0].backup_configuration[0].enabled
+    pitr_enabled                = google_sql_database_instance.postgres.settings[0].backup_configuration[0].point_in_time_recovery_enabled
+    transaction_log_days        = google_sql_database_instance.postgres.settings[0].backup_configuration[0].transaction_log_retention_days
+    backup_start_time           = google_sql_database_instance.postgres.settings[0].backup_configuration[0].start_time
+    maintenance_day             = google_sql_database_instance.postgres.settings[0].maintenance_window[0].day
+    maintenance_hour            = google_sql_database_instance.postgres.settings[0].maintenance_window[0].hour
+    region                      = google_sql_database_instance.postgres.region
+    export_job_schedule         = google_cloud_scheduler_job.sql_export.schedule
+  }
+  description = "Deletion protection, backup/PITR and the C2 ops windows as planned, for environments/prod's tests (#144)."
+}

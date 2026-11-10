@@ -286,3 +286,39 @@ output "scheduler_jobs" {
   )
   description = "Every Cloud Scheduler job in the prod composition: name, schedule and time_zone (#99)."
 }
+
+# Every resource name in the prod composition, as <type>/<name>, for the prod root tests (#144): none may carry a
+# qa or dev name (the other side of environments/qa's collision test).
+output "resource_names" {
+  value = concat(
+    module.project.resource_names,
+    module.network.resource_names,
+    module.artifact_registry.resource_names,
+    module.cloudsql.resource_names,
+    module.cloudrun_api.resource_names,
+    module.migrate_job.resource_names,
+    module.idle_sit_sweep.resource_names,
+    module.sync_usgs_water.resource_names,
+    module.secrets.resource_names,
+    module.auth.resource_names,
+    module.media_bucket.resource_names,
+    module.web_hosting.resource_names,
+    module.monitoring.resource_names,
+  )
+  description = "Every resource name in the prod composition, as <type>/<name> (#144)."
+}
+
+output "cloudsql_protections" {
+  value       = module.cloudsql.protections
+  description = "Cloud SQL deletion protection, PITR and ops windows as planned (#144)."
+}
+
+output "authorized_domains" {
+  value       = module.auth.authorized_domains
+  description = "The auth config's authorized domains (#144)."
+}
+
+output "project_region" {
+  value       = module.project.region
+  description = "The pinned region every prod module takes (#144)."
+}

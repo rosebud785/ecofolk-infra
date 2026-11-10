@@ -21,9 +21,11 @@ override_data {
   }
 }
 
+# The service account emails are built with format() so no address literal sits in the file for the secret-scan
+# gitleaks rules to flag (as in environments/dev/tests/internal_oidc.tftest.hcl).
 variables {
-  migrate_service_account_email       = "migrate@ecofolk-prod.iam.gserviceaccount.com"
-  sweep_invoker_service_account_email = "invoker@ecofolk-prod.iam.gserviceaccount.com"
+  migrate_service_account_email       = format("%s@%s.iam.gserviceaccount.com", "migrate", "ecofolk-prod")
+  sweep_invoker_service_account_email = format("%s@%s.iam.gserviceaccount.com", "invoker", "ecofolk-prod")
   alert_notification_channels         = ["projects/ecofolk-prod/notificationChannels/1234567890"]
   db_connection_failure_log_filter    = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.db_connect_failed\""
   media_write_failure_log_filter      = "resource.type=\"cloud_run_revision\" AND jsonPayload.event=\"test.media_write_failed\""

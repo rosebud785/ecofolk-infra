@@ -22,12 +22,15 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 |------|------|
 | [google_logging_metric.db_connection_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
 | [google_logging_metric.media_write_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
+| [google_logging_metric.outbound_429](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
 | [google_logging_metric.sql_export_successes](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
+| [google_logging_metric.sync_health_failed](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
 | [google_monitoring_alert_policy.api_5xx_rate](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.db_connection_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.media_write_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.sql_export_attempt_failed](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.sql_export_stale](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
+| [google_monitoring_alert_policy.sync_health](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_dashboard.ecofolk](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_dashboard) | resource |
 | [google_monitoring_uptime_check_config.api_health](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_uptime_check_config) | resource |
 | [google_monitoring_uptime_check_config.web_root](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_uptime_check_config) | resource |
@@ -54,9 +57,9 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 
 | Name | Description |
 |------|-------------|
-| alert_policy_names | Resource names of the five alert policies. |
+| alert_policy_names | Resource names of the six alert policies. |
 | dashboard_id | Resource id of the EcoFolk dashboard. |
-| log_metric_names | Names of the three log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109). |
+| log_metric_names | Names of the five log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109). |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | uptime_check_ids | Uptime check IDs of the API /health and web root checks. |
 <!-- END_TF_DOCS -->

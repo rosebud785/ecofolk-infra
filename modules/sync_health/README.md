@@ -1,7 +1,7 @@
 # modules/sync_health (ecofolk-infra#156, ecofolk#1349)
 
-One Cloud Scheduler job, `sync-health`, that POSTs `{api_url}/internal/sync-health` at `0 6 * * *`
-America/Chicago (06:00 CT daily): after the overnight syncs, outside #14's 22:15–04:45 CT dev Cloud SQL
+One Cloud Scheduler job, `sync-health`, that POSTs `{api_url}/internal/sync-health` at `15 7 * * *`
+America/Chicago (07:15 CT daily, the app's registry cadence): after the last scheduled sync (the monthly jobs run at 06:00), outside #14's 22:15–04:45 CT dev Cloud SQL
 stop (`docs/alerting-policy.md`). The app's job checks each watched source against its cadence and logs a
 `sync_health_failed {job, reason}` warn line per problem; the alert on it is in `modules/monitoring`.
 
@@ -62,7 +62,7 @@ gcloud scheduler jobs describe sync-health --project=<project> \
 | Name | Description |
 |------|-------------|
 | audience | The OIDC audience the job's ID token carries (the endpoint URL); the API must expect exactly this. |
-| job_name | Name of the sync-usgs-water Cloud Scheduler job. |
+| job_name | Name of the sync-health Cloud Scheduler job. |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | scheduler_jobs | This module's Cloud Scheduler jobs (name, schedule, time_zone), for environments/dev's stop-window test (#99). |
 | uri | The URL the job POSTs to; equals audience (#114's test asserts it). |

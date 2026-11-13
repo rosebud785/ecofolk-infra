@@ -260,7 +260,7 @@ module "sync_usgs_water" {
 }
 
 # sync-health (ecofolk-infra#156, ecofolk#1349): one Cloud Scheduler job POSTs {api}/internal/sync-health daily at
-# 06:00 America/Chicago, after the overnight syncs and outside #14's stop window. Same OIDC pattern and SAME invoker
+# 07:15 America/Chicago (the app's registry cadence, after the other syncs) and outside #14's stop window. Same OIDC pattern and SAME invoker
 # as the jobs above; no new SA, binding or actAs. The alert on its `sync_health_failed` lines is in module.monitoring.
 module "sync_health" {
   source           = "../../modules/sync_health"

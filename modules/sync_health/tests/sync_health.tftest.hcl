@@ -23,8 +23,8 @@ run "schedule_and_time_zone" {
   }
 
   assert {
-    condition     = google_cloud_scheduler_job.sync.schedule == "0 6 * * *"
-    error_message = "the sync-health job must run 0 6 * * * (06:00 CT, after the overnight syncs; ecofolk-infra#156)"
+    condition     = google_cloud_scheduler_job.sync.schedule == "15 7 * * *"
+    error_message = "the sync-health job must run 15 7 * * * (07:15 CT, the app registry cadence, after the other syncs; ecofolk-infra#156)"
   }
 
   assert {
@@ -38,7 +38,7 @@ run "schedule_and_time_zone" {
   }
 
   assert {
-    condition     = output.scheduler_jobs == [{ name = "sync-health", schedule = "0 6 * * *", time_zone = "America/Chicago" }]
+    condition     = output.scheduler_jobs == [{ name = "sync-health", schedule = "15 7 * * *", time_zone = "America/Chicago" }]
     error_message = "scheduler_jobs must list exactly this job, for environments/dev's stop-window test (#99)"
   }
 }
@@ -61,8 +61,8 @@ run "no_run_hour_in_22_to_04" {
   }
 
   assert {
-    condition     = toset(output.hours) == toset([6])
-    error_message = "sync-health must fire at 06 CT, got ${jsonencode(output.hours)}"
+    condition     = toset(output.hours) == toset([7])
+    error_message = "sync-health must fire at 07 CT, got ${jsonencode(output.hours)}"
   }
 
   assert {
@@ -80,7 +80,7 @@ run "known_wrong_one_am_is_caught" {
   }
 
   variables {
-    schedule = "0 1,6 * * *"
+    schedule = "0 1,7 * * *"
   }
 
   assert {

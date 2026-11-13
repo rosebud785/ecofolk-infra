@@ -20,6 +20,7 @@ Current jobs:
 | `sql_export` | `modules/cloudsql` | `15 5 * * *` | No (05:15) |
 | `idle-sit-sweep` | `modules/idle_sit_sweep` | `0 5-21/2 * * *` in `environments/dev` | No (05:00–21:00) |
 | `sync-usgs-water` | `modules/sync_usgs_water` (#98; cadence from ef PR #1105) | `0 5,11,17 * * *` | No (05:00, 11:00, 17:00); enforced by this job and its tftest |
+| `sync-health` | `modules/sync_health` (#156) | `0 6 * * *` | No (06:00); enforced by this job and its tftest |
 
 The `idle_sit_sweep` module default (`0 */2 * * *`) does run inside the window (00:00, 02:00, 04:00).
 It is safe only because `environments/dev` overrides it, so any new environment that has a stopped

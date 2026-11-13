@@ -259,6 +259,20 @@ module "sync_usgs_water" {
   depends_on = [module.project]
 }
 
+# sync-health (ecofolk-infra#156, ecofolk#1349): one Cloud Scheduler job POSTs {api}/internal/sync-health daily at
+# 06:00 America/Chicago, after the overnight syncs and outside #14's stop window. Same OIDC pattern and SAME invoker
+# as the jobs above; no new SA, binding or actAs. The alert on its `sync_health_failed` lines is in module.monitoring.
+module "sync_health" {
+  source           = "../../modules/sync_health"
+  project_id       = var.project_id
+  env              = local.env
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = local.sweep_invoker_email
+
+  depends_on = [module.project]
+}
+
 # Secret Manager secret CONTAINERS only, no values (issue #32, Architect ruling on ecofolk#399): the four
 # default names in modules/secrets, one user-managed replica each in Montréal. Region is module.project's
 # pin; depends_on so secretmanager.googleapis.com is enabled first.
@@ -404,6 +418,7 @@ output "scheduler_jobs" {
     module.sql_off_hours.scheduler_jobs,
     module.idle_sit_sweep.scheduler_jobs,
     module.sync_usgs_water.scheduler_jobs,
+    module.sync_health.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the dev composition: name, schedule and time_zone (#99)."
 }
@@ -422,6 +437,7 @@ output "resource_names" {
     module.migrate_job.resource_names,
     module.idle_sit_sweep.resource_names,
     module.sync_usgs_water.resource_names,
+    module.sync_health.resource_names,
     module.secrets.resource_names,
     module.auth.resource_names,
     module.media_bucket.resource_names,

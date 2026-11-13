@@ -59,6 +59,11 @@ run "audience_base_is_one_value_everywhere" {
   }
 
   assert {
+    condition     = module.sync_health.audience == "${module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]}/internal/sync-health"
+    error_message = "the sync-health audience must be INTERNAL_AUDIENCE_BASE + /internal/sync-health, with the path actually present"
+  }
+
+  assert {
     condition     = module.idle_sit_sweep.audience == "${module.cloudrun_api.env_vars["INTERNAL_AUDIENCE_BASE"]}/internal/sweep-idle-sits"
     error_message = "the sweep audience must be INTERNAL_AUDIENCE_BASE + /internal/sweep-idle-sits, with the path actually present"
   }
@@ -75,6 +80,11 @@ run "each_job_targets_what_it_mints_for" {
   assert {
     condition     = module.idle_sit_sweep.uri == module.idle_sit_sweep.audience
     error_message = "the idle-sit sweep job's uri must equal its OIDC audience"
+  }
+
+  assert {
+    condition     = module.sync_health.uri == module.sync_health.audience
+    error_message = "the sync-health job's uri must equal its OIDC audience"
   }
 
   assert {

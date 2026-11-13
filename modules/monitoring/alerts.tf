@@ -8,7 +8,9 @@
 #      Scheduler execution log: no successful run (modules/cloudsql/export.tf) in about a day
 #      (ecofolk-infra#109, #96);
 #   5. failed SQL export attempt — a log-match alert on any non-2xx finish of that same job, so a refused
-#      export pages the night it happens (ecofolk-infra#109 rework, Architect plan on #135).
+#      export pages the night it happens (ecofolk-infra#109 rework, Architect plan on #135);
+#   6. sync health — a sync_health_failed line from the app's daily sync-health job, or an outbound_usage line
+#      with throttled_429 > 0 (ecofolk-infra#156, ecofolk#1349). Same single channel as the rest (var.notification_channels).
 #
 # What is deliberately NOT here (Architect spec on #24):
 #   - no google_monitoring_notification_channel: the channel is email (owner's ruling) and is made by
@@ -78,6 +80,22 @@ locals {
     "resource.labels.job_id=\"${var.sql_export_job_name}\"",
     "jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\"",
     "NOT (httpRequest.status>=200 AND httpRequest.status<300)",
+  ])
+
+  # ecofolk#1349 / ecofolk-infra#156 — the two log lines the API's sync-health job writes (ingest/syncHealth.ts,
+  # lib/outboundUsage.ts), both pino warn lines on stdout, so the message is jsonPayload.msg:
+  #   sync_health_failed {job, reason}                          one per watched source that is stale or failing;
+  #   outbound_usage {provider, requests, throttled_429, ...}   per provider, per run.
+  # Both are exact-message AND clauses (no OR, no NOT), so a differently worded line can never match; the 429 one
+  # also needs throttled_429 > 0, because outbound_usage is logged every run, including the healthy ones.
+  sync_health_failed_filter = join(" AND ", [
+    "resource.type=\"cloud_run_revision\"",
+    "jsonPayload.msg=\"sync_health_failed\"",
+  ])
+  outbound_429_filter = join(" AND ", [
+    "resource.type=\"cloud_run_revision\"",
+    "jsonPayload.msg=\"outbound_usage\"",
+    "jsonPayload.throttled_429>0",
   ])
 
   # The job runs every 24 h. The API caps a metric-absence HORIZON, duration + alignment period
@@ -376,6 +394,94 @@ resource "google_monitoring_alert_policy" "sql_export_attempt_failed" {
       **Related alert:** "nightly export job has not succeeded" is the companion that fires when the job stops running at all, or when no success has landed in about a day.
 
       **Runbook:** [§3, Restore from the nightly export](https://github.com/rosebud785/ecofolk-infra/blob/main/docs/runbook.md#3-restore-from-the-nightly-export); §3.2 step 1 confirms whether an export completed.
+    EOT
+  }
+}
+
+# 6. Sync health (ecofolk-infra#156, ecofolk#1349): any sync_health_failed line, or any outbound_usage line that
+# counted a 429. Two log-based metrics, one policy with two conditions ORed, the module's one channel. The filters are
+# fixed here (the app's own log lines, named in the issue), not inputs: unlike #24's two, they are not guesses.
+resource "google_logging_metric" "sync_health_failed" {
+  project     = var.project_id
+  name        = "ecofolk-sync-health-failed${local.env_suffix}"
+  description = "API log lines sync_health_failed: a watched sync is stale or failing (ecofolk-infra#156, ecofolk#1349)."
+  filter      = local.sync_health_failed_filter
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+resource "google_logging_metric" "outbound_429" {
+  project     = var.project_id
+  name        = "ecofolk-outbound-429${local.env_suffix}"
+  description = "API outbound_usage lines with throttled_429 > 0: an external provider throttled us (ecofolk-infra#156, ecofolk#1349)."
+  filter      = local.outbound_429_filter
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+resource "google_monitoring_alert_policy" "sync_health" {
+  project               = var.project_id
+  display_name          = "EcoFolk API: a sync failed or an outbound provider throttled us"
+  user_labels           = { env = var.env }
+  combiner              = "OR"
+  notification_channels = var.notification_channels
+
+  conditions {
+    display_name = "Any sync_health_failed line (5 min)"
+
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.sync_health_failed.name}\" AND resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = local.log_failure_window
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  conditions {
+    display_name = "Any outbound_usage line with throttled_429 above 0 (5 min)"
+
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.outbound_429.name}\" AND resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = local.log_failure_window
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = <<-EOT
+      **What broke:** the API's daily `sync-health` job logged `sync_health_failed` (a watched sync has not succeeded within twice its cadence, or failed), or an `outbound_usage` line counted at least one HTTP 429 from an external provider (Nominatim or Open-Meteo).
+
+      **First thing to check:** Cloud Run → `${var.api_service_name}` → Logs, filtered to `jsonPayload.msg="sync_health_failed"` (the `job` and `reason` fields name the sync) or `jsonPayload.msg="outbound_usage"` (the `provider` and `throttled_429` fields name who throttled). For a stale sync, check its Cloud Scheduler job ran (Scheduler → the job's last attempt) and the API's log for that job's own errors. For a 429, check whether a recent change raised that provider's request rate.
     EOT
   }
 }

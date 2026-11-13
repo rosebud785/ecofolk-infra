@@ -189,6 +189,20 @@ module "sync_usgs_water" {
   depends_on = [module.project]
 }
 
+# sync-health (ecofolk-infra#156, ecofolk#1349): one Cloud Scheduler job POSTs {api}/internal/sync-health daily at
+# 07:15 America/Chicago (the app's registry cadence, after the other syncs), outside the #99 window. Same OIDC pattern and SAME invoker SA as the jobs above; no new SA,
+# binding or actAs here. The alert on its `sync_health_failed` lines is in module.monitoring.
+module "sync_health" {
+  source           = "../../modules/sync_health"
+  project_id       = local.project_id
+  env              = "prod"
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = var.sweep_invoker_service_account_email
+
+  depends_on = [module.project]
+}
+
 # Secret Manager secret CONTAINERS only, no values (#32, Architect ruling on ecofolk#399; prod wiring #143):
 # the module's default secret_names, the same list dev uses, one user-managed replica each in Montréal.
 #
@@ -283,6 +297,7 @@ output "scheduler_jobs" {
     module.cloudsql.scheduler_jobs,
     module.idle_sit_sweep.scheduler_jobs,
     module.sync_usgs_water.scheduler_jobs,
+    module.sync_health.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the prod composition: name, schedule and time_zone (#99)."
 }
@@ -299,6 +314,7 @@ output "resource_names" {
     module.migrate_job.resource_names,
     module.idle_sit_sweep.resource_names,
     module.sync_usgs_water.resource_names,
+    module.sync_health.resource_names,
     module.secrets.resource_names,
     module.auth.resource_names,
     module.media_bucket.resource_names,

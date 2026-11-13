@@ -144,7 +144,7 @@ run "no_qa_or_dev_names" {
   }
 
   assert {
-    condition     = length(output.scheduler_jobs) == 3
-    error_message = "the prod composition should have 3 scheduler jobs (nightly export, idle-sit sweep, sync-usgs-water); update this count if a job was added on purpose"
+    condition     = length(output.scheduler_jobs) == 4
+    error_message = "the prod composition should have 4 scheduler jobs (nightly export, idle-sit sweep, sync-usgs-water, sync-health); update this count if a job was added on purpose"
   }
 }

@@ -303,6 +303,8 @@ run "env_dev_keeps_its_names_and_labels" {
       "google_logging_metric/ecofolk-db-connection-failures",
       "google_logging_metric/ecofolk-media-write-failures",
       "google_logging_metric/ecofolk-sql-export-successes",
+      "google_logging_metric/ecofolk-sync-health-failed",
+      "google_logging_metric/ecofolk-outbound-429",
     ]
     error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
   }
@@ -343,6 +345,8 @@ run "env_qa_suffixes_names_and_labels" {
       "google_logging_metric/ecofolk-db-connection-failures-qa",
       "google_logging_metric/ecofolk-media-write-failures-qa",
       "google_logging_metric/ecofolk-sql-export-successes-qa",
+      "google_logging_metric/ecofolk-sync-health-failed-qa",
+      "google_logging_metric/ecofolk-outbound-429-qa",
     ]
     error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
   }
@@ -700,5 +704,70 @@ run "sql_export_failed_attempt_documentation_names_the_fix" {
       strcontains(google_monitoring_alert_policy.sql_export_attempt_failed.documentation[0].content, s)
     ])
     error_message = "the failed-attempt documentation must say what broke, the first check (a 412 means the instance SA lacks objectAdmin on the bucket) and link runbook §3"
+  }
+}
+
+# ecofolk-infra#156 / ecofolk#1349 — the sync-health alert: any sync_health_failed line, or an outbound_usage line
+# with throttled_429 > 0, one channel (var.notification_channels), no second.
+run "sync_health_metrics_match_exactly_the_app_log_lines" {
+  command = plan
+
+  assert {
+    condition     = google_logging_metric.sync_health_failed.filter == "resource.type=\"cloud_run_revision\" AND jsonPayload.msg=\"sync_health_failed\""
+    error_message = "the sync_health_failed metric must match exactly that message on the Cloud Run revision"
+  }
+
+  assert {
+    condition     = google_logging_metric.outbound_429.filter == "resource.type=\"cloud_run_revision\" AND jsonPayload.msg=\"outbound_usage\" AND jsonPayload.throttled_429>0"
+    error_message = "the 429 metric must match outbound_usage lines with throttled_429 > 0 only (a healthy outbound_usage line is logged every run)"
+  }
+
+  # Known-wrong: a filter without the throttled_429 clause would page on every healthy run.
+  assert {
+    condition     = strcontains(google_logging_metric.outbound_429.filter, "jsonPayload.throttled_429>0")
+    error_message = "the 429 filter must carry throttled_429>0"
+  }
+
+  assert {
+    condition = alltrue([
+      for f in [google_logging_metric.sync_health_failed.filter, google_logging_metric.outbound_429.filter] :
+      !can(regex("(?i)(\\bOR\\b|\\bNOT\\b)", f))
+    ])
+    error_message = "the sync-health filters must be a pure AND of their clauses"
+  }
+}
+
+run "sync_health_policy_ors_two_conditions_on_those_metrics_and_notifies_the_one_channel" {
+  command = plan
+
+  assert {
+    condition     = google_monitoring_alert_policy.sync_health.combiner == "OR" && length(google_monitoring_alert_policy.sync_health.conditions) == 2
+    error_message = "the sync-health policy must OR exactly two conditions"
+  }
+
+  assert {
+    condition = (
+      strcontains(google_monitoring_alert_policy.sync_health.conditions[0].condition_threshold[0].filter, "logging.googleapis.com/user/ecofolk-sync-health-failed") &&
+      strcontains(google_monitoring_alert_policy.sync_health.conditions[1].condition_threshold[0].filter, "logging.googleapis.com/user/ecofolk-outbound-429")
+    )
+    error_message = "the two conditions must read the sync_health_failed and outbound_429 metrics"
+  }
+
+  assert {
+    condition = alltrue([
+      for c in google_monitoring_alert_policy.sync_health.conditions :
+      c.condition_threshold[0].comparison == "COMPARISON_GT" && c.condition_threshold[0].threshold_value == 0
+    ])
+    error_message = "each condition must fire on any matching entry (> 0)"
+  }
+
+  assert {
+    condition     = google_monitoring_alert_policy.sync_health.notification_channels == var.notification_channels
+    error_message = "the sync-health policy must notify exactly var.notification_channels: the one channel, no second (#156)"
+  }
+
+  assert {
+    condition     = strcontains(google_monitoring_alert_policy.sync_health.documentation[0].content, "What broke") && strcontains(google_monitoring_alert_policy.sync_health.documentation[0].content, "First thing to check")
+    error_message = "the sync-health policy must say what broke and the first thing to check"
   }
 }

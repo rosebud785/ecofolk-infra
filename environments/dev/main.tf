@@ -160,9 +160,27 @@ module "cloudrun_api" {
   # Internal routes on Google OIDC (#114, ecofolk#1092 / PR #1108): the API verifies each scheduler call's ID
   # token against INTERNAL_AUDIENCE_BASE + route path and INTERNAL_INVOKER_EMAIL. No static sweep secret is
   # mapped on the service. Non-secret values only.
+  #
+  # The rest is the production-mode runtime env loadApiConfig needs at boot (Architect spec, ecofolk#1417
+  # c6884039366). Must stay UNSET: ECOFOLK_DEV_STACK, FIREBASE_AUTH_EMULATOR_HOST, GCS_API_ENDPOINT,
+  # STORAGE_EMULATOR_HOST, INTERNAL_DEV_CERT_PATH, EXTERNAL_API_LIVE, ALLOW_ANONYMOUS. Tested in
+  # tests/api_env.tftest.hcl. scripts/deploy/deploy-dev.sh (ecofolk) sets no env: Terraform owns it.
   env_vars = {
     INTERNAL_AUDIENCE_BASE = local.api_base_url
     INTERNAL_INVOKER_EMAIL = local.sweep_invoker_email
+
+    # Dev's honest contact is the deployment's own public page. Prod needs a real operator contact (Andy, #400).
+    CONTACT_URL = module.web_hosting.default_url
+    # Chosen, not defaulted into: the public OSM instance is within policy at dev volume. Prod: Andy, #400.
+    NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org"
+    # The default (demo-ecofolk) would 401 every token on audience, silently.
+    FIREBASE_PROJECT_ID = var.project_id
+    STORAGE_BACKEND     = "gcs"
+    GCS_BUCKET          = module.media_bucket.bucket_name
+    POSTGRES_HOST       = module.cloudsql.private_ip_address
+    POSTGRES_PORT       = "5432" # the code default is 5440 (the local dev stack's)
+    POSTGRES_USER       = "ecofolk"
+    POSTGRES_DB         = module.cloudsql.database_name
   }
 
   # Secret Manager secrets mapped as secret_key_ref at "latest" (issue #66). Three, not four: the retired sweep shared secret is

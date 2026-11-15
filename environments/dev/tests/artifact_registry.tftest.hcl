@@ -6,7 +6,7 @@
 # cleanup policies. So the id is asserted on the composed dev plan, and the policies on the module itself,
 # planned with the same arguments main.tf passes it (dev_call_args checks main.tf passes nothing else).
 #
-# Not run by CI until #107: the tf-test job only tests modules/*. Run it locally:
+# Run by CI (the tf-test job loops over environments/* as well as modules/*, ecofolk-infra#107). To run it locally:
 #   terraform -chdir=environments/dev init -backend=false && terraform -chdir=environments/dev test
 mock_provider "google" {}
 mock_provider "google-beta" {}

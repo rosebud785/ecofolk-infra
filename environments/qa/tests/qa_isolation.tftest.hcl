@@ -6,7 +6,7 @@
 # (a test can read module outputs, not resources inside modules). composition_is_covered fails if a module
 # call in either root is left out of that output, so a new module can't skip the check.
 #
-# Not run by CI: the tf-test job only tests modules/* (same as environments/dev's #99 test). Run it locally:
+# Run by CI (the tf-test job loops over environments/* as well as modules/*, ecofolk-infra#107). To run it locally:
 #   terraform -chdir=environments/qa init -backend=false && terraform -chdir=environments/qa test
 mock_provider "google" {}
 mock_provider "google-beta" {}

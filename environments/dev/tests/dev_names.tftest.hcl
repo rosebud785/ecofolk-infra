@@ -7,7 +7,7 @@
 # The per-module env_dev_keeps_its_names_and_labels runs don't replace this: they can't see a dev root that
 # passes a different env, or drops one. Every literal below is the name dev has today; never derive it.
 #
-# Not run by CI until #107 (PR #129): the tf-test job only tests modules/*. Run it locally:
+# Run by CI (the tf-test job loops over environments/* as well as modules/*, ecofolk-infra#107). To run it locally:
 #   terraform -chdir=environments/dev init -backend=false && terraform -chdir=environments/dev test
 mock_provider "google" {}
 mock_provider "google-beta" {}

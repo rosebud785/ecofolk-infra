@@ -6,7 +6,7 @@
 #
 # Mutation check (by hand): delete one env_vars line in main.tf, or add GCS_API_ENDPOINT; the key-set assert fails.
 #
-# Not run by CI (the tf-test job only tests modules/*). Run it locally:
+# Run by CI (the tf-test job loops over environments/* as well as modules/*, ecofolk-infra#107). To run it locally:
 #   terraform -chdir=environments/dev init -backend=false && terraform -chdir=environments/dev test
 mock_provider "google" {}
 mock_provider "google-beta" {}

@@ -10,7 +10,7 @@
 # Mutation check (run by hand, #114): set either job's api_url back to module.cloudrun_api.uri and run this
 # file; the mock uri is not the deterministic string, so the equality asserts below fail.
 #
-# Not run by CI: the tf-test job only tests modules/*. Run it locally:
+# Run by CI (the tf-test job loops over environments/* as well as modules/*, ecofolk-infra#107). To run it locally:
 #   terraform -chdir=environments/dev init -backend=false && terraform -chdir=environments/dev test
 mock_provider "google" {}
 mock_provider "google-beta" {}

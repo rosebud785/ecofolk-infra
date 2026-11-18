@@ -10,7 +10,11 @@ says how each page was read; a few Google pages are still only search excerpts (
 
 What this record covers:
 
-- the web app on **Cloudflare Pages**;
+- the web app on **Firebase Hosting** (`modules/web_hosting`, `google_firebase_hosting_site`; the default
+  `*.web.app` host is served by Firebase's CDN, not Cloudflare). **Correction, ecofolk-infra#166:** this
+  record was written against Cloudflare Pages, which the Architect's 2026-10-09 re-spec replaced with
+  Firebase Hosting before any Pages resource existed. Cloudflare is still the DNS provider and still
+  proxies `go.ecofolk.org` (the printed QR redirect);
 - the API on **Cloud Run** (`modules/cloudrun_api/`) in `northamerica-northeast1` (Montréal), as
   required by this repo's region pin (`scripts/check-region-pin.sh`).
 
@@ -91,7 +95,15 @@ Both options put DNS on Cloudflare. They differ only in **who is the registrar**
 Both options use Cloudflare DNS, so the certificate story is the same for A and B. Only the API's path
 changes it.
 
-### 2.1 Web app on Cloudflare Pages: automatic certificate
+### 2.1 Web app: automatic certificate (written for Cloudflare Pages; the site is on Firebase Hosting)
+
+> **Stale premise, ecofolk-infra#166.** The web app is on Firebase Hosting, not Cloudflare Pages
+> (`modules/web_hosting` declares no `cloudflare_pages` resource). The bullets below describe Cloudflare
+> Pages custom domains [CF-PAGES] and do **not** describe the live site. What they still correctly
+> describe is the Cloudflare side that remains: Universal SSL on proxied hostnames such as
+> `go.ecofolk.org` [CF-USSL] [CF-VALIDITY]. The Firebase Hosting custom-domain and certificate behaviour
+> has **not been researched or sourced here**; the custom domain itself waits on ecofolk#670 and #23
+> (`modules/web_hosting/README.md`). Re-research before relying on §2.1 for the web app.
 
 - **Custom domains:**
   - an apex domain (`example.com`) must be a Cloudflare zone on the same account as the Pages project
@@ -218,11 +230,12 @@ The risk isn't a forgotten renewal. It's a renewal that **fails silently**, for 
 
 - a CAA record that blocks the CA [CF-PAGES];
 - a broken DCV on a partial setup [CF-VALIDITY];
-- a DNS change that deactivates the Pages domain [CF-PAGES].
+- a DNS change that deactivates the web app's custom domain (written for Pages [CF-PAGES]; Firebase Hosting
+  not yet assessed, see §2.1).
 
 | Certificate | Option | Who renews | How |
 | - | - | - | - |
-| Web app (Pages custom domain) | A and B | Cloudflare | automatic: 90-day certificate, renewal from 30 days before [CF-VALIDITY] |
+| Web app custom domain (written for Pages; **now Firebase Hosting, not assessed**, see §2.1) | A and B | unverified (Firebase) | Cloudflare figures here are for Pages and do not apply to the live site until re-sourced |
 | API, visitor side, via Cloudflare proxy | 2.2a | Cloudflare | automatic, same as above [CF-USSL] |
 | API, `run.app` (origin for 2.2a, also direct) | all | Google | automatic; Google's front end terminates TLS [GCP-RUN-SEC] |
 | API via load balancer | 2.2b | Google (Certificate Manager) | automatic [GCP-CERTMGR] |

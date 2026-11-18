@@ -10,7 +10,9 @@ says how each page was read; a few Google pages are still only search excerpts (
 
 What this record covers:
 
-- the web app on **Cloudflare Pages**;
+- the web app on **Cloudflare Pages**. **Superseded:** the web app moved to **Firebase Hosting** in the
+  2026-10-09 re-spec (`modules/web_hosting`), so §2.1 and the Pages rows in §3 no longer describe the
+  planned setup;
 - the API on **Cloud Run** (`modules/cloudrun_api/`) in `northamerica-northeast1` (Montréal), as
   required by this repo's region pin (`scripts/check-region-pin.sh`).
 
@@ -256,12 +258,12 @@ follow-up was posted. #5 should pick this up as written:
 
 ## 4. Andy decides
 
-Left blank on purpose. Nothing in §1–§3 is final until these are filled.
+The domain and registrar are decided. The API path is still open. The domain is not yet registered.
 
 | Decision | Choice | Decided by | Date |
 | - | - | - | - |
-| Domain name (ecofolk#670) | | Andy | |
-| Registrar: A (Cloudflare Registrar) or B (name the registrar) | | Andy | |
+| Domain name (ecofolk#670) | `ecofolk.org` | Andy | 2026-11-09 |
+| Registrar: A (Cloudflare Registrar) or B (name the registrar) | A, in a separate EcoFolk-only Cloudflare account | Andy | 2026-11-09 |
 | API path (2.2a or 2.2b) | | Architect recommends; Andy approves any recurring spend | |
 
 **API path.** The spec did not reserve this choice, but 2.2b costs roughly $20/month recurring (about $20.08

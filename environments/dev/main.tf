@@ -131,41 +131,14 @@ locals {
   sweep_invoker_email = "${var.sweep_invoker_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 }
 
-# The API on Cloud Run v2, scale-to-zero (issue #19). Region from module.project, egress into the subnet
-# from module.network; depends_on so run.googleapis.com is enabled and the subnet exists first. The image
-# stays the module's placeholder: deploys (ef#408) own it.
-#
-# network/subnetwork are the relative resource names (.id), not the self-links: Cloud Run v2 400s on an
-# https self-link (ecofolk-infra#45). Cloud SQL above stays on network_self_link, which its API accepts.
-#
-# LOCAL FOLLOW-UP (L-RUN), in this order; IAM is not managed in this public repo (ecofolk-infra#44):
-#   1. Create the runtime service account var.api_service_account_id with NO roles at this stage: for now
-#      it is only the identity the service runs as (the placeholder image touches no database or secret).
-#   2. Grant the apply identity (tf-apply) roles/iam.serviceAccountUser ON THAT ONE SERVICE ACCOUNT only,
-#      never project-wide. Without it the first apply of this block 403s on iam.serviceaccounts.actAs
-#      (main's Infra apply was red for that from 10-11 to 10-13, #19).
-#   3. Deferred: the `allUsers` -> roles/run.invoker binding on the service to ef#408 (first real deploy);
-#      roles/cloudsql.client and roles/secretmanager.secretAccessor (per named secret, see module.secrets
-#      below) to ef#399 / ecofolk#890.
-module "cloudrun_api" {
-  source          = "../../modules/cloudrun_api"
-  project_id      = var.project_id
-  env             = local.env
-  region          = module.project.region
-  name            = var.api_service_name
-  service_account = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
-  network         = module.network.network_id
-  subnetwork      = module.network.subnet_id
+# ecofolk-infra#169 (ecofolk#1419): the API service's runtime env, secret refs and service account, ONE source for
+# both module.cloudrun_api and module.check_config_job. The check job proves the service would boot only if it runs
+# with exactly what the service runs with, so neither is copied by hand; tests/check_config_job.tftest.hcl fails if
+# the two diverge.
+locals {
+  api_service_account_email = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 
-  # Internal routes on Google OIDC (#114, ecofolk#1092 / PR #1108): the API verifies each scheduler call's ID
-  # token against INTERNAL_AUDIENCE_BASE + route path and INTERNAL_INVOKER_EMAIL. No static sweep secret is
-  # mapped on the service. Non-secret values only.
-  #
-  # The rest is the production-mode runtime env loadApiConfig needs at boot (Architect spec, ecofolk#1417
-  # c6884039366). Must stay UNSET: ECOFOLK_DEV_STACK, FIREBASE_AUTH_EMULATOR_HOST, GCS_API_ENDPOINT,
-  # STORAGE_EMULATOR_HOST, INTERNAL_DEV_CERT_PATH, EXTERNAL_API_LIVE, ALLOW_ANONYMOUS. Tested in
-  # tests/api_env.tftest.hcl. scripts/deploy/deploy-dev.sh (ecofolk) sets no env: Terraform owns it.
-  env_vars = {
+  api_env_vars = {
     INTERNAL_AUDIENCE_BASE = local.api_base_url
     INTERNAL_INVOKER_EMAIL = local.sweep_invoker_email
 
@@ -188,12 +161,76 @@ module "cloudrun_api" {
   # is listed here only once it has an enabled version (ecofolk#936) and the runtime SA has secretAccessor on
   # it (ecofolk#890); a ref that fails either fails the revision's readiness and blocks every apply after it.
   # Merges with ecofolk#408's first real deploy, after ecofolk-infra#117 applies and ecofolk#1108 merges.
-  secret_env = {
+  api_secret_env = {
     for name in ["POSTGRES_PASSWORD", "POSTGRES_INGEST_PASSWORD", "NOAA_CDO_TOKEN"] :
     name => module.secrets.secret_ids[name]
   }
+}
+
+# The API on Cloud Run v2, scale-to-zero (issue #19). Region from module.project, egress into the subnet
+# from module.network; depends_on so run.googleapis.com is enabled and the subnet exists first. The image
+# stays the module's placeholder: deploys (ef#408) own it.
+#
+# network/subnetwork are the relative resource names (.id), not the self-links: Cloud Run v2 400s on an
+# https self-link (ecofolk-infra#45). Cloud SQL above stays on network_self_link, which its API accepts.
+#
+# LOCAL FOLLOW-UP (L-RUN), in this order; IAM is not managed in this public repo (ecofolk-infra#44):
+#   1. Create the runtime service account var.api_service_account_id with NO roles at this stage: for now
+#      it is only the identity the service runs as (the placeholder image touches no database or secret).
+#   2. Grant the apply identity (tf-apply) roles/iam.serviceAccountUser ON THAT ONE SERVICE ACCOUNT only,
+#      never project-wide. Without it the first apply of this block 403s on iam.serviceaccounts.actAs
+#      (main's Infra apply was red for that from 10-11 to 10-13, #19).
+#   3. Deferred: the `allUsers` -> roles/run.invoker binding on the service to ef#408 (first real deploy);
+#      roles/cloudsql.client and roles/secretmanager.secretAccessor (per named secret, see module.secrets
+#      below) to ef#399 / ecofolk#890.
+module "cloudrun_api" {
+  source          = "../../modules/cloudrun_api"
+  project_id      = var.project_id
+  env             = local.env
+  region          = module.project.region
+  name            = var.api_service_name
+  service_account = local.api_service_account_email
+  network         = module.network.network_id
+  subnetwork      = module.network.subnet_id
+
+  # Internal routes on Google OIDC (#114, ecofolk#1092 / PR #1108): the API verifies each scheduler call's ID
+  # token against INTERNAL_AUDIENCE_BASE + route path and INTERNAL_INVOKER_EMAIL. No static sweep secret is
+  # mapped on the service. Non-secret values only.
+  #
+  # The rest is the production-mode runtime env loadApiConfig needs at boot (Architect spec, ecofolk#1417
+  # c6884039366). Must stay UNSET: ECOFOLK_DEV_STACK, FIREBASE_AUTH_EMULATOR_HOST, GCS_API_ENDPOINT,
+  # STORAGE_EMULATOR_HOST, INTERNAL_DEV_CERT_PATH, EXTERNAL_API_LIVE, ALLOW_ANONYMOUS. Tested in
+  # tests/api_env.tftest.hcl. scripts/deploy/deploy-dev.sh (ecofolk) sets no env: Terraform owns it.
+  env_vars   = local.api_env_vars
+  secret_env = local.api_secret_env
 
   depends_on = [module.project, module.network]
+}
+
+# Pre-deploy config check (ecofolk-infra#169, ecofolk#1419): a Cloud Run Job on the API's image digest that runs
+# `node dist/checkConfig.js` (loadApiConfig + SELECT 1 as the runtime and ingest users) before the migrate job and the
+# API deploy. It runs as the API's own service account with the API's own env and secret refs (the shared locals
+# above) over the same Direct VPC egress, so it needs no grant the service lacks. The image stays the placeholder:
+# the deploy script owns it (step 3b of scripts/deploy/deploy-dev.sh).
+#
+# LOCAL FOLLOW-UP (ecofolk-infra#169), IAM is not managed in this public repo: roles/run.developer for
+# ecofolk-deploy on THIS JOB ONLY (google_cloud_run_v2_job_iam_member), never project-wide, and
+# roles/iam.serviceAccountUser for ecofolk-deploy on the API runtime service account if it does not hold it already.
+# BEFORE ecofolk PR #1459 merges: until this job exists and ecofolk-deploy can update it, that PR's deploy step
+# refuses every dev deploy at "could not point the check-config job".
+module "check_config_job" {
+  source          = "../../modules/check_config_job"
+  project_id      = var.project_id
+  env             = local.env
+  region          = module.project.region
+  service_account = local.api_service_account_email
+  network         = module.network.network_id
+  subnetwork      = module.network.subnet_id
+
+  env_vars   = local.api_env_vars
+  secret_env = local.api_secret_env
+
+  depends_on = [module.project, module.network, module.cloudsql]
 }
 
 # Schema migrator (ecofolk#1169, G1 part 1): a Cloud Run Job on the API's image digest (ecofolk#408's deploy
@@ -452,6 +489,7 @@ output "resource_names" {
     module.cloudsql.resource_names,
     module.sql_off_hours.resource_names,
     module.cloudrun_api.resource_names,
+    module.check_config_job.resource_names,
     module.migrate_job.resource_names,
     module.idle_sit_sweep.resource_names,
     module.sync_usgs_water.resource_names,

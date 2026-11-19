@@ -45,5 +45,7 @@ The API on Cloud Run v2: scale-to-zero, Direct VPC egress (ecofolk-infra#19).
 | env_vars | The plain environment variables set on the container (non-secret), for environments' tests (#114). |
 | name | Cloud Run service name. |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
+| secret_env | Env var name -> Secret Manager secret reference set on the container (references only), for environments' tests (#169). |
+| service_account | The runtime service account the service runs as, for environments' tests (#169). |
 | uri | The service's run.app URI. Not callable by the public until L-RUN adds the invoker binding. |
 <!-- END_TF_DOCS -->

@@ -642,9 +642,8 @@ bootstrap sitting; Andy runs it (via the SME).
 `ecofolk-deploy` service account. That SA holds `firebasehosting.admin` and `logging.viewer`, and neither carries
 `firebase.clients.get`, so the read is refused and a dev deploy needed the `ECOFOLK_DEPLOY_ENV_OVERRIDE=1` interim.
 
-**Why a custom role, not a predefined one.** Every predefined role that carries `firebase.clients.get` also carries
-a wider Firebase permission set (the Firebase Viewer/Develop/Analytics families and the product `*.viewer` roles all
-bundle it with unrelated read permissions). The custom role `ecofolkDeployWebConfigReader` holds exactly that one
+**Why a custom role, not a predefined one.** The predefined roles that carry `firebase.clients.get` (per Google's
+role docs; not measured with `gcloud iam roles describe`, see the PR) bundle it with other Firebase permissions. The custom role `ecofolkDeployWebConfigReader` holds exactly that one
 permission. It is a **separate role from `ecofolkAuthUserManager`** (section 6): that one is the API runtime SA's,
 and the deploy SA must not gain user get/update.
 

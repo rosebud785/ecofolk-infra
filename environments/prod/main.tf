@@ -99,6 +99,11 @@ module "artifact_registry" {
 # var.api_service_account_id in ecofolk-prod with no roles; grant tf-apply roles/iam.serviceAccountUser on
 # that one service account only; later, allUsers -> roles/run.invoker on the service (ef#408) and
 # roles/cloudsql.client (ef#399). IAM is not managed in this public repo.
+#
+# Firebase Auth (ecofolk-infra#170): the runtime SA also needs the custom role ecofolkAuthUserManager (exactly
+# firebaseauth.users.get + firebaseauth.users.update) in ecofolk-prod, created and granted BY HAND, as IAM is
+# hand-managed. Never roles/firebaseauth.viewer or admin. Paste and checks: docs/runbook.md section 6.
+# Recorded 2026-11-21.
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = local.project_id

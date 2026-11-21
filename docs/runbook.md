@@ -633,6 +633,155 @@ Ordering rules learned the hard way. Each applies to every go-live paste, dev or
 
 ---
 
+## 6. Firebase Auth role for the API runtime service account (ecofolk-infra#170)
+
+IAM is hand-managed (ecofolk-infra#44), so this is a paste, not Terraform. Andy runs it (via the SME).
+
+**Why.** The API verifies tokens with `checkRevoked`, which calls `getUser`, and suspend calls `updateUser`.
+`roles/firebaseauth.viewer` can't write and is broader than needed. The custom role `ecofolkAuthUserManager`
+holds exactly two permissions: `firebaseauth.users.get` and `firebaseauth.users.update`. It replaces the dev
+viewer stopgap (ecofolk#1465).
+
+**Scope.** One role and one grant per GCP project: the dev project (QA runs as dev's runtime SA in the same
+project, so it needs nothing more) and `ecofolk-prod`. Set `PROJECT` to the dev project id and run the paste,
+then run it again with `PROJECT=ecofolk-prod` (skip step 3 there).
+
+```bash
+PROJECT=<project-id>
+SA=ecofolk-api@${PROJECT}.iam.gserviceaccount.com   # var.api_service_account_id's value
+
+# 1. Create the role (skipped if it already exists).
+gcloud iam roles describe ecofolkAuthUserManager --project="$PROJECT" >/dev/null 2>&1 || \
+  gcloud iam roles create ecofolkAuthUserManager --project="$PROJECT" \
+    --title="EcoFolk Auth user manager" \
+    --permissions=firebaseauth.users.get,firebaseauth.users.update --stage=GA
+
+# 2. Grant it to the runtime SA, in the project only.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" \
+  --role="projects/${PROJECT}/roles/ecofolkAuthUserManager" --condition=None --format=none
+
+# 3. DEV ONLY, after step 2: remove the ecofolk#1465 stopgap.
+gcloud projects remove-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" --role=roles/firebaseauth.viewer --format=none
+```
+
+`--format=none` matters: both binding commands otherwise print the project's WHOLE IAM policy, every member
+included, into your terminal and any paste of it.
+
+**Checks (read the grant, not the plan).**
+
+```bash
+gcloud iam roles describe ecofolkAuthUserManager --project="$PROJECT" --format='value(includedPermissions)'
+# expect exactly: firebaseauth.users.get;firebaseauth.users.update
+gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:${SA}" --format='value(bindings.role)'
+# expect the custom role listed; in dev, roles/firebaseauth.viewer absent
+```
+
+**QA (ef-qa), dev:** suspending a user succeeds; that user's next request is refused; a normal signed-in request
+through `checkRevoked` returns 200, not 503.
+
+**Performed: <date> by <who>, result**
+
+---
+
+## 7. Session-triggered app deploy (ecofolk-infra#165)
+
+`.github/workflows/deploy-app.yml` replaces the Cloud Shell deploy sittings. `scripts/deploy/deploy-dev.sh` in
+ecofolk stays as the break-glass path.
+
+**Run it** (from a session, on this repo's `main`):
+
+```bash
+gh workflow run deploy-app.yml -R rosebud785/ecofolk-infra -f env=dev -f sha=<40-hex ecofolk main commit>
+```
+
+Dev runs on its own. **`env=prod` is not enabled yet**: step 1 refuses it ("prod deploys are not enabled until the #165
+§A job split") and the job's `if: inputs.env == 'dev'` skips it before any `environment:` reference, so a prod dispatch
+cannot auto-create `gcp-prod`. When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
+older main sha; the run prints the previous serving revision and the one-line traffic rollback.
+
+**What it refuses** (as deploy-dev.sh does): a sha not reachable from ecofolk main; not exactly one merged PR; any
+required check that is not SUCCESS on the merged head (SKIPPED refuses); a missing `VITE_*` value or a `demo-*`
+project id; a failed check-config or migrate job (the API is then not deployed). It never passes env, secret or
+service-account flags to Cloud Run. The old "listening in the startup log" smoke check is dropped (dev logs at warn);
+`/health` (migrations checked, none pending), `/version == sha` and the web root replace it.
+
+**Per environment (`gcp-dev`, later `gcp-prod`)**
+
+| Kind | Name | Value |
+|---|---|---|
+| variable | `GCP_PROJECT_ID`, `GCP_REGION` | the project id, `northamerica-northeast1` |
+| variable | `GCP_WIF_PROVIDER` | the Workload Identity provider resource name |
+| variable | `GCP_DEPLOY_SA` | the `ecofolk-deploy` SA email |
+| variable (optional) | `AR_REPO`, `API_SERVICE`, `MIGRATE_JOB`, `CHECK_CONFIG_JOB` | defaults `ecofolk`, `ecofolk-api`, `ecofolk-migrate`, `ecofolk-check-config` |
+| secret | `ECOFOLK_READ_TOKEN` | fine-grained token on `rosebud785/ecofolk` only: Contents, Pull requests, Metadata, Administration (read only) |
+
+**These are per-environment ONLY, never repository-level** variables or secrets: a repo-level value would be visible to
+every environment (and to a future `gcp-prod` before its reviewer gate exists). Set them on the Environment itself.
+
+`gcp-prod` also needs Andy as a required reviewer and deployment branches limited to `main`.
+
+**Identity (a bootstrap paste, section B of the issue; the Deployer writes it, QA checks it before Andy runs it).**
+Until it runs the workflow cannot authenticate. It must: add `attribute.workflow_ref` to the provider's mapping; trust
+`ecofolk-deploy` only for `deploy-app.yml@refs/heads/main`; narrow `tf-apply`'s trust to `infra-apply.yml@refs/heads/main`
+(required, so this workflow cannot ask for `tf-apply`'s token); and keep `ecofolk-deploy`'s roles narrow. It must also
+grant `ecofolk-deploy` the custom role in section 8 (ecofolk-infra#173: `firebase.clients.get` and
+`firebase.clients.list`), because the web key is read with `firebase apps:sdkconfig`. Then run the negative probes: a non-main ref, another
+workflow on main, and this workflow asking for `tf-apply` must each be REFUSED.
+
+---
+
+## 8. Web config read for the deploy service account (ecofolk-infra#173)
+
+IAM is hand-managed (ecofolk-infra#44), so this is a paste, not Terraform. It belongs in the #165 section B
+bootstrap sitting; Andy runs it (via the SME).
+
+**Why.** The deploy reads the web app's public client config (`firebase apps:sdkconfig web`) as the impersonated
+`ecofolk-deploy` service account. That SA holds `firebasehosting.admin` and `logging.viewer`, and neither carries
+`firebase.clients.get`, so the read is refused and a dev deploy needed the `ECOFOLK_DEPLOY_ENV_OVERRIDE=1` interim.
+
+**Why a custom role, not a predefined one.** The predefined roles that carry `firebase.clients.get` (per Google's
+role docs; not measured with `gcloud iam roles describe`, see the PR) bundle it with other Firebase permissions. The custom role `ecofolkDeployWebConfigReader` holds exactly two
+permissions: `firebase.clients.get`, and `firebase.clients.list` because `apps:sdkconfig web` runs with no app id, so
+the CLI lists the project's apps first (Architect, #182). It is a **separate role from `ecofolkAuthUserManager`** (section 6): that one is the API runtime SA's,
+and the deploy SA must not gain user get/update.
+
+**Scope.** One role and one grant per GCP project: dev now; `ecofolk-prod` when prod's deploy SA exists (the deploy
+reads the key the same way there).
+
+```bash
+PROJECT=<project-id>
+DEPLOY_SA=ecofolk-deploy@${PROJECT}.iam.gserviceaccount.com   # the GCP_DEPLOY_SA value
+
+# 1. Create the role (skipped if it already exists).
+gcloud iam roles describe ecofolkDeployWebConfigReader --project="$PROJECT" >/dev/null 2>&1 || \
+  gcloud iam roles create ecofolkDeployWebConfigReader --project="$PROJECT" \
+    --title="EcoFolk deploy web config reader" \
+    --permissions=firebase.clients.get,firebase.clients.list --stage=GA
+
+# 2. Grant it to the deploy SA, in the project only.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${DEPLOY_SA}" \
+  --role="projects/${PROJECT}/roles/ecofolkDeployWebConfigReader" --condition=None --format=none
+```
+
+**Checks (read the grant, not the plan).**
+
+```bash
+gcloud iam roles describe ecofolkDeployWebConfigReader --project="$PROJECT" --format='value(includedPermissions)'
+# expect exactly: firebase.clients.get;firebase.clients.list
+gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:${DEPLOY_SA}" --format='value(bindings.role)'
+# expect the custom role listed alongside roles/firebasehosting.admin and roles/logging.viewer, nothing else new
+```
+
+**Verify the fix.** `deploy-dev.sh --check` (or the deploy-app workflow's "Resolve web build config" step) passes with
+no `VITE_*` exported and no override. Before the grant the same check refuses with "firebase apps:sdkconfig failed".
+
+---
+
 ## 9. Narrow the API runtime SA on the media bucket: objectAdmin to objectUser (ecofolk-infra#164)
 
 IAM is hand-managed (ecofolk-infra#44), and `modules/media_bucket` declares no IAM resource by design, so this is a

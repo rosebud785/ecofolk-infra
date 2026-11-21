@@ -183,6 +183,10 @@ locals {
 #   3. Deferred: the `allUsers` -> roles/run.invoker binding on the service to ef#408 (first real deploy);
 #      roles/cloudsql.client and roles/secretmanager.secretAccessor (per named secret, see module.secrets
 #      below) to ef#399 / ecofolk#890.
+#   4. Firebase Auth (ecofolk-infra#170, replaces the ecofolk#1465 viewer stopgap): the runtime SA holds the
+#      custom role ecofolkAuthUserManager (exactly firebaseauth.users.get + firebaseauth.users.update), created
+#      and granted BY HAND, as IAM is hand-managed. QA runs as this same SA, so this grant covers it.
+#      roles/firebaseauth.viewer is removed. Paste and checks: docs/runbook.md section 6. Recorded 2026-11-21.
 module "cloudrun_api" {
   source          = "../../modules/cloudrun_api"
   project_id      = var.project_id

@@ -633,6 +633,59 @@ Ordering rules learned the hard way. Each applies to every go-live paste, dev or
 
 ---
 
+## 6. Firebase Auth role for the API runtime service account (ecofolk-infra#170)
+
+IAM is hand-managed (ecofolk-infra#44), so this is a paste, not Terraform. Andy runs it (via the SME).
+
+**Why.** The API verifies tokens with `checkRevoked`, which calls `getUser`, and suspend calls `updateUser`.
+`roles/firebaseauth.viewer` can't write and is broader than needed. The custom role `ecofolkAuthUserManager`
+holds exactly two permissions: `firebaseauth.users.get` and `firebaseauth.users.update`. It replaces the dev
+viewer stopgap (ecofolk#1465).
+
+**Scope.** One role and one grant per GCP project: the dev project (QA runs as dev's runtime SA in the same
+project, so it needs nothing more) and `ecofolk-prod`. Set `PROJECT` to the dev project id and run the paste,
+then run it again with `PROJECT=ecofolk-prod` (skip step 3 there).
+
+```bash
+PROJECT=<project-id>
+SA=ecofolk-api@${PROJECT}.iam.gserviceaccount.com   # var.api_service_account_id's value
+
+# 1. Create the role (skipped if it already exists).
+gcloud iam roles describe ecofolkAuthUserManager --project="$PROJECT" >/dev/null 2>&1 || \
+  gcloud iam roles create ecofolkAuthUserManager --project="$PROJECT" \
+    --title="EcoFolk Auth user manager" \
+    --permissions=firebaseauth.users.get,firebaseauth.users.update --stage=GA
+
+# 2. Grant it to the runtime SA, in the project only.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" \
+  --role="projects/${PROJECT}/roles/ecofolkAuthUserManager" --condition=None --format=none
+
+# 3. DEV ONLY, after step 2: remove the ecofolk#1465 stopgap.
+gcloud projects remove-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" --role=roles/firebaseauth.viewer --format=none
+```
+
+`--format=none` matters: both binding commands otherwise print the project's WHOLE IAM policy, every member
+included, into your terminal and any paste of it.
+
+**Checks (read the grant, not the plan).**
+
+```bash
+gcloud iam roles describe ecofolkAuthUserManager --project="$PROJECT" --format='value(includedPermissions)'
+# expect exactly: firebaseauth.users.get;firebaseauth.users.update
+gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:${SA}" --format='value(bindings.role)'
+# expect the custom role listed; in dev, roles/firebaseauth.viewer absent
+```
+
+**QA (ef-qa), dev:** suspending a user succeeds; that user's next request is refused; a normal signed-in request
+through `checkRevoked` returns 200, not 503.
+
+**Performed: <date> by <who>, result**
+
+---
+
 ## 7. Session-triggered app deploy (ecofolk-infra#165)
 
 `.github/workflows/deploy-app.yml` replaces the Cloud Shell deploy sittings. `scripts/deploy/deploy-dev.sh` in

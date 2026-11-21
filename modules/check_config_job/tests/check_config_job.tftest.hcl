@@ -154,3 +154,20 @@ run "timeout_out_of_range_is_refused" {
 
   expect_failures = [var.timeout_seconds]
 }
+
+# ecofolk-infra#172: a gcloud deploy stamps client / client_version, so they are ignored (else every plan shows
+# in-place changes that null them). Known-wrong guard: the list is exactly those plus the image, never `all`, so a
+# real config change (env, secrets, service account) still shows in the plan.
+run "ignores_the_deploy_stamps_and_the_image_only" {
+  command = plan
+
+  assert {
+    condition     = can(regex("ignore_changes\\s*=\\s*\\[template\\[0\\]\\.template\\[0\\]\\.containers\\[0\\]\\.image,\\s*client,\\s*client_version\\]", file("${path.module}/main.tf")))
+    error_message = "the job must ignore the image and the client / client_version deploy stamps"
+  }
+
+  assert {
+    condition     = !can(regex("ignore_changes\\s*=\\s*all", file("${path.module}/main.tf")))
+    error_message = "ignore_changes must never be `all`: real config changes must still plan"
+  }
+}

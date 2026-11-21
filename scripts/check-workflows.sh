@@ -17,7 +17,7 @@ set -euo pipefail
 
 dir="${1:-.github/workflows}"
 # The only workflows allowed to hold id-token: write (and so to obtain WIF credentials). Added by ef#883.
-ALLOW_ID_TOKEN=(infra-apply.yml)
+ALLOW_ID_TOKEN=(infra-apply.yml deploy-app.yml)
 
 fail=0
 report() { echo "$1:$2: $3"; fail=1; }

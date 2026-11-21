@@ -27,6 +27,9 @@ updates:
       - /modules/sql_database
       - /modules/sql_off_hours
       - /modules/sync_health
+      - /modules/sync_inaturalist
+      - /modules/sync_noaa_weather
+      - /modules/sync_soils
       - /modules/sync_usgs_water
       - /modules/web_hosting
     schedule:

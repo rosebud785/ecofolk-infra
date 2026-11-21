@@ -88,6 +88,6 @@ resource "google_cloud_run_v2_job" "check_config" {
   }
 
   lifecycle {
-    ignore_changes = [template[0].template[0].containers[0].image]
+    ignore_changes = [template[0].template[0].containers[0].image, client, client_version]
   }
 }

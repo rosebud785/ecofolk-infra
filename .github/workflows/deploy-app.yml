@@ -224,11 +224,19 @@ jobs:
         working-directory: app/packages/web
         run: |
           TOKEN="$(gcloud auth print-access-token)"; echo "::add-mask::$TOKEN"
-          GOOGLE_OAUTH_ACCESS_TOKEN="$TOKEN" npx --yes firebase-tools@15.37.0 deploy --only hosting --project "$PROJECT" --json \
-            | grep -o '"version": *"[^"]*"' | head -n1 | sed 's/^/web /'
+          # Actions' default shell is `bash -e` WITHOUT pipefail, so a pipe here would hide a failed deploy (ef-qa
+          # c7065202652). Capture the deploy's own exit status first; only then read the version out of its output.
+          set -o pipefail
+          OUT="$(GOOGLE_OAUTH_ACCESS_TOKEN="$TOKEN" npx --yes firebase-tools@15.37.0 deploy --only hosting --project "$PROJECT" --json)" \
+            || { echo "::error::firebase deploy failed (hosting was NOT updated)"; exit 1; }
+          VERSION="$(printf '%s' "$OUT" | grep -o '"version": *"[^"]*"' | head -n1 | sed 's/.*: *"//; s/"$//' || true)"
+          [ -n "$VERSION" ] || { echo "::error::firebase deploy printed no hosting version"; exit 1; }
+          echo "web $VERSION"
 
       # 11. smoke (read-only). The old "listening in the startup log" check is dropped: dev logs at warn, so that line
       # never appears (ecofolk-infra#165 prerequisite). /health and /version on the new revision replace it.
+      # That also drops the old script's ConfigError boot-log grep: a config failure now stops the run earlier, at the
+      # check-config job (step 8), and a revision that cannot boot never turns Ready, which the Ready check below catches.
       - name: Smoke
         run: |
           fail() {

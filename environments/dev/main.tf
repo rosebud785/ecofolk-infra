@@ -398,8 +398,8 @@ module "auth" {
 # Montréal, not Cloudflare R2). Applied by this root's keyless CI apply like everything else here. Location
 # is the module's own pinned default; depends_on so storage.googleapis.com is enabled first.
 #
-# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectAdmin for the API's runtime service account
-# (var.api_service_account_id) on this bucket only. IAM is not managed in this public repo.
+# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectUser (not objectAdmin, #164) for the API's runtime
+# service account (var.api_service_account_id) on this bucket only. IAM is not managed in this public repo.
 module "media_bucket" {
   source     = "../../modules/media_bucket"
   project_id = var.project_id

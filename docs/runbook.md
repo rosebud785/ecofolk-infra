@@ -630,3 +630,42 @@ Ordering rules learned the hard way. Each applies to every go-live paste, dev or
   *Source: ecofolk-infra#135. Four nightly exports failed 2026-10-17 to 2026-10-20 because the instance
   service account lacked object-create on the export bucket until the 2026-10-20 L-slot paste applied
   the gated grant.*
+
+---
+
+## 9. Narrow the API runtime SA on the media bucket: objectAdmin to objectUser (ecofolk-infra#164)
+
+IAM is hand-managed (ecofolk-infra#44), and `modules/media_bucket` declares no IAM resource by design, so this is a
+paste, not Terraform. Andy runs it (via the SME) in the next booked slot, after the ecofolk#1417 freeze lifts.
+
+**Why.** Dev's `ecofolk-api` SA holds `roles/storage.objectAdmin` on `gs://ecofolk-dev-media` (the old L-RUN
+wording) alongside `roles/storage.objectUser`. The API only creates, reads, lists and deletes objects
+(`packages/api/src/media/gcs-storage.ts`: `save`, `download`, `exists`, `getFiles`, `delete`); it never sets an IAM
+policy or ACL. `objectUser` covers all of that and has no object or managed-folder IAM admin. Prod is P15 of the
+go-live checklist and gets `objectUser` from day one, so this paste is dev only.
+
+```bash
+PROJECT=<dev-project-id>
+SA=ecofolk-api@${PROJECT}.iam.gserviceaccount.com
+BUCKET=gs://${PROJECT}-media
+
+# 1. Make sure objectUser is held BEFORE objectAdmin goes (it already is in dev; this is idempotent).
+gcloud storage buckets add-iam-policy-binding "$BUCKET" \
+  --member="serviceAccount:${SA}" --role=roles/storage.objectUser --format=none
+
+# 2. Remove the broader grant.
+gcloud storage buckets remove-iam-policy-binding "$BUCKET" \
+  --member="serviceAccount:${SA}" --role=roles/storage.objectAdmin --format=none
+```
+
+**Check (read the grant, not the plan).**
+
+```bash
+gcloud storage buckets get-iam-policy "$BUCKET" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:${SA}" --format='value(bindings.role)'
+# expect EXACTLY one line: roles/storage.objectUser   (objectAdmin absent)
+```
+
+**After it.** A dev upload, a media read and a delete (or the TTL sweep) still succeed as that SA. If any is
+refused, re-add `roles/storage.objectAdmin` with the step 1 command and report the denied call on #164.
+Out of scope: the export bucket's objectAdmin (P13), which #135 measured as needed.

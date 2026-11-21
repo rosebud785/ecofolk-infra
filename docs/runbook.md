@@ -643,8 +643,9 @@ bootstrap sitting; Andy runs it (via the SME).
 `firebase.clients.get`, so the read is refused and a dev deploy needed the `ECOFOLK_DEPLOY_ENV_OVERRIDE=1` interim.
 
 **Why a custom role, not a predefined one.** The predefined roles that carry `firebase.clients.get` (per Google's
-role docs; not measured with `gcloud iam roles describe`, see the PR) bundle it with other Firebase permissions. The custom role `ecofolkDeployWebConfigReader` holds exactly that one
-permission. It is a **separate role from `ecofolkAuthUserManager`** (section 6): that one is the API runtime SA's,
+role docs; not measured with `gcloud iam roles describe`, see the PR) bundle it with other Firebase permissions. The custom role `ecofolkDeployWebConfigReader` holds exactly two
+permissions: `firebase.clients.get`, and `firebase.clients.list` because `apps:sdkconfig web` runs with no app id, so
+the CLI lists the project's apps first (Architect, #182). It is a **separate role from `ecofolkAuthUserManager`** (section 6): that one is the API runtime SA's,
 and the deploy SA must not gain user get/update.
 
 **Scope.** One role and one grant per GCP project: dev now; `ecofolk-prod` when prod's deploy SA exists (the deploy
@@ -658,7 +659,7 @@ DEPLOY_SA=ecofolk-deploy@${PROJECT}.iam.gserviceaccount.com   # the GCP_DEPLOY_S
 gcloud iam roles describe ecofolkDeployWebConfigReader --project="$PROJECT" >/dev/null 2>&1 || \
   gcloud iam roles create ecofolkDeployWebConfigReader --project="$PROJECT" \
     --title="EcoFolk deploy web config reader" \
-    --permissions=firebase.clients.get --stage=GA
+    --permissions=firebase.clients.get,firebase.clients.list --stage=GA
 
 # 2. Grant it to the deploy SA, in the project only.
 gcloud projects add-iam-policy-binding "$PROJECT" \
@@ -670,7 +671,7 @@ gcloud projects add-iam-policy-binding "$PROJECT" \
 
 ```bash
 gcloud iam roles describe ecofolkDeployWebConfigReader --project="$PROJECT" --format='value(includedPermissions)'
-# expect exactly: firebase.clients.get
+# expect exactly: firebase.clients.get;firebase.clients.list
 gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
   --filter="bindings.members:serviceAccount:${DEPLOY_SA}" --format='value(bindings.role)'
 # expect the custom role listed alongside roles/firebasehosting.admin and roles/logging.viewer, nothing else new
@@ -678,7 +679,3 @@ gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
 
 **Verify the fix.** `deploy-dev.sh --check` (or the deploy-app workflow's "Resolve web build config" step) passes with
 no `VITE_*` exported and no override. Before the grant the same check refuses with "firebase apps:sdkconfig failed".
-
-**If `apps:sdkconfig` still refuses after the grant.** The CLI may also need `firebase.clients.list` to find the
-web app. Add it to the role (`gcloud iam roles update ecofolkDeployWebConfigReader --project="$PROJECT"
---add-permissions=firebase.clients.list`) and re-run the check; do not widen to a predefined role.

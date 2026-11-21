@@ -45,7 +45,9 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main' && github.ref_protected
+    # inputs.env == 'dev': prod is not enabled until the #165 section A job split (Architect, infra#176). Evaluated before
+    # `environment:` is resolved, so a prod dispatch is skipped and can never auto-create the gcp-prod Environment.
+    if: github.ref == 'refs/heads/main' && github.ref_protected && inputs.env == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: gcp-${{ inputs.env }}
@@ -70,7 +72,11 @@ jobs:
           GCP_DEPLOY_SA: ${{ vars.GCP_DEPLOY_SA }}
           READ_TOKEN: ${{ secrets.ECOFOLK_READ_TOKEN }}
         run: |
-          case "$ENV_NAME" in dev|prod) ;; *) echo "::error::env must be dev or prod"; exit 1 ;; esac
+          case "$ENV_NAME" in
+            dev) ;;
+            prod) echo "::error::prod deploys are not enabled until the #165 §A job split; see infra#176 stamp"; exit 1 ;;
+            *) echo "::error::env must be dev or prod"; exit 1 ;;
+          esac
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 lowercase hex characters"; exit 1; }
           missing=""
           for v in PROJECT REGION GCP_WIF_PROVIDER GCP_DEPLOY_SA READ_TOKEN; do

@@ -644,7 +644,9 @@ ecofolk stays as the break-glass path.
 gh workflow run deploy-app.yml -R rosebud785/ecofolk-infra -f env=dev -f sha=<40-hex ecofolk main commit>
 ```
 
-Dev runs on its own. `env=prod` waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
+Dev runs on its own. **`env=prod` is not enabled yet**: step 1 refuses it ("prod deploys are not enabled until the #165
+§A job split") and the job's `if: inputs.env == 'dev'` skips it before any `environment:` reference, so a prod dispatch
+cannot auto-create `gcp-prod`. When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
 older main sha; the run prints the previous serving revision and the one-line traffic rollback.
 
 **What it refuses** (as deploy-dev.sh does): a sha not reachable from ecofolk main; not exactly one merged PR; any
@@ -662,6 +664,9 @@ service-account flags to Cloud Run. The old "listening in the startup log" smoke
 | variable | `GCP_DEPLOY_SA` | the `ecofolk-deploy` SA email |
 | variable (optional) | `AR_REPO`, `API_SERVICE`, `MIGRATE_JOB`, `CHECK_CONFIG_JOB` | defaults `ecofolk`, `ecofolk-api`, `ecofolk-migrate`, `ecofolk-check-config` |
 | secret | `ECOFOLK_READ_TOKEN` | fine-grained token on `rosebud785/ecofolk` only: Contents, Pull requests, Metadata, Administration (read only) |
+
+**These are per-environment ONLY, never repository-level** variables or secrets: a repo-level value would be visible to
+every environment (and to a future `gcp-prod` before its reviewer gate exists). Set them on the Environment itself.
 
 `gcp-prod` also needs Andy as a required reviewer and deployment branches limited to `main`.
 

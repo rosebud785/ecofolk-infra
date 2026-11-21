@@ -213,7 +213,7 @@ run "image_changes_are_ignored" {
   assert {
     condition = anytrue([
       for f in fileset(path.module, "*.tf") :
-      can(regex("ignore_changes\\s*=\\s*\\[\\s*template\\[0\\]\\.containers\\[0\\]\\.image\\s*\\]", file("${path.module}/${f}")))
+      can(regex("ignore_changes\\s*=\\s*\\[\\s*template\\[0\\]\\.containers\\[0\\]\\.image,\\s*client,\\s*client_version\\s*\\]", file("${path.module}/${f}")))
     ])
     error_message = "the service must ignore_changes = [template[0].containers[0].image] so deploys own the image"
   }

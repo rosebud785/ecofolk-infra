@@ -194,6 +194,33 @@ module "sync_usgs_water" {
   depends_on = [module.project]
 }
 
+# sync-inaturalist (30 5 * * *) and sync-soils (0 6 2 * *), the registry cadences verbatim, America/Chicago, outside the
+# #99 window (ecofolk-infra#174, ecofolk#1220). Same OIDC pattern and SAME invoker SA; no new SA, binding or actAs here.
+# sync-noaa-weather is NOT wired in prod: the prod API maps no NOAA_CDO_TOKEN (cloudrun_api has no secret_env here), and
+# the app registers that job only when the token is set, so a job would hit an unregistered route every month. Wire it
+# (modules/sync_noaa_weather, 0 6 1 * *) in the same PR that maps the token on the prod API.
+module "sync_inaturalist" {
+  source           = "../../modules/sync_inaturalist"
+  project_id       = local.project_id
+  env              = "prod"
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = var.sweep_invoker_service_account_email
+
+  depends_on = [module.project]
+}
+
+module "sync_soils" {
+  source           = "../../modules/sync_soils"
+  project_id       = local.project_id
+  env              = "prod"
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = var.sweep_invoker_service_account_email
+
+  depends_on = [module.project]
+}
+
 # sync-health (ecofolk-infra#156, ecofolk#1349): one Cloud Scheduler job POSTs {api}/internal/sync-health daily at
 # 07:15 America/Chicago (the app's registry cadence, after the other syncs), outside the #99 window. Same OIDC pattern and SAME invoker SA as the jobs above; no new SA,
 # binding or actAs here. The alert on its `sync_health_failed` lines is in module.monitoring.
@@ -302,6 +329,8 @@ output "scheduler_jobs" {
     module.cloudsql.scheduler_jobs,
     module.idle_sit_sweep.scheduler_jobs,
     module.sync_usgs_water.scheduler_jobs,
+    module.sync_inaturalist.scheduler_jobs,
+    module.sync_soils.scheduler_jobs,
     module.sync_health.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the prod composition: name, schedule and time_zone (#99)."
@@ -319,6 +348,8 @@ output "resource_names" {
     module.migrate_job.resource_names,
     module.idle_sit_sweep.resource_names,
     module.sync_usgs_water.resource_names,
+    module.sync_inaturalist.resource_names,
+    module.sync_soils.resource_names,
     module.sync_health.resource_names,
     module.secrets.resource_names,
     module.auth.resource_names,

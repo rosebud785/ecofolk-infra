@@ -1,0 +1,275 @@
+name: Deploy app (session-triggered)
+
+# ecofolk-infra#165 (Andy's ruling 2026-11-16: "prod gets my approve tap, dev automatic"). Replaces the Cloud Shell
+# deploy sittings (ecofolk scripts/deploy/deploy-dev.sh, now the break-glass path). Ports that script and keeps every
+# refusal. It does NOT relax ecofolk#883: the private ecofolk repo holds no cloud identity; the identity is here.
+#
+# Trigger: workflow_dispatch ONLY (no push, no PR). A session runs
+#   gh workflow run deploy-app.yml -f env=dev -f sha=<40-hex ecofolk commit>
+# Environments: gcp-dev (no reviewer) and gcp-prod (required reviewer: Andy, branches: main only). The job runs only
+# on this repo's protected main (`if:` below); GCP trusts ONLY this workflow file at refs/heads/main for ecofolk-deploy
+# (attribute.workflow_ref, bootstrap paste #165 section B). That enforcement is on the GCP side, not in this file.
+#
+# This repo is public: run logs are public. Names, digests and revision ids are printed, never an env value. The
+# checkout token and the access token are ::add-mask::ed. Inputs reach the shell only through env: variables.
+#
+# Never passes --set-env-vars, --set-secrets, --update-* or --service-account: those are Terraform's.
+# Rollback: re-run with an older main sha; the previous serving revision and the one-line traffic rollback are printed.
+#
+# Environment VARIABLES (non-secret, one set per environment; any missing one is a named failure):
+#   GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_DEPLOY_SA (the ecofolk-deploy SA email), GCP_REGION,
+#   AR_REPO (default ecofolk), API_SERVICE (default ecofolk-api), MIGRATE_JOB (default ecofolk-migrate),
+#   CHECK_CONFIG_JOB (default ecofolk-check-config)
+# Environment SECRET: ECOFOLK_READ_TOKEN, a fine-grained token on rosebud785/ecofolk only: Contents: read, Pull
+#   requests: read, Metadata: read, Administration: read (the last only to READ main's required status checks).
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Target environment
+        type: choice
+        options: [dev, prod]
+        required: true
+      sha:
+        description: Full 40-hex ecofolk commit, reachable from ecofolk main
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-app-${{ inputs.env }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # inputs.env == 'dev': prod is not enabled until the #165 section A job split (Architect, infra#176). Evaluated before
+    # `environment:` is resolved, so a prod dispatch is skipped and can never auto-create the gcp-prod Environment.
+    if: github.ref == 'refs/heads/main' && github.ref_protected && inputs.env == 'dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: gcp-${{ inputs.env }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      GH_REPO: rosebud785/ecofolk
+      ENV_NAME: ${{ inputs.env }}
+      SHA: ${{ inputs.sha }}
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      AR_REPO: ${{ vars.AR_REPO || 'ecofolk' }}
+      SERVICE: ${{ vars.API_SERVICE || 'ecofolk-api' }}
+      MIGRATE_JOB: ${{ vars.MIGRATE_JOB || 'ecofolk-migrate' }}
+      CHECK_JOB: ${{ vars.CHECK_CONFIG_JOB || 'ecofolk-check-config' }}
+    steps:
+      # 1. inputs and settings: a missing one is a failure naming it, never a skipped step.
+      - name: Validate inputs and settings
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_DEPLOY_SA: ${{ vars.GCP_DEPLOY_SA }}
+          READ_TOKEN: ${{ secrets.ECOFOLK_READ_TOKEN }}
+        run: |
+          case "$ENV_NAME" in
+            dev) ;;
+            prod) echo "::error::prod deploys are not enabled until the #165 §A job split; see infra#176 stamp"; exit 1 ;;
+            *) echo "::error::env must be dev or prod"; exit 1 ;;
+          esac
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 lowercase hex characters"; exit 1; }
+          missing=""
+          for v in PROJECT REGION GCP_WIF_PROVIDER GCP_DEPLOY_SA READ_TOKEN; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          [ -z "$missing" ] || { echo "::error::setting(s) not set for $ENV_NAME:$missing"; exit 1; }
+          echo "::add-mask::$READ_TOKEN"
+
+      # 2. the test gate, on the GitHub API, before anything is checked out or authenticated to GCP.
+      - name: Gate (reachable from main, one merged PR, every required check SUCCESS)
+        env:
+          GH_TOKEN: ${{ secrets.ECOFOLK_READ_TOKEN }}
+        run: |
+          die() { echo "::error::REFUSED: $*"; exit 1; }
+          rel="$(gh api "repos/$GH_REPO/compare/main...$SHA" --jq .status)" || die "could not compare $SHA with main"
+          case "$rel" in behind|identical) ;; *) die "$SHA is not reachable from ecofolk main (status: $rel)" ;; esac
+          prs="$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+            --jq '.[] | [.number, (.merged_at // ""), (.merge_commit_sha // ""), .head.sha] | @tsv')" \
+            || die "could not read the pull requests for $SHA"
+          merged=()
+          while IFS=$'\t' read -r number merged_at merge_sha head_sha; do
+            [ -n "$number" ] || continue
+            if [ -n "$merged_at" ] && [ "$merge_sha" = "$SHA" ]; then merged+=("$number $head_sha"); fi
+          done <<< "$prs"
+          [ "${#merged[@]}" -ge 1 ] || die "no merged pull request has $SHA as its merge commit"
+          [ "${#merged[@]}" -eq 1 ] || die "${#merged[@]} merged pull requests claim $SHA; expected exactly one"
+          PR_NUMBER="${merged[0]%% *}"; PR_HEAD="${merged[0]##* }"
+          required="$(gh api "repos/$GH_REPO/branches/main/protection/required_status_checks" --jq '.checks[].context')" \
+            || die "could not read main's required status checks (fail closed)"
+          [ -n "$required" ] || die "main lists no required status checks (fail closed)"
+          runs="$(gh api "repos/$GH_REPO/commits/$PR_HEAD/check-runs?filter=latest&per_page=100" \
+            --jq '.check_runs[] | [.name, (.conclusion // "none")] | @tsv')" \
+            || die "could not read the check runs for PR #$PR_NUMBER's head"
+          while IFS= read -r context; do
+            [ -n "$context" ] || continue
+            seen=0
+            while IFS=$'\t' read -r name conclusion; do
+              [ "$name" = "$context" ] || continue
+              seen=1
+              [ "$conclusion" = "success" ] || die "required check '$context' on PR #$PR_NUMBER is '$conclusion', not success"
+            done <<< "$runs"
+            [ "$seen" = 1 ] || die "required check '$context' did not run on PR #$PR_NUMBER's head"
+          done <<< "$required"
+          echo "gate passed: $SHA is PR #$PR_NUMBER, every required check succeeded"
+
+      # 3. read-only checkout of the private repo at the sha (persist-credentials off: no token stays on disk).
+      - name: Check out ecofolk at the sha
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rosebud785/ecofolk
+          ref: ${{ inputs.sha }}
+          token: ${{ secrets.ECOFOLK_READ_TOKEN }}
+          path: app
+          persist-credentials: false
+
+      - name: The checkout is the sha
+        working-directory: app
+        run: |
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "::error::checkout is not $SHA"; exit 1; }
+          TREE="$(git rev-parse 'HEAD^{tree}')"
+          echo "TREE=$TREE" >> "$GITHUB_ENV"
+          [ "$(tr -d '[:space:]' < infra/region.txt)" = "$REGION" ] || { echo "::error::GCP_REGION does not match infra/region.txt"; exit 1; }
+
+      # 4. keyless identity: WIF -> ecofolk-deploy (GCP trusts only this workflow file on main).
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      # 5. build config: ONE resolver, the same rules as deploy-dev.sh. Nothing is typed in.
+      - name: Resolve the web build config
+        working-directory: app
+        run: |
+          die() { echo "::error::REFUSED: $*"; exit 1; }
+          envfile="scripts/deploy/env/$ENV_NAME.env"
+          [ -r "$envfile" ] || die "$envfile is missing"
+          SITE="$(grep -o '"site": *"[^"]*"' packages/web/firebase.json | head -n1 | sed 's/.*: *"//; s/"$//' || true)"
+          [ -n "$SITE" ] || die "packages/web/firebase.json has no hosting.site"
+          for name in VITE_MAP_TILE_URL VITE_FIREBASE_PROJECT_ID VITE_CONTACT_EMAIL; do
+            value="$(grep -E "^$name=" "$envfile" | head -n1 | cut -d= -f2- || true)"
+            [ -n "$value" ] || die "$name is not set in $envfile (the production web build refuses without it)"
+            printf -v "$name" '%s' "$value"
+          done
+          case "$(printf '%s' "$VITE_FIREBASE_PROJECT_ID" | tr '[:upper:]' '[:lower:]')" in
+            demo-*) die "VITE_FIREBASE_PROJECT_ID is a demo-* id; that is the emulator's project" ;;
+          esac
+          VITE_API_BASE_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" --format='value(status.url)')" \
+            || die "could not read the url of Cloud Run service $SERVICE"
+          [ -n "$VITE_API_BASE_URL" ] || die "Cloud Run service $SERVICE has no url"
+          TOKEN="$(gcloud auth print-access-token)"; echo "::add-mask::$TOKEN"
+          sdk="$(GOOGLE_OAUTH_ACCESS_TOKEN="$TOKEN" npx --yes firebase-tools@15.37.0 apps:sdkconfig web --project "$PROJECT")" \
+            || die "firebase apps:sdkconfig failed; the web app key could not be read (needs firebase.clients.get, ecofolk-infra#173)"
+          VITE_FIREBASE_API_KEY="$(printf '%s' "$sdk" | grep -o '"apiKey": *"[^"]*"' | head -n1 | sed 's/.*: *"//; s/"$//' || true)"
+          [ -n "$VITE_FIREBASE_API_KEY" ] || die "firebase apps:sdkconfig returned no apiKey"
+          echo "::add-mask::$VITE_FIREBASE_API_KEY"
+          {
+            echo "SITE=$SITE"
+            echo "VITE_FIREBASE_AUTH_DOMAIN=$SITE.web.app"
+            for name in VITE_MAP_TILE_URL VITE_FIREBASE_PROJECT_ID VITE_CONTACT_EMAIL VITE_API_BASE_URL VITE_FIREBASE_API_KEY; do
+              echo "$name=${!name}"
+            done
+          } >> "$GITHUB_ENV"
+          echo "resolved: VITE_MAP_TILE_URL VITE_FIREBASE_PROJECT_ID VITE_CONTACT_EMAIL VITE_FIREBASE_AUTH_DOMAIN VITE_API_BASE_URL VITE_FIREBASE_API_KEY"
+
+      # 6. build EVERYTHING before the first cloud mutation (web bundle included), as deploy-dev.sh 2b.
+      - name: Install and build (shared, db, api, web)
+        working-directory: app
+        run: |
+          npm ci
+          npm exec -- tsc -b tsconfig.json --force
+          npm run build --workspace packages/web
+          [ -f packages/web/dist/index.html ] || { echo "::error::the web build left no dist/index.html"; exit 1; }
+
+      # 7. image: linux/amd64, plain docker push, then by DIGEST from here on.
+      - name: Build and push the API image
+        working-directory: app
+        run: |
+          REGISTRY="$REGION-docker.pkg.dev"
+          IMAGE="$REGISTRY/$PROJECT/$AR_REPO/$SERVICE"
+          gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "$REGISTRY" >/dev/null
+          docker buildx build --platform linux/amd64 --target runtime \
+            --build-arg "GIT_SHA=$SHA" --build-arg "GIT_TREE=$TREE" --tag "$IMAGE:$SHA" --load .
+          docker push "$IMAGE:$SHA"
+          DIGEST="$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE:$SHA" | grep "^$IMAGE@" | head -n1 | sed 's/.*@//')"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no sha256 digest for $IMAGE:$SHA"; exit 1; }
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
+          echo "image digest: $DIGEST"
+
+      # 8. config check, then schema, both on the pushed digest, BEFORE the API deploy (ecofolk#1419, #1169).
+      - name: Check config, then migrate (the deploy is refused unless both succeed)
+        run: |
+          for job in "$CHECK_JOB" "$MIGRATE_JOB"; do
+            echo "job $job on $DIGEST"
+            gcloud run jobs update "$job" --image "$IMAGE@$DIGEST" --region "$REGION" --project "$PROJECT" --quiet \
+              || { echo "::error::could not point job $job at $DIGEST; nothing was deployed"; exit 1; }
+            gcloud run jobs execute "$job" --region "$REGION" --project "$PROJECT" --wait --quiet \
+              || { echo "::error::job $job did not succeed; the API was not deployed (read its execution log)"; exit 1; }
+          done
+
+      # 9. Cloud Run by digest. No env / secret / service-account flag: those are Terraform's.
+      - name: Deploy the API by digest
+        run: |
+          PREV="$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" --format='value(status.traffic[0].revisionName)')"
+          echo "PREV_REVISION=$PREV" >> "$GITHUB_ENV"
+          echo "serving now: ${PREV:-none}"
+          gcloud run deploy "$SERVICE" --image "$IMAGE@$DIGEST" --region "$REGION" --project "$PROJECT" --quiet
+
+      # 10. web: hosting only (the bundle was built before any cloud mutation).
+      - name: Deploy web to Firebase Hosting
+        working-directory: app/packages/web
+        run: |
+          TOKEN="$(gcloud auth print-access-token)"; echo "::add-mask::$TOKEN"
+          # Actions' default shell is `bash -e` WITHOUT pipefail, so a pipe here would hide a failed deploy (ef-qa
+          # c7065202652). Capture the deploy's own exit status first; only then read the version out of its output.
+          set -o pipefail
+          OUT="$(GOOGLE_OAUTH_ACCESS_TOKEN="$TOKEN" npx --yes firebase-tools@15.37.0 deploy --only hosting --project "$PROJECT" --json)" \
+            || { echo "::error::firebase deploy failed (hosting was NOT updated)"; exit 1; }
+          # firebase-tools 15.37.0 --json success is {"status":"success","result":{"hosting":"<version name>"}}.
+          VERSION="$(printf '%s' "$OUT" | jq -er 'select(.status == "success") | .result.hosting | select(type == "string" and length > 0)' || true)"
+          [ -n "$VERSION" ] || { echo "::error::firebase deploy did not report success with a hosting version"; exit 1; }
+          echo "web $VERSION"
+
+      # 11. smoke (read-only). The old "listening in the startup log" check is dropped: dev logs at warn, so that line
+      # never appears (ecofolk-infra#165 prerequisite). /health and /version on the new revision replace it.
+      # That also drops the old script's ConfigError boot-log grep: a config failure now stops the run earlier, at the
+      # check-config job (step 8), and a revision that cannot boot never turns Ready, which the Ready check below catches.
+      - name: Smoke
+        run: |
+          fail() {
+            echo "::error::SMOKE FAILED: $*"
+            if [ -n "$PREV_REVISION" ]; then
+              echo "rollback (NOT run here; the operator's decision):"
+              echo "  gcloud run services update-traffic $SERVICE --to-revisions=$PREV_REVISION=100 --region $REGION --project $PROJECT"
+            else
+              echo "no revision was serving before this deploy; nothing to roll back to"
+            fi
+            exit 1
+          }
+          d() { gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" --format="$1"; }
+          REVISION="$(d 'value(status.latestCreatedRevisionName)')"
+          READY="$(d 'value(status.latestReadyRevisionName)')"
+          TRAFFIC="$(d 'value(status.traffic[0].revisionName,status.traffic[0].percent)')"
+          [ -n "$REVISION" ] || fail "no revision was created"
+          [ "$READY" = "$REVISION" ] || fail "revision $REVISION is not the latest Ready revision"
+          [ "$(printf '%s' "$TRAFFIC" | tr -s '[:space:]' ' ' | sed 's/ $//')" = "$REVISION 100" ] || fail "revision $REVISION does not hold 100% of traffic"
+          REV_DIGEST="$(gcloud run revisions describe "$REVISION" --region "$REGION" --project "$PROJECT" --format='value(status.imageDigest)')"
+          case "$REV_DIGEST" in *"$DIGEST") ;; *) fail "revision runs a different image digest than the one pushed" ;; esac
+          URL="$(d 'value(status.url)')"
+          HEALTH="$(curl -fsS --max-time 20 "$URL/health")" || fail "/health did not answer"
+          printf '%s' "$HEALTH" | grep -q '"status" *: *"ok"' || fail "/health is not ok"
+          printf '%s' "$HEALTH" | tr -d '[:space:]' | grep -q '"migrations":{"checked":true,"pending":\[\]' \
+            || fail "/health does not report migrations checked with none pending"
+          curl -fsS --max-time 20 "$URL/version" | grep -q "\"sha\" *: *\"$SHA\"" || fail "/version does not report $SHA"
+          curl -fsS --max-time 20 "https://$SITE.web.app/" | grep -q 'id="root"' || fail "web site $SITE does not serve its root"
+          echo "deployed. env=$ENV_NAME revision=$REVISION image=$DIGEST sha=$SHA (previous: ${PREV_REVISION:-none})"

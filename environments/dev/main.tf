@@ -318,6 +318,44 @@ module "sync_usgs_water" {
   depends_on = [module.project]
 }
 
+# The three syncs the app's registry defines and no environment scheduled (ecofolk-infra#174, ecofolk#1220), each at
+# the registry cadence verbatim, all outside #14's stop window, same OIDC pattern and SAME invoker as above:
+# sync-inaturalist 30 5 * * *, sync-soils 0 6 2 * *, sync-noaa-weather 0 6 1 * * (all America/Chicago).
+# sync-noaa-weather is wired here because the API maps NOAA_CDO_TOKEN in this environment (api_secret_env); the app
+# registers that job only when the token is set, so wiring it where it is unset would fail every month.
+module "sync_inaturalist" {
+  source           = "../../modules/sync_inaturalist"
+  project_id       = var.project_id
+  env              = local.env
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = local.sweep_invoker_email
+
+  depends_on = [module.project]
+}
+
+module "sync_soils" {
+  source           = "../../modules/sync_soils"
+  project_id       = var.project_id
+  env              = local.env
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = local.sweep_invoker_email
+
+  depends_on = [module.project]
+}
+
+module "sync_noaa_weather" {
+  source           = "../../modules/sync_noaa_weather"
+  project_id       = var.project_id
+  env              = local.env
+  region           = module.project.region
+  api_url          = local.api_base_url
+  invoker_sa_email = local.sweep_invoker_email
+
+  depends_on = [module.project]
+}
+
 # sync-health (ecofolk-infra#156, ecofolk#1349): one Cloud Scheduler job POSTs {api}/internal/sync-health daily at
 # 07:15 America/Chicago (the app's registry cadence, after the other syncs) and outside #14's stop window. Same OIDC pattern and SAME invoker
 # as the jobs above; no new SA, binding or actAs. The alert on its `sync_health_failed` lines is in module.monitoring.
@@ -477,6 +515,9 @@ output "scheduler_jobs" {
     module.sql_off_hours.scheduler_jobs,
     module.idle_sit_sweep.scheduler_jobs,
     module.sync_usgs_water.scheduler_jobs,
+    module.sync_inaturalist.scheduler_jobs,
+    module.sync_soils.scheduler_jobs,
+    module.sync_noaa_weather.scheduler_jobs,
     module.sync_health.scheduler_jobs,
   )
   description = "Every Cloud Scheduler job in the dev composition: name, schedule and time_zone (#99)."
@@ -497,6 +538,9 @@ output "resource_names" {
     module.migrate_job.resource_names,
     module.idle_sit_sweep.resource_names,
     module.sync_usgs_water.resource_names,
+    module.sync_inaturalist.resource_names,
+    module.sync_soils.resource_names,
+    module.sync_noaa_weather.resource_names,
     module.sync_health.resource_names,
     module.secrets.resource_names,
     module.auth.resource_names,

@@ -66,7 +66,7 @@ run "no_secret_env_by_default_and_image_is_left_to_deploys" {
 
   # lifecycle blocks are not in the plan: read the source.
   assert {
-    condition     = can(regex("ignore_changes\\s*=\\s*\\[template\\[0\\]\\.template\\[0\\]\\.containers\\[0\\]\\.image\\]", file("${path.module}/main.tf")))
+    condition     = can(regex("ignore_changes\\s*=\\s*\\[template\\[0\\]\\.template\\[0\\]\\.containers\\[0\\]\\.image,\\s*client,\\s*client_version\\]", file("${path.module}/main.tf")))
     error_message = "the module must ignore later image changes (the deploy script owns the image)"
   }
 

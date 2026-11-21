@@ -276,8 +276,8 @@ module "auth" {
 
 # Private GCS media bucket in Montréal (#21).
 #
-# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectAdmin for the API's runtime service account on
-# this bucket only. IAM is not managed in this public repo.
+# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectUser (not objectAdmin, #164) for the API's runtime
+# service account on this bucket only. IAM is not managed in this public repo.
 module "media_bucket" {
   source     = "../../modules/media_bucket"
   project_id = local.project_id

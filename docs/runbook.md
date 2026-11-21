@@ -630,3 +630,50 @@ Ordering rules learned the hard way. Each applies to every go-live paste, dev or
   *Source: ecofolk-infra#135. Four nightly exports failed 2026-10-17 to 2026-10-20 because the instance
   service account lacked object-create on the export bucket until the 2026-10-20 L-slot paste applied
   the gated grant.*
+
+---
+
+## 7. Session-triggered app deploy (ecofolk-infra#165)
+
+`.github/workflows/deploy-app.yml` replaces the Cloud Shell deploy sittings. `scripts/deploy/deploy-dev.sh` in
+ecofolk stays as the break-glass path.
+
+**Run it** (from a session, on this repo's `main`):
+
+```bash
+gh workflow run deploy-app.yml -R rosebud785/ecofolk-infra -f env=dev -f sha=<40-hex ecofolk main commit>
+```
+
+Dev runs on its own. **`env=prod` is not enabled yet**: step 1 refuses it ("prod deploys are not enabled until the #165
+§A job split") and the job's `if: inputs.env == 'dev'` skips it before any `environment:` reference, so a prod dispatch
+cannot auto-create `gcp-prod`. When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
+older main sha; the run prints the previous serving revision and the one-line traffic rollback.
+
+**What it refuses** (as deploy-dev.sh does): a sha not reachable from ecofolk main; not exactly one merged PR; any
+required check that is not SUCCESS on the merged head (SKIPPED refuses); a missing `VITE_*` value or a `demo-*`
+project id; a failed check-config or migrate job (the API is then not deployed). It never passes env, secret or
+service-account flags to Cloud Run. The old "listening in the startup log" smoke check is dropped (dev logs at warn);
+`/health` (migrations checked, none pending), `/version == sha` and the web root replace it.
+
+**Per environment (`gcp-dev`, later `gcp-prod`)**
+
+| Kind | Name | Value |
+|---|---|---|
+| variable | `GCP_PROJECT_ID`, `GCP_REGION` | the project id, `northamerica-northeast1` |
+| variable | `GCP_WIF_PROVIDER` | the Workload Identity provider resource name |
+| variable | `GCP_DEPLOY_SA` | the `ecofolk-deploy` SA email |
+| variable (optional) | `AR_REPO`, `API_SERVICE`, `MIGRATE_JOB`, `CHECK_CONFIG_JOB` | defaults `ecofolk`, `ecofolk-api`, `ecofolk-migrate`, `ecofolk-check-config` |
+| secret | `ECOFOLK_READ_TOKEN` | fine-grained token on `rosebud785/ecofolk` only: Contents, Pull requests, Metadata, Administration (read only) |
+
+**These are per-environment ONLY, never repository-level** variables or secrets: a repo-level value would be visible to
+every environment (and to a future `gcp-prod` before its reviewer gate exists). Set them on the Environment itself.
+
+`gcp-prod` also needs Andy as a required reviewer and deployment branches limited to `main`.
+
+**Identity (a bootstrap paste, section B of the issue; the Deployer writes it, QA checks it before Andy runs it).**
+Until it runs the workflow cannot authenticate. It must: add `attribute.workflow_ref` to the provider's mapping; trust
+`ecofolk-deploy` only for `deploy-app.yml@refs/heads/main`; narrow `tf-apply`'s trust to `infra-apply.yml@refs/heads/main`
+(required, so this workflow cannot ask for `tf-apply`'s token); and keep `ecofolk-deploy`'s roles narrow. It must also
+grant `ecofolk-deploy` a role carrying `firebase.clients.get` (ecofolk-infra#173), found by `gcloud iam roles describe`,
+because the web key is read with `firebase apps:sdkconfig`. Then run the negative probes: a non-main ref, another
+workflow on main, and this workflow asking for `tf-apply` must each be REFUSED.

@@ -20,6 +20,9 @@ Current jobs:
 | `sql_export` | `modules/cloudsql` | `15 5 * * *` | No (05:15) |
 | `idle-sit-sweep` | `modules/idle_sit_sweep` | `0 5-21/2 * * *` in `environments/dev` | No (05:00–21:00) |
 | `sync-usgs-water` | `modules/sync_usgs_water` (#98; cadence from ef PR #1105) | `0 5,11,17 * * *` | No (05:00, 11:00, 17:00); enforced by this job and its tftest |
+| `sync-inaturalist` | `modules/sync_inaturalist` (#174) | `30 5 * * *` | No (05:30); dev and prod |
+| `sync-soils` | `modules/sync_soils` (#174) | `0 6 2 * *` | No (06:00, monthly on the 2nd); dev and prod |
+| `sync-noaa-weather` | `modules/sync_noaa_weather` (#174) | `0 6 1 * *` | No (06:00, monthly on the 1st); **dev only**, until the prod API maps `NOAA_CDO_TOKEN` |
 | `sync-health` | `modules/sync_health` (#156) | `15 7 * * *` | No (07:15); enforced by this job and its tftest. After the last scheduled sync: the app's registry puts iNat at 05:30, usgs at 05/11/17 and the monthly jobs at 06:00 on the 1st/2nd |
 
 The `idle_sit_sweep` module default (`0 */2 * * *`) does run inside the window (00:00, 02:00, 04:00).

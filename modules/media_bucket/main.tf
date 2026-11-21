@@ -16,8 +16,9 @@
 #
 # Needs storage.googleapis.com (modules/project); callers order it with `depends_on`.
 #
-# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectAdmin for the Cloud Run API's runtime service
-# account, on this bucket only. IAM is never written in this repo by a cloud session. No HMAC key is ever
+# LOCAL FOLLOW-UP (L-RUN, ecofolk#890): roles/storage.objectUser (not objectAdmin, #164) for the Cloud Run API's
+# runtime service account, on this bucket only. objectUser covers every call the API makes (create, get, list,
+# delete); it has no object or managed-folder IAM admin, which the API never uses. IAM is never written in this repo by a cloud session. No HMAC key is ever
 # created: the app reaches the bucket through ADC (ecofolk#926).
 locals {
   # #13: dev and prod keep their names (each owns its project); a namespace env (qa) gets -<env>.

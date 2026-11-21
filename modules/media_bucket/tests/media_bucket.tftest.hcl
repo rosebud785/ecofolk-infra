@@ -114,6 +114,23 @@ run "labels_include_env" {
   }
 }
 
+# ecofolk-infra#164: the module declares no IAM, so the role the API's runtime SA must hold on this bucket is
+# recorded in main.tf's LOCAL FOLLOW-UP comment. It must name objectUser and must not name objectAdmin as the grant.
+run "follow_up_names_object_user_not_object_admin" {
+  command = plan
+
+  assert {
+    condition     = can(regex("roles/storage\\.objectUser \\(not objectAdmin", file("${path.module}/main.tf")))
+    error_message = "the LOCAL FOLLOW-UP must name roles/storage.objectUser as the API runtime SA's role (#164)"
+  }
+
+  # Known-wrong: the pre-#164 wording granted objectAdmin. Only the "not objectAdmin" mention may remain.
+  assert {
+    condition     = !can(regex("roles/storage\\.objectAdmin for", file("${path.module}/main.tf")))
+    error_message = "main.tf must not say the API SA is granted roles/storage.objectAdmin (#164)"
+  }
+}
+
 run "module_declares_no_iam_or_key" {
   command = plan
 

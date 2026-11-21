@@ -49,6 +49,9 @@ locals {
   media_prefix = "${local.env}/"
 
   # Dev's existing runtime SA (#13: no new IAM): ecofolk-api-qa and ecofolk-migrate-qa both run as it.
+  # Firebase Auth (ecofolk-infra#170): that SA holds the hand-managed custom role ecofolkAuthUserManager
+  # (firebaseauth.users.get + users.update) in the shared project, so QA needs no grant of its own.
+  # See docs/runbook.md section 6.
   runtime_sa_email = "${var.api_service_account_id}@${var.project_id}.iam.gserviceaccount.com"
 }
 

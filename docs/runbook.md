@@ -659,19 +659,22 @@ gcloud iam roles describe ecofolkAuthUserManager --project="$PROJECT" >/dev/null
 # 2. Grant it to the runtime SA, in the project only.
 gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:${SA}" \
-  --role="projects/${PROJECT}/roles/ecofolkAuthUserManager" --condition=None
+  --role="projects/${PROJECT}/roles/ecofolkAuthUserManager" --condition=None --format=none
 
 # 3. DEV ONLY, after step 2: remove the ecofolk#1465 stopgap.
 gcloud projects remove-iam-policy-binding "$PROJECT" \
-  --member="serviceAccount:${SA}" --role=roles/firebaseauth.viewer
+  --member="serviceAccount:${SA}" --role=roles/firebaseauth.viewer --format=none
 ```
+
+`--format=none` matters: both binding commands otherwise print the project's WHOLE IAM policy, every member
+included, into your terminal and any paste of it.
 
 **Checks (read the grant, not the plan).**
 
 ```bash
 gcloud iam roles describe ecofolkAuthUserManager --project="$PROJECT" --format='value(includedPermissions)'
 # expect exactly: firebaseauth.users.get;firebaseauth.users.update
-gcloud projects get-iam-policy "$PROJECT" --flatten=bindings[].members \
+gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
   --filter="bindings.members:serviceAccount:${SA}" --format='value(bindings.role)'
 # expect the custom role listed; in dev, roles/firebaseauth.viewer absent
 ```

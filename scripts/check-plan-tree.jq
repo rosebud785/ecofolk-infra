@@ -29,11 +29,17 @@ def everywhere: .. | objects;
 if $mode == "lock" then
   ((.provider // {}) | keys[] | select(providerok(.) | not) | err("lockfile provider \"" + . + "\" is not in the allowlist"))
 else
-  # 1. data sources that run a program or a request at plan time; 3. any resource/data of a provider that is not accepted
+  # 1. data sources that run a program or a request at plan time (named, for the clearest message)
   ((.data // {}) | keys[] | select(. == "external" or . == "http") | err("data \"" + . + "\" runs code or a request at plan time")),
-  (((.resource // {}) | keys[]), ((.data // {}) | keys[])
-     | select(test("^(external|http|local|null)(_.*)?$"))
-     | err("\"" + . + "\" belongs to a provider that is not accepted in a PR-time plan")),
+  # 3. (R6) resource and data TYPES are an ALLOWLIST: a type must start with the prefix of an allowlisted provider
+  # (google_ for google and google-beta, archive_ for archive: the provider's name before any hyphen, plus "_"). A
+  # denylist of dangerous names missed the BUILT-IN `terraform_remote_state`, whose backend and config are plain HCL (a
+  # plan-time request to any host carrying interpolated file() content: the runner's credential file). Everything not
+  # on the list is refused by name: terraform_remote_state, terraform_data, random_*, external_*, http_*, local_*, null_*…
+  (((.resource // {}) | keys[]), ((.data // {}) | keys[]) | . as $type
+     | ($allow | map(split("/")[1] | sub("-.*$"; "") + "_") | unique) as $prefixes
+     | select(any($prefixes[]; . as $p | $type | startswith($p)) | not)
+     | err("\"" + $type + "\" belongs to a provider that is not accepted in a PR-time plan (resource and data types must start with: " + ($prefixes | join(", ")) + ")")),
   # 2. providers: only the allowlisted ones, and the google ones take an ATTRIBUTE allowlist (R5)
   ((.provider // {}) | to_entries[] | .key as $name | .value as $cfgs
      | (if ($name | IN("external", "http", "local", "null")) then err("provider \"" + $name + "\" is not accepted in a PR-time plan")

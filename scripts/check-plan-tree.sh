@@ -12,8 +12,11 @@
 # Refuses (each a named failure, `file: message`; the parse tree has no line numbers):
 #   1. data "external" / data "http"  (a data source runs a program or a request at plan time)
 #   2. a provider block for external / http / local / null, or for a provider not on the allowlist
-#   3. a resource or data block of a type from those providers (external_*, http_*, local_*, null_*): the provider
-#      loads without a provider block, so rule 2 alone would miss it
+#   3. (R6) resource and data TYPES are an ALLOWLIST: only google_* and archive_* (the prefixes of the allowlisted
+#      providers). A denylist of provider names missed the BUILT-IN terraform_remote_state (a plan-time request to any
+#      host, with plain-HCL config); terraform_data, random_*, external_*, http_*, local_* and null_* go the same way
+#   3b. (R6 nit) an auto-loaded variable file in the planned root (terraform.tfvars, *.auto.tfvars, and their .json
+#      forms), which would override the workflow's own TF_VAR_ values
 #   4. any `provisioner` block
 #   5. any module `source` that is not a local path (./ or ../) that resolves INSIDE the tree (so every module that
 #      `init` loads has been read by these rules); any required_providers source outside the allowlist
@@ -88,6 +91,11 @@ read_nul lock_files < <(list_files -type f -name '.terraform.lock.hcl')
 read_nul link_files < <(list_files -type l)
 # A committed .terraform directory (modules/, providers/) is read by `init` but never by these rules.
 read_nul tfdirs < <(find "$dir" -name .git -prune -o -type d -name .terraform -print0)
+
+# Variable files in the planned root are loaded AUTOMATICALLY and override the workflow's own TF_VAR_ values. They add no
+# blocks, so this is not exploitable today; refusing them keeps the variable values the workflow's (Architect, R6 nit).
+read_nul tfvars_files < <(find "$dir/$root" -maxdepth 1 -type f \( -name 'terraform.tfvars' -o -name 'terraform.tfvars.json' -o -name '*.auto.tfvars' -o -name '*.auto.tfvars.json' \) -print0)
+for f in ${tfvars_files[@]+"${tfvars_files[@]}"}; do report "$f" "an auto-loaded variable file in the planned root is not accepted (the workflow's TF_VAR_ values are the only inputs)"; done
 
 for f in ${json_files[@]+"${json_files[@]}"}; do report "$f" "*.tf.json is not accepted (JSON HCL is not scanned)"; done
 for f in ${link_files[@]+"${link_files[@]}"}; do report "$f" "a symbolic link is not accepted"; done

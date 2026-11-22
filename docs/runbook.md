@@ -846,14 +846,19 @@ attributes that change, with destroy and replace called out at the top, and a ma
 `plan-record: <pr-head-sha> <hash>`. No value is posted, sensitive or not (this repo is public).
 
 **What it refuses before it plans** (`scripts/check-plan-tree.sh`, run from `main`'s copy, before `terraform init` and
-before auth): the PR is not open, is from a fork, or does not target `main`; the tree has a `data "external"` /
+before auth). It judges the **parse tree**, not the text: every `.tf` and lockfile goes through `hcl2json` (HashiCorp
+hcl/v2, the parser Terraform uses), pinned by sha256 in `scripts/fetch-hcl2json.sh` and fetched in CI only, so an
+unquoted label (`provider google {`) or a leading `/* … */` cannot hide a construct, and a file that does not parse is a
+refusal. Locally the rules are judged on committed JSON (`scripts/tests/hcl/cache/`), and CI proves that JSON is exactly
+what the pinned binary emits. The refusals: the PR is not open, is from a fork, or does not target `main`; the tree has a `data "external"` /
 `data "http"`, a provider `external` / `http` / `local` / `null` (or a resource of one), a `provisioner`, a module
 `source` that is not a local path, a `*.tf.json`, or a provider outside `PLAN_PROVIDER_ALLOWLIST` (in the workflow, on
 `main`: today `hashicorp/google`, `hashicorp/google-beta`, `hashicorp/archive`, exactly what the lockfiles hold). Also
 refused, because they run at plan time or pick where the credential goes: an `output_path` that is not exactly
 `"${path.root}/.terraform/tmp/<file name>"` (the archive data source WRITES a file at plan time); a backend that is not
 exactly one `backend "gcs"` with only `prefix = "<literal>"` in `environments/dev`, any `cloud` block, any backend of
-another type, any backend in a module; a `*_custom_endpoint` attribute; any symbolic link; and, in a `provider "google"`
+another type, any backend in a module; a `*_custom_endpoint` attribute; any symbolic link or committed `.terraform`
+directory; a local module whose path leaves the tree; any `.tf` or lockfile that does not parse; and, in a `provider "google"`
 or `"google-beta"` block, any attribute or nested block other than `project`, `region`, `zone`, `alias` and
 `default_labels` (an allowlist, so a credential, token, impersonation, universe or endpoint change, or anything a
 future provider version adds, is refused without anyone naming it). CI runs the same script on this repo's own tree, so

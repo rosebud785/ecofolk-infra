@@ -97,6 +97,16 @@ locals {
     "jsonPayload.msg=\"outbound_usage\"",
     "jsonPayload.throttled_429>0",
   ])
+  # ecofolk-infra#158 — the job's own "I ran" line. The alert above only pages when a bad line ARRIVES; a deploy
+  # gone wrong, a dropped logger, a log exclusion or a crashed job stop every line and look exactly like health.
+  # This line is written on every run, so its ABSENCE is the signal. Exact-message AND, as the two above.
+  sync_health_ran_filter = join(" AND ", [
+    "resource.type=\"cloud_run_revision\"",
+    "jsonPayload.msg=\"[job:sync-health] ran\"",
+  ])
+  # Same horizon rule as the stale-export alert (see below): 24 h < duration + alignment <= 25 h.
+  sync_health_absence_duration = "${var.sync_health_absence_duration_seconds}s" # 19 h
+  sync_health_alignment_period = "${var.sync_health_alignment_period_seconds}s" # 6 h
 
   # The job runs every 24 h. The API caps a metric-absence HORIZON, duration + alignment period
   # combined, at 25 h (an API-side check CI can't see: #111's first apply 400'd on 29.5 h), and the
@@ -427,12 +437,35 @@ resource "google_logging_metric" "outbound_429" {
   }
 }
 
+resource "google_logging_metric" "sync_health_ran" {
+  project     = var.project_id
+  name        = "ecofolk-sync-health-ran${local.env_suffix}"
+  description = "API log line '[job:sync-health] ran': the daily sync-health job finished a run. Its absence is the alert (ecofolk-infra#158)."
+  filter      = local.sync_health_ran_filter
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
 resource "google_monitoring_alert_policy" "sync_health" {
   project               = var.project_id
-  display_name          = "EcoFolk API: a sync failed or an outbound provider throttled us"
+  display_name          = "EcoFolk API: a sync failed, an outbound provider throttled us, or sync-health went silent"
   user_labels           = { env = var.env }
   combiner              = "OR"
   notification_channels = var.notification_channels
+
+  lifecycle {
+    precondition {
+      condition = (
+        var.sync_health_absence_duration_seconds + var.sync_health_alignment_period_seconds > 86400 &&
+        var.sync_health_absence_duration_seconds + var.sync_health_alignment_period_seconds <= 90000
+      )
+      error_message = "the sync-health absence horizon (absence duration + alignment period) must be over 24 h, or it pages every morning before the next daily run, and at most 25 h, the Monitoring API's cap on the two combined."
+    }
+  }
 
   conditions {
     display_name = "Any sync_health_failed line (5 min)"
@@ -476,9 +509,35 @@ resource "google_monitoring_alert_policy" "sync_health" {
     }
   }
 
+  conditions {
+    display_name = "No '[job:sync-health] ran' line (about 25 h)"
+
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.sync_health_ran.name}\" AND resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_LT"
+      threshold_value = 1
+      duration        = local.sync_health_absence_duration
+
+      # No data at all is a violation: a metric with no points is exactly the silent failure this catches.
+      evaluation_missing_data = "EVALUATION_MISSING_DATA_ACTIVE"
+
+      aggregations {
+        alignment_period     = local.sync_health_alignment_period
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
   documentation {
     mime_type = "text/markdown"
     content   = <<-EOT
+      **Silence (the third condition):** no `[job:sync-health] ran` line for about 25 h. The job did not run, or its lines are not arriving: check Cloud Scheduler → `sync-health` (last attempt), that the API revision is the real image and not the placeholder, and that no log exclusion or sink change swallowed `jsonPayload.msg="[job:sync-health] ran"`. On dev this pages while the placeholder image is still deployed (ecofolk#408); that is correct and expected.
+
       **What broke:** the API's daily `sync-health` job logged `sync_health_failed` (a watched sync has not succeeded within twice its cadence, or failed), or an `outbound_usage` line counted at least one HTTP 429 from an external provider (Nominatim or Open-Meteo).
 
       **First thing to check:** Cloud Run → `${var.api_service_name}` → Logs, filtered to `jsonPayload.msg="sync_health_failed"` (the `job` and `reason` fields name the sync) or `jsonPayload.msg="outbound_usage"` (the `provider` and `throttled_429` fields name who throttled). For a stale sync, check its Cloud Scheduler job ran (Scheduler → the job's last attempt) and the API's log for that job's own errors. For a 429, check whether a recent change raised that provider's request rate.

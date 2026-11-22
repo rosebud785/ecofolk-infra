@@ -1,0 +1,1 @@
+{"data":{"archive_file":{"a":[{"output_path":"${path.root}/.terraform/tmp/a.zip","source_dir":"${path.module}/src","type":"zip"}]}},"resource":{"google_storage_bucket":{"b":[{"name":"x"}]}}}

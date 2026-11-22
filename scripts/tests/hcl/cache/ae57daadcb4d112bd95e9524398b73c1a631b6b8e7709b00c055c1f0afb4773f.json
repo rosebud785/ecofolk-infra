@@ -1,0 +1,1 @@
+{"provider":{"google":[{"batching":[{"send_after":"3s"}],"project":"${var.project_id}"}]}}

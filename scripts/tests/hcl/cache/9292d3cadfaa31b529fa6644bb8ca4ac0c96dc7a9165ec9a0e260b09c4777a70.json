@@ -1,0 +1,1 @@
+{"provider":{"google":[{"project":"${local.project_id}"}],"google-beta":[{"project":"${local.project_id}"}]}}

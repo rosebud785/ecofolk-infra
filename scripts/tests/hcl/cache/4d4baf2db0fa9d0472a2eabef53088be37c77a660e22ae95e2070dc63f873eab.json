@@ -1,0 +1,1 @@
+{"provider":{"google":[{"default_labels":{"env":{"a":"b"}},"project":"${var.project_id}"}]}}

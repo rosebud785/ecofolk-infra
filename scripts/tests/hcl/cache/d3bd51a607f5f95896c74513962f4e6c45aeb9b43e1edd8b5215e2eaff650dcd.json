@@ -1,0 +1,1 @@
+{"module":{"a":[{"source":"../../modules/m"}]},"resource":{"google_storage_bucket":{"b":[{"name":"x"}]},"google_storage_bucket_object":{"o":[{"source":"${data.archive_file.s.output_path}"}]}}}

@@ -1,0 +1,1 @@
+{"provider":{"google":[{"external_credentials":[{"audience":"x"}],"project":"${var.project_id}"}]}}

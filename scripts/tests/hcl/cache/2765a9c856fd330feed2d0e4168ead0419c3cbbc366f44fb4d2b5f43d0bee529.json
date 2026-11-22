@@ -1,0 +1,1 @@
+{"data":{"archive_file":{"source":[{"output_path":"${path.root}/.terraform/tmp/billing-killswitch-source.zip","source_dir":"${path.module}/src","type":"zip"}]}}}

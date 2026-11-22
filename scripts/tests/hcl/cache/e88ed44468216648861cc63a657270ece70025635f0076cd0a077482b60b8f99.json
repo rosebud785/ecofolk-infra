@@ -1,0 +1,1 @@
+{"provider":{"google":[{"access_token":"x","project":"${var.project_id}"}]}}

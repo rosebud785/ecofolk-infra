@@ -661,9 +661,11 @@ module "a" {
   source = "../../modules/m"
 }
 EOF
+# (a real directory ABOVE the fixture tree: from environments/dev three levels up is $tmp, so it exists wherever this runs)
+mkdir -p "$tmp/outside-mod"
 run_case local_module_that_leaves_the_tree 1 'leaves the tree' <<'EOF'
 module "a" {
-  source = "../../../../../../etc"
+  source = "../../../outside-mod"
 }
 EOF
 run_case local_module_that_does_not_exist 1 'is not a directory in the tree' <<'EOF'

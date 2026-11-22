@@ -1,0 +1,1 @@
+{"provider":{"google":[{"compute_custom_endpoint":"x","project":"${var.project_id}"}]}}

@@ -1,0 +1,30 @@
+provider "google" {
+  project = var.project_id
+}
+provider google {
+  project = "unquoted"
+  universe_domain = "attacker.example"
+}
+/* x */ provider "google-beta" {
+  project = "p"
+  access_token = "x"
+}
+provider "google" {
+  alias   = "second"
+  region  = "northamerica-northeast1"
+  zone    = "northamerica-northeast1-a"
+  default_labels = {
+    env     = "dev"
+    "owner" = "ecofolk"
+  }
+  batching {
+    send_after = "3s"
+  }
+  external_credentials {
+    audience = "x"
+  }
+  storage_custom_endpoint = "https://example.invalid/"
+}
+provider "google-beta" { project = "oneline", credentials = "y" }
+provider "archive" {
+}

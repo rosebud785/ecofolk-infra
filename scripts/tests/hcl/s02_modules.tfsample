@@ -1,0 +1,16 @@
+module "local" {
+  source = "../../modules/m"
+}
+module "git" {
+  source = "git::https://example.invalid/x.git"
+}
+module "commented" {
+  /* x */ source = "git::https://example.invalid/y.git"
+}
+module registry {
+  source  = "terraform-google-modules/network/google"
+  version = "9.0.0"
+}
+module "interp" {
+  source = "./${var.dir}"
+}

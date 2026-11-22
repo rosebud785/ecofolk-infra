@@ -1,0 +1,21 @@
+locals {
+  env = "dev"
+  doc = <<-EOT
+    provider "google" {
+      credentials = "in a heredoc"
+    }
+  EOT
+}
+# provider "google" { credentials = "in a comment" }
+// data "external" "in_a_comment" {}
+/*
+provider "google" { credentials = "in a block comment" }
+*/
+resource "google_x" "dyn" {
+  dynamic "ingress" {
+    for_each = var.rules
+    content {
+      port = ingress.value
+    }
+  }
+}

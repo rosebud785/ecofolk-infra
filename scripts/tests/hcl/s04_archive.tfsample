@@ -1,0 +1,24 @@
+data "archive_file" "real" {
+  type        = "zip"
+  source_dir  = "${path.module}/src"
+  output_path = "${path.root}/.terraform/tmp/billing-killswitch-source.zip"
+}
+data "archive_file" "module_spelling" {
+  output_path = "${path.module}/.terraform/tmp/a_b-c.1.zip"
+}
+data "archive_file" "absolute" {
+  output_path = "/home/runner/work/_temp/_runner_file_commands/set_env_x"
+}
+data "archive_file" "var" {
+  output_path = "${var.dir}/x.zip"
+}
+data "archive_file" "local" {
+  output_path = local.out
+}
+data "archive_file" "fileset" {
+  output_path = tolist(fileset("/tmp", "x*"))[0]
+}
+data archive_file oneline { type = "zip", output_path = "/etc/cron.d/x" }
+resource "google_storage_bucket_object" "o" {
+  source = data.archive_file.real.output_path
+}

@@ -149,6 +149,17 @@ jobs:
       # R5 (Architect c7085505351): the repo's OWN tree against the plan workflow's allowlist, so a later rule that
       # refuses today's code fails here, at review, and not at the first plan dispatch. The allowlist is read from
       # infra-plan.yml, the one place it lives, so the two cannot drift.
+      # TEMPORARY PROBE (ecofolk-infra#162): print what the pinned hcl2json emits for each sample, so the jq rules are
+      # written against the real shape (hcl2json runs in CI only, Architect's ruling). Removed once the fixtures are committed.
+      - name: probe hcl2json output shape (temporary)
+        run: |
+          bin="$(bash scripts/fetch-hcl2json.sh "$RUNNER_TEMP/h2j")"
+          for f in scripts/tests/hcl/*sample; do
+            echo "=== $f"
+            rc=0; out="$("$bin" "$f" 2>"$RUNNER_TEMP/err")" || rc=$?
+            echo "rc=$rc"
+            if [ "$rc" = 0 ]; then printf '%s\n' "$out" | jq -S .; else echo "stderr: $(head -c 400 "$RUNNER_TEMP/err")"; fi
+          done
       - name: check-plan-tree on this repo's own tree
         run: |
           allow="$(sed -n "s/^[[:space:]]*PLAN_PROVIDER_ALLOWLIST:[[:space:]]*'\(.*\)'[[:space:]]*$/\1/p" .github/workflows/infra-plan.yml | head -n1)"

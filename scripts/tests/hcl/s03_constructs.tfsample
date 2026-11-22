@@ -1,0 +1,21 @@
+data "external" "quoted" {
+  program = ["id"]
+}
+data external unquoted {
+  program = ["id"]
+}
+data "http" "h" {
+  url = "https://example.invalid"
+}
+resource "null_resource" "n" {}
+resource "google_storage_bucket" "b" {
+  name = "a-${var.n}"
+  provisioner "local-exec" {
+    command = "id"
+  }
+}
+resource google_storage_bucket c {
+  provisioner local-exec {
+    command = "id"
+  }
+}

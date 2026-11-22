@@ -17,7 +17,9 @@ set -euo pipefail
 
 dir="${1:-.github/workflows}"
 # The only workflows allowed to hold id-token: write (and so to obtain WIF credentials). Added by ef#883.
-ALLOW_ID_TOKEN=(infra-apply.yml deploy-app.yml)
+# infra-plan.yml (ecofolk-infra#162, Architect ruling c7084664707): workflow_dispatch on protected main only; a
+# pull_request trigger on a workflow that holds id-token is refused by rule 2 whatever the file is called.
+ALLOW_ID_TOKEN=(infra-apply.yml deploy-app.yml infra-plan.yml)
 
 fail=0
 report() { echo "$1:$2: $3"; fail=1; }

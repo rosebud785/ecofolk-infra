@@ -1,10 +1,12 @@
 name: Infra apply (Terraform dev)
 
-# ef#827 / ef#883 — keyless Terraform apply for the dev project (Architect design §6). The ONLY workflow
-# allowed `id-token: write` (scripts/check-workflows.sh's allowlist), and it runs on push to main only:
-# no pull_request trigger, so no PR path can obtain a token, and there is no PR-time `plan` (E4). A PR
-# gets fmt / validate / tflint / region-pin from ci.yml; the apply's own fresh plan is the first
-# real plan, and review is the merge gate.
+# ef#827 / ef#883 — keyless Terraform apply for the dev project (Architect design §6). One of the workflows
+# allowed `id-token: write` (scripts/check-workflows.sh's allowlist: this, infra-plan.yml, deploy-app.yml), and it
+# runs on push to main only: no pull_request trigger, so no PR path can obtain a token. A PR gets fmt / validate
+# / tflint / region-pin from ci.yml. A reviewer can read the REAL dev plan of a PR before it merges
+# (ecofolk-infra#162): infra-plan.yml, a main-only workflow_dispatch naming the PR, posts a names-only plan and a
+# `plan-record`. This apply still re-plans and applies its own saved plan, but REFUSES (scripts/check-plan-record.sh,
+# the step "Refuse unless the reviewed plan is this plan") unless that record matches its plan.
 #
 # No GCP key exists anywhere. The job exchanges its GitHub OIDC token through Workload Identity
 # Federation for tf-apply's short-lived token. GCP trusts it only for THIS repo's refs/heads/main
@@ -63,6 +65,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      pull-requests: read # the refuse-on-diff step reads the merged PR and its plan-record comment (#162)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -121,6 +124,7 @@ jobs:
       # A fresh plan, saved. -detailed-exitcode: 0 = no changes, 2 = changes, 1 = error. Any change is a
       # failure until TF_APPLY_ENABLED is 'true' (see the header): the first run cannot apply.
       - name: Plan
+        id: plan
         working-directory: ${{ env.TF_DIR }}
         env:
           TF_APPLY_ENABLED: ${{ vars.TF_APPLY_ENABLED }}
@@ -137,7 +141,29 @@ jobs:
             echo "::error::plan has changes and TF_APPLY_ENABLED is not 'true': refusing (this run cannot apply)"
             exit 1
           fi
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
           echo "plan exit code: $rc (0 = No changes)"
+
+      # ecofolk-infra#162 (Architect ruling c7084664707): refuse-on-diff. A plan with changes applies only if the plan
+      # a reviewer could read on the merged PR (infra-plan.yml's `plan-record` comment, posted by github-actions[bot])
+      # is the plan computed HERE. Everything below is a refusal that applies nothing and fails the run, which is the
+      # page: recovery is a fresh infra-plan dispatch on the PR's head, then a re-run of this apply.
+      #   * no merged PR for this commit, or more than one;
+      #   * the merge commit's tree is not the PR head's tree (strict "up to date" protection gives equality; a PR
+      #     merged behind main would apply code nobody planned);
+      #   * no plan-record comment for that head sha, or its hash is not the hash of this plan.
+      # The one exception is a PR whose tree infra-plan.yml REFUSED statically (a data source or provider that runs code
+      # at plan time): its record says `static-refused`, nobody could read a plan, and apply's own plan is the first
+      # one, as before this change. The LATEST record for the head wins, so a re-dispatch supersedes an older one.
+      - name: Refuse unless the reviewed plan is this plan
+        if: steps.plan.outputs.rc == '2' && vars.TF_APPLY_ENABLED == 'true'
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          terraform show -json -no-color "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json" \
+            || { echo "::error::REFUSED (nothing applied): could not read the saved plan"; exit 1; }
+          bash "$GITHUB_WORKSPACE/scripts/check-plan-record.sh" "$RUNNER_TEMP/plan.json"
 
       # The SAVED plan, with the lock held: what runs is exactly what was just planned.
       - name: Apply

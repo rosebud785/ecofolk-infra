@@ -13,3 +13,10 @@
 /.gitleaks.toml      @rosebud785
 /.gitleaksignore     @rosebud785
 /scripts/tests/test_secret_scan.sh  @rosebud785
+/scripts/check-plan-tree.sh  @rosebud785
+/scripts/check-plan-record.sh  @rosebud785
+/scripts/plan-summary.sh  @rosebud785
+/scripts/plan-summary.jq  @rosebud785
+/scripts/tests/test_check_plan_tree.sh  @rosebud785
+/scripts/tests/test_check_plan_record.sh  @rosebud785
+/scripts/tests/test_plan_summary.sh  @rosebud785

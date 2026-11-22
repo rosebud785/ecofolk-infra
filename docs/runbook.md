@@ -818,3 +818,106 @@ gcloud storage buckets get-iam-policy "$BUCKET" --flatten='bindings[].members' \
 **After it.** A dev upload, a media read and a delete (or the TTL sweep) still succeed as that SA. If any is
 refused, re-add `roles/storage.objectAdmin` with the step 1 command and report the denied call on #164.
 Out of scope: the export bucket's objectAdmin (P13), which #135 measured as needed.
+
+---
+
+## 10. PR-time plan: the read-only `tf-plan` identity (ecofolk-infra#162)
+
+`infra-plan.yml` lets a reviewer read the REAL dev `terraform plan` of an open PR before it merges (Architect ruling
+c7084664707, option B). IAM is hand-managed (ecofolk-infra#44), so the identity is a paste, not Terraform. Andy runs it
+(via the SME). **Order: the PR merges first, then this paste, then the first dispatch.** Nothing here runs before merge.
+
+**Run it** (from a session, on this repo's `main`; there is deliberately no `pull_request` trigger):
+
+```bash
+gh workflow run infra-plan.yml -R rosebud785/ecofolk-infra -f pr=<open PR number>
+```
+
+It posts a **names-only** comment on the PR: each changed resource's address, its actions and the NAMES of the
+attributes that change, with destroy and replace called out at the top, and a machine line
+`plan-record: <pr-head-sha> <hash>`. No value is posted, sensitive or not (this repo is public).
+
+**What it refuses before it plans** (`scripts/check-plan-tree.sh`, run from `main`'s copy, before `terraform init` and
+before auth): the PR is not open, is from a fork, or does not target `main`; the tree has a `data "external"` /
+`data "http"`, a provider `external` / `http` / `local` / `null` (or a resource of one), a `provisioner`, a module
+`source` that is not a local path, a `*.tf.json`, or a provider outside `PLAN_PROVIDER_ALLOWLIST` (in the workflow, on
+`main`: today `hashicorp/google`, `hashicorp/google-beta`, `hashicorp/archive`, exactly what the lockfiles hold). Such a
+PR gets a comment saying there is no PR-time plan and records `plan-record: <sha> static-refused`; the apply's own plan
+is then the first one, as before.
+
+**The drift rule.** `infra-apply.yml` still re-plans on merge and applies its own saved plan, but a plan WITH changes
+applies only if `scripts/check-plan-record.sh` finds, for the merged PR: the merge commit's tree equals the PR head's
+tree (use strict "up to date" branch protection, or merge only a PR that is current with `main`), and the latest
+`plan-record` from `github-actions[bot]` for that head has the hash of the apply's own plan (or says `static-refused`).
+No record, a different tree or a different hash: the apply REFUSES, applies nothing, and the run goes red. Recovery is a
+fresh `infra-plan.yml` dispatch on the PR's head, then a re-run of the apply. While `TF_APPLY_ENABLED` is not `true` the
+existing gate already refuses any change; that behaviour is kept.
+
+**Variables.** One new repo variable: `GCP_PLAN_SA` (the `tf-plan` SA email). It reuses `GCP_PROJECT_ID`,
+`GCP_WIF_PROVIDER`, `TF_STATE_BUCKET`, `ALERT_CHANNEL_IDS` and the two log-filter variables. Repository-level, because
+the plan job names no Environment (a read-only identity bound to a workflow file on `main`).
+
+**The paste (copy it; nothing in it is a value).** Section 7's step "add `attribute.workflow_ref` to the provider's
+mapping" must already have run; step 4 below checks it.
+
+```bash
+PROJECT=<dev-project-id>
+STATE_BUCKET=<tf-state-bucket>          # the repo variable TF_STATE_BUCKET
+POOL=<workload-identity-pool-id>        # the pool that GCP_WIF_PROVIDER belongs to
+PROVIDER=<workload-identity-provider-id>
+REPO=rosebud785/ecofolk-infra
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+PLAN_SA="tf-plan@${PROJECT}.iam.gserviceaccount.com"
+
+# 1. The identity: read-only, no key.
+gcloud iam service-accounts describe "$PLAN_SA" --project="$PROJECT" >/dev/null 2>&1 || \
+  gcloud iam service-accounts create tf-plan --project="$PROJECT" \
+    --display-name="Terraform PR-time plan (read-only)"
+
+# 2. Its roles: read the project, read the state (objectViewer on the state bucket ONLY), read Secret Manager METADATA.
+#    NEVER roles/secretmanager.secretAccessor.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${PLAN_SA}" --role=roles/viewer --condition=None --format=none
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${PLAN_SA}" --role=roles/secretmanager.viewer --condition=None --format=none
+gcloud storage buckets add-iam-policy-binding "gs://${STATE_BUCKET}" \
+  --member="serviceAccount:${PLAN_SA}" --role=roles/storage.objectViewer --format=none
+
+# 3. Trust: ONLY infra-plan.yml at refs/heads/main may impersonate it. The workflow_ref value carries the repository
+#    name, so the repository is pinned by the same condition.
+gcloud iam service-accounts add-iam-policy-binding "$PLAN_SA" --project="$PROJECT" \
+  --role=roles/iam.workloadIdentityUser --format=none \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.workflow_ref/${REPO}/.github/workflows/infra-plan.yml@refs/heads/main"
+
+# 4. The provider must map workflow_ref (section 7), or step 3 trusts nothing.
+gcloud iam workload-identity-pools providers describe "$PROVIDER" --workload-identity-pool="$POOL" \
+  --location=global --project="$PROJECT" --format='value(attributeMapping)' | tr ',' '\n' | grep -c 'workflow_ref'
+# expect 1 or more
+
+# 5. The repo variable.
+gh variable set GCP_PLAN_SA --repo "$REPO" --body "$PLAN_SA"
+```
+
+**Check (read the grants, not the plan).**
+
+```bash
+# roles on the project: expect exactly roles/viewer and roles/secretmanager.viewer
+gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:${PLAN_SA}" --format='value(bindings.role)'
+# on the state bucket: expect exactly roles/storage.objectViewer
+gcloud storage buckets get-iam-policy "gs://${STATE_BUCKET}" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:${PLAN_SA}" --format='value(bindings.role)'
+# who may impersonate it: expect exactly the one principalSet from step 3
+gcloud iam service-accounts get-iam-policy "$PLAN_SA" --project="$PROJECT" --format='value(bindings.members)'
+# no user-managed keys: expect no output
+gcloud iam service-accounts keys list --iam-account="$PLAN_SA" --managed-by=user --project="$PROJECT" --format='value(name)'
+```
+
+**Negative probes (each must be REFUSED):** `deploy-app.yml` on `main` asking for `tf-plan`; `infra-plan.yml` on any
+ref other than `main` asking for `tf-plan`; `infra-plan.yml` on `main` asking for `tf-apply` (section 7 narrowed
+`tf-apply`'s trust to `infra-apply.yml@refs/heads/main`).
+
+**After it.** The first dispatch on a real PR proves the role set. If a read is refused (403), the plan job's log names
+the permission: add the narrowest read role that covers it, name it on #162, and re-run. Do not grant anything that
+can write, and do not grant `secretAccessor`. Prod is the same mechanism with its own plan SA once `environments/prod`
+exists, under ecofolk#400's gates.

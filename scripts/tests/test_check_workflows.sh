@@ -121,6 +121,69 @@ jobs:
       - uses: actions/checkout@$SHA
 EOF2
 
+# ecofolk-infra#162: infra-plan.yml is allowlisted for a guarded workflow_dispatch, and ONLY for that.
+run_case rule2_infra_plan_dispatch_on_main_ok pass - infra-plan.yml <<EOF2
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' && github.ref_protected
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule2_infra_plan_with_pull_request_trigger fail 'triggered by pull_request' infra-plan.yml <<EOF2
+on:
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' && github.ref_protected
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+run_case rule2_infra_plan_dispatch_without_guard fail 'without an .if: github.ref' infra-plan.yml <<EOF2
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
+# The same trigger on a not-allowlisted name is still refused (the allowlist, not the trigger, is the first gate).
+run_case rule2_plan_like_name_outside_allowlist fail 'outside the allowlist' infra-plan-extra.yml <<EOF2
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    if: github.ref == 'refs/heads/main' && github.ref_protected
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@$SHA
+EOF2
+
 run_case rule3_secret_on_pr fail 'secrets\.\* referenced' bad3.yml <<EOF2
 on:
   pull_request:

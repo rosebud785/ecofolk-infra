@@ -166,8 +166,8 @@ jobs:
           exit $fail
       - name: the committed hcl2json answers are what the real parser emits
         run: bash scripts/tests/hcl/verify-hcl-cache.sh "$RUNNER_TEMP/h2j-record"
-      - name: dump the recorded answers (TEMPORARY, to commit the cache)
-        if: always()
+      - name: on a cache mismatch, print the recorded answers (to commit them; harvest the lines after @@@)
+        if: failure()
         run: |
           for r in "$RUNNER_TEMP"/h2j-record/*; do [ -e "$r" ] || continue; echo "@@@ $(basename "$r")"; cat "$r"; done
       - run: bash scripts/tests/test_plan_summary.sh

@@ -11,6 +11,10 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 failures=0
 ALLOW=hashicorp/google,hashicorp/google-beta,hashicorp/archive
+# hcl2json runs ONLY in CI (Architect, infra#162). Locally the guard is run with a stand-in that answers from committed
+# JSON (hcl/cache/, keyed by the file's content); in CI it runs the real, sha256-pinned binary (H2J_REAL), the answers
+# are recorded (H2J_RECORD), and verify-hcl-cache.sh proves every committed answer is what the real binary emits.
+export HCL2JSON="$here/hcl/hcl2json-cached.sh"
 
 LOCK_OK='provider "registry.terraform.io/hashicorp/google" {
   version = "5.1.0"
@@ -58,10 +62,10 @@ resource "google_storage_bucket_object" "o" {
 
 run_case clean 0 'ok \(' <<<"$CLEAN"
 
-run_case data_external 1 'main.tf:1: data "external"' <<'EOF'
+run_case data_external 1 'main.tf: data "external"' <<'EOF'
 data "external" "x" { program = ["sh", "-c", "id"] }
 EOF
-run_case data_http 1 'main.tf:1: data "http"' <<'EOF'
+run_case data_http 1 'main.tf: data "http"' <<'EOF'
 data "http" "x" { url = "https://example.invalid" }
 EOF
 run_case provider_external 1 'provider "external"' <<'EOF'
@@ -77,13 +81,13 @@ run_case provider_null 1 'provider "null"' <<'EOF'
 provider "null" {}
 EOF
 # The provider loads with no provider block, so a resource of its type is its own refusal.
-run_case resource_null_resource 1 'resource "null_resource"' <<'EOF'
+run_case resource_null_resource 1 '"null_resource" belongs to a provider' <<'EOF'
 resource "null_resource" "x" {}
 EOF
-run_case resource_local_file 1 'resource "local_file"' <<'EOF'
+run_case resource_local_file 1 '"local_file" belongs to a provider' <<'EOF'
 resource "local_file" "x" { filename = "a" }
 EOF
-run_case data_local_file 1 'data "local_file"' <<'EOF'
+run_case data_local_file 1 '"local_file" belongs to a provider' <<'EOF'
 data "local_file" "x" { filename = "a" }
 EOF
 run_case provisioner 1 'provisioner blocks' <<'EOF'
@@ -93,40 +97,40 @@ resource "google_storage_bucket" "b" {
   }
 }
 EOF
-run_case indented_provisioner 1 'main.tf:3: provisioner blocks' <<'EOF'
+run_case indented_provisioner 1 'main.tf: provisioner blocks' <<'EOF'
 resource "google_storage_bucket" "b" {
   name = "x"
 	provisioner "local-exec" {}
 }
 EOF
-run_case module_git_source 1 'source "git::https://example.invalid/m.git" is neither' <<'EOF'
+run_case module_git_source 1 'source "git::https://example.invalid/m.git" is not a local path' <<'EOF'
 module "a" {
   source = "git::https://example.invalid/m.git"
 }
 EOF
-run_case module_registry_source 1 'source "terraform-google-modules/network/google" is neither' <<'EOF'
+run_case module_registry_source 1 'source "terraform-google-modules/network/google" is not a local path' <<'EOF'
 module "a" {
   source = "terraform-google-modules/network/google"
 }
 EOF
-run_case module_github_source 1 'source "github.com/x/y" is neither' <<'EOF'
+run_case module_github_source 1 'source "github.com/x/y" is not a local path' <<'EOF'
 module "a" {
   source = "github.com/x/y"
 }
 EOF
-run_case module_http_source 1 'is neither' <<'EOF'
+run_case module_http_source 1 'is not a local path' <<'EOF'
 module "a" {
   source = "https://example.invalid/m.zip"
 }
 EOF
-run_case spaced_source 1 'is neither' <<'EOF'
+run_case spaced_source 1 'is not a local path' <<'EOF'
 module "a" {
   source="git::https://example.invalid/m.git"
 }
 EOF
 
 # A provider added in required_providers but not in the allowlist.
-LOCK="$LOCK_OK" run_case provider_not_allowlisted 1 'source "hashicorp/external" is neither' <<'EOF'
+LOCK="$LOCK_OK" run_case provider_not_allowlisted 1 'provider source "hashicorp/external" is not on the allowlist' <<'EOF'
 terraform {
   required_providers {
     external = {
@@ -135,7 +139,7 @@ terraform {
   }
 }
 EOF
-run_case provider_with_host_not_allowlisted 1 'source "registry.terraform.io/hashicorp/http" is neither' <<'EOF'
+run_case provider_with_host_not_allowlisted 1 'provider source "registry.terraform.io/hashicorp/http" is not on the allowlist' <<'EOF'
 terraform {
   required_providers {
     http = {
@@ -173,7 +177,7 @@ run_case comment_is_not_code 0 'ok \(' <<'EOF'
   # provider "null" {}
 resource "google_storage_bucket" "b" {}
 EOF
-run_case comment_does_not_hide_real_line 1 'main.tf:2: data "external"' <<'EOF'
+run_case comment_does_not_hide_real_line 1 'main.tf: data "external"' <<'EOF'
 # data "external" "decoy" {}
 data "external" "real" {}
 EOF
@@ -192,7 +196,7 @@ data "archive_file" "s" {
   output_path = "${path.module}/.terraform/tmp/a_b-c.1.zip"
 }
 EOF
-run_case output_path_absolute 1 'main.tf:2: output_path must be' <<'EOF'
+run_case output_path_absolute 1 'output_path must be' <<'EOF'
 data "archive_file" "s" {
   output_path = "/home/runner/work/_temp/_runner_file_commands/set_env_x"
 }
@@ -242,12 +246,12 @@ data "archive_file" "s" {
   output_path = "${path.root}/.terraform/tmp/sub/a.zip"
 }
 EOF
-run_case output_path_trailing_text 1 'output_path must be' <<'EOF'
+run_case output_path_trailing_comment_is_only_a_comment 0 'ok \(' <<'EOF'
 data "archive_file" "s" {
   output_path = "${path.root}/.terraform/tmp/a.zip" # fine
 }
 EOF
-run_case output_path_one_line_block 1 'output_path must be' <<'EOF'
+run_case output_path_one_line_block_with_two_arguments 1 'does not parse as HCL' <<'EOF'
 data "archive_file" "s" { type = "zip", output_path = "/etc/cron.d/x" }
 EOF
 run_case output_path_reading_it_is_fine 0 'ok \(' <<'EOF'
@@ -307,12 +311,12 @@ VERSIONS='terraform {
 }
 ' run_case gcs_backend_prefix_not_a_literal 1 'may set only prefix' <<<"$CLEAN"
 VERSIONS='terraform { backend "gcs" { prefix = "dev" } }
-' run_case gcs_backend_on_one_line 1 'must open at the end of its line' <<<"$CLEAN"
+' run_case gcs_backend_on_one_line 1 'does not parse as HCL' <<<"$CLEAN"
 # A backend (of any type) in a MODULE, and a second root with the wrong type.
 EXTRA_FILE=modules/m/main.tf EXTRA_BODY='terraform {
   backend "http" {}
 }
-' run_case second_backend_in_a_module 1 'modules/m/main.tf:2: backend "http" is not accepted' <<<"$CLEAN"
+' run_case second_backend_in_a_module 1 'modules/m/main.tf: backend "http" is not accepted' <<<"$CLEAN"
 EXTRA_FILE=modules/m/main.tf EXTRA_BODY='terraform {
   backend "gcs" {
     prefix = "x"
@@ -322,7 +326,7 @@ EXTRA_FILE=modules/m/main.tf EXTRA_BODY='terraform {
 EXTRA_FILE=environments/qa/main.tf EXTRA_BODY='terraform {
   backend "http" {}
 }
-' run_case other_root_with_http_backend 1 'environments/qa/main.tf:2: backend "http" is not accepted' <<<"$CLEAN"
+' run_case other_root_with_http_backend 1 'environments/qa/main.tf: backend "http" is not accepted' <<<"$CLEAN"
 # Positive control: another environment root with a gcs backend (as qa and prod have today) is fine.
 EXTRA_FILE=environments/qa/main.tf EXTRA_BODY='terraform {
   backend "gcs" {
@@ -341,7 +345,7 @@ VERSIONS='terraform {
 ' run_case backend_words_in_comments_are_not_code 0 'ok \(' <<<"$CLEAN"
 
 # ---- provider endpoint override, and symbolic links ----
-run_case custom_endpoint 1 'main.tf:2: a \*_custom_endpoint attribute' <<'EOF'
+run_case custom_endpoint 1 'a \*_custom_endpoint attribute' <<'EOF'
 provider "google" {
   storage_custom_endpoint = "https://example.invalid/"
 }
@@ -392,14 +396,14 @@ EOF
 for attr in credentials access_token impersonate_service_account impersonate_service_account_delegates \
   universe_domain scopes billing_project user_project_override request_reason \
   storage_custom_endpoint compute_custom_endpoint; do
-  run_case "provider_attr_$attr" 1 "main.tf:3: provider attribute or block \"$attr\" is not on the google provider's allowlist" <<EOF
+  run_case "provider_attr_$attr" 1 "attribute or block \"$attr\" is not on the google provider's allowlist" <<EOF
 provider "google" {
   project = var.project_id
   $attr = "x"
 }
 EOF
 done
-run_case provider_beta_attr_refused 1 'main.tf:3: provider attribute or block "credentials"' <<'EOF'
+run_case provider_beta_attr_refused 1 'attribute or block "credentials"' <<'EOF'
 provider "google-beta" {
   project = var.project_id
   credentials = "x"
@@ -429,7 +433,7 @@ provider "google" {
 }
 EOF
 # The attribute after a bad one, and a bad one hidden after good ones.
-run_case provider_bad_attribute_last 1 'main.tf:5: provider attribute or block "access_token"' <<'EOF'
+run_case provider_bad_attribute_last 1 'attribute or block "access_token"' <<'EOF'
 provider "google" {
   project = var.project_id
   region  = "x"
@@ -438,14 +442,14 @@ provider "google" {
 }
 EOF
 # A block closed on the same line cannot hide an attribute (the same way the backend rule treats it).
-run_case provider_closed_on_the_same_line 1 'must open its block at the end of the line' <<'EOF'
+run_case provider_closed_on_the_same_line 1 'does not parse as HCL' <<'EOF'
 provider "google" { project = "x", credentials = "y" }
 EOF
-run_case provider_one_line_empty_block 1 'must open its block at the end of the line' <<'EOF'
+run_case provider_one_line_empty_block_is_harmless 0 'ok \(' <<'EOF'
 provider "google" {}
 EOF
 # default_labels takes plain key = value lines only.
-run_case provider_default_labels_nested_block 1 'default_labels takes plain key = value' <<'EOF'
+run_case provider_default_labels_nested_block 1 'default_labels must be a map of plain' <<'EOF'
 provider "google" {
   project = var.project_id
   default_labels = {
@@ -456,7 +460,7 @@ provider "google" {
 }
 EOF
 # An attribute AFTER default_labels closes is still checked (depth is tracked, not assumed).
-run_case provider_attribute_after_default_labels 1 'main.tf:8: provider attribute or block "credentials"' <<'EOF'
+run_case provider_attribute_after_default_labels 1 'attribute or block "credentials"' <<'EOF'
 provider "google" {
   project = var.project_id
   default_labels = {
@@ -468,7 +472,7 @@ provider "google" {
 }
 EOF
 # An unclosed block is a refusal, not a pass.
-run_case provider_unclosed 1 'the google provider block is not closed' <<'EOF'
+run_case provider_unclosed 1 'does not parse as HCL' <<'EOF'
 provider "google" {
   project = var.project_id
 EOF
@@ -477,7 +481,7 @@ EXTRA_FILE=modules/m/main.tf EXTRA_BODY='provider "google" {
   project = "x"
   impersonate_service_account = "y"
 }
-' run_case provider_attr_in_a_module 1 'modules/m/main.tf:3: provider attribute or block "impersonate_service_account"' <<<"$CLEAN"
+' run_case provider_attr_in_a_module 1 'modules/m/main.tf: provider "google" attribute or block "impersonate_service_account"' <<<"$CLEAN"
 # Another provider's block is not this rule's business (archive has none to set, and is allowlisted).
 run_case other_provider_block_is_not_this_rule 0 'ok \(' <<'EOF'
 provider "archive" {
@@ -491,6 +495,196 @@ provider "google" {
 }
 EOF
 
+# ---- The parse tree, not the line (ef-qa HOLD c7086176386; Architect c7086246324). Every form Terraform accepts. ----
+# ef-qa's six bypass probes, each of which the old line scan ACCEPTED. All must be refused now.
+run_case p1_unquoted_provider_label 1 'provider "google" attribute or block "universe_domain"' <<'EOF'
+provider google {
+  project         = "p"
+  universe_domain = "attacker.example"
+}
+EOF
+run_case p2_comment_prefixed_provider 1 'provider "google" attribute or block "universe_domain"' <<'EOF'
+/* x */ provider "google" {
+  project         = "p"
+  universe_domain = "attacker.example"
+}
+EOF
+run_case p3_comment_prefixed_module_source 1 'source "git::https://example.invalid/x.git" is not a local path' <<'EOF'
+module "x" {
+  /* x */ source = "git::https://example.invalid/x.git"
+}
+EOF
+run_case p4_unquoted_data_external 1 'data "external" runs code' <<'EOF'
+data external x {
+  program = ["id"]
+}
+EOF
+run_case p5_unquoted_provisioner 1 'provisioner blocks' <<'EOF'
+resource google_storage_bucket b {
+  provisioner local-exec {
+    command = "id"
+  }
+}
+EOF
+run_case p6_unquoted_google_beta_label 1 'provider "google-beta" attribute or block "access_token"' <<'EOF'
+provider google-beta {
+  project      = "p"
+  access_token = "x"
+}
+EOF
+# The same forms where they are HARMLESS must pass: the guard judges what the HCL means, not how it is spelled.
+run_case unquoted_provider_label_with_allowed_attributes_passes 0 'ok \(' <<'EOF'
+provider google {
+  project = "p"
+  region  = "northamerica-northeast1"
+}
+/* x */ provider "google-beta" {
+  project = "p"
+}
+EOF
+run_case comment_prefixed_local_module_passes 0 'ok \(' <<'EOF'
+module "a" {
+  /* x */ source = "../../modules/m"
+}
+EOF
+# Identifier labels and a leading block comment on EVERY rule that matches a header or `source`.
+run_case unquoted_resource_of_a_refused_provider 1 '"null_resource" belongs to a provider' <<'EOF'
+resource null_resource n {}
+EOF
+run_case unquoted_data_of_a_refused_provider 1 '"local_file" belongs to a provider' <<'EOF'
+data local_file f {
+  filename = "a"
+}
+EOF
+run_case comment_prefixed_data_external 1 'data "external" runs code' <<'EOF'
+/* x */ data "external" "x" {
+  program = ["id"]
+}
+EOF
+run_case comment_prefixed_provisioner 1 'provisioner blocks' <<'EOF'
+resource "google_storage_bucket" "b" {
+  /* x */ provisioner "local-exec" {
+    command = "id"
+  }
+}
+EOF
+run_case comment_prefixed_output_path 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  /* x */ output_path = "/etc/cron.d/x"
+}
+EOF
+run_case unquoted_archive_with_a_bad_output_path 1 'output_path must be' <<'EOF'
+data archive_file s {
+  output_path = "/etc/cron.d/x"
+}
+EOF
+VERSIONS='terraform {
+  backend http {
+    address = "https://example.invalid"
+  }
+}
+' run_case unquoted_backend_http_in_the_root 1 'backend "http" is not accepted' <<<"$CLEAN"
+VERSIONS='terraform {
+  /* x */ backend "http" {
+    address = "https://example.invalid"
+  }
+}
+' run_case comment_prefixed_backend_http 1 'backend "http" is not accepted' <<<"$CLEAN"
+# An unquoted gcs backend IS the gcs backend: it counts, and it is held to prefix-only.
+VERSIONS='terraform {
+  backend gcs {
+    prefix = "dev"
+  }
+}
+' run_case unquoted_gcs_backend_counts_and_passes 0 'ok \(' <<<"$CLEAN"
+VERSIONS='terraform {
+  backend gcs {
+    prefix = "dev"
+    bucket = "someone-elses"
+  }
+}
+' run_case unquoted_gcs_backend_with_a_bucket 1 'may set only prefix' <<<"$CLEAN"
+VERSIONS='terraform {
+  cloud {
+    organization = "x"
+  }
+  backend "gcs" {
+    prefix = "dev"
+  }
+}
+' run_case cloud_block_beside_a_gcs_backend 1 'a cloud block is not accepted' <<<"$CLEAN"
+run_case unquoted_required_provider_not_allowlisted 1 'provider source "hashicorp/external" is not on the allowlist' <<'EOF'
+terraform {
+  required_providers {
+    external = {
+      source = "hashicorp/external"
+    }
+  }
+}
+EOF
+run_case required_provider_shorthand_string_form 1 'provider source "hashicorp/legacy" is not on the allowlist' <<'EOF'
+terraform {
+  required_providers {
+    legacy = "~> 1.0"
+  }
+}
+EOF
+run_case provider_block_for_a_provider_not_on_the_allowlist 1 'provider "random" is not on the allowlist' <<'EOF'
+provider "random" {}
+EOF
+
+# A file that does not PARSE is a refusal, never a pass (hcl2json says so; the guard cannot judge what it cannot read).
+run_case garbage_tf_does_not_parse 1 'does not parse as HCL' <<'EOF'
+resource "a" "b" {
+  name =
+EOF
+run_case unbalanced_braces_do_not_parse 1 'does not parse as HCL' <<'EOF'
+provider "google" {
+  project = "p"
+}
+}
+EOF
+LOCK='provider "registry.terraform.io/hashicorp/google" {
+  version =
+}
+' run_case garbage_lockfile_does_not_parse 1 'does not parse as HCL' <<<"$CLEAN"
+# Positive control for the parse-failure rule: the same file, repaired, is clean.
+run_case the_repaired_file_is_clean 0 'ok \(' <<'EOF'
+resource "a" "b" {
+  name = "x"
+}
+EOF
+
+# Local modules must stay INSIDE the tree: every module init loads has to be one these rules read.
+run_case local_module_inside_the_tree_passes 0 'ok \(' <<'EOF'
+module "a" {
+  source = "../../modules/m"
+}
+EOF
+run_case local_module_that_leaves_the_tree 1 'leaves the tree' <<'EOF'
+module "a" {
+  source = "../../../../../../etc"
+}
+EOF
+run_case local_module_that_does_not_exist 1 'is not a directory in the tree' <<'EOF'
+module "a" {
+  source = "../../modules/nothing-here"
+}
+EOF
+run_case module_source_with_an_interpolation 1 'is not a local path' <<'EOF'
+module "a" {
+  source = "./${var.dir}"
+}
+EOF
+run_case module_without_a_source 1 'has no literal source' <<'EOF'
+module "a" {
+  name = "x"
+}
+EOF
+# A committed .terraform directory is never scanned but init would read it.
+EXTRA_FILE=environments/dev/.terraform/modules/modules.json EXTRA_BODY='{"Modules":[]}' \
+  run_case committed_dot_terraform_directory 1 'a committed .terraform directory is not accepted' <<<"$CLEAN"
+
 # Fail closed on bad usage.
 out=$(bash "$guard" "$tmp/clean" "" 2>&1); rc=$?
 if [ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'allowlist is empty'; then echo "ok   empty_allowlist_is_an_error"; else echo "FAIL empty_allowlist_is_an_error: rc=$rc $out"; failures=$((failures + 1)); fi
@@ -503,8 +697,13 @@ if [ "$rc" = 2 ]; then echo "ok   malformed_allowlist_entry_is_an_error"; else e
 live_allow=$(grep -E '^[[:space:]]+PLAN_PROVIDER_ALLOWLIST:' "$repo/.github/workflows/infra-plan.yml" | head -n1 | sed -E "s/^[^:]+:[[:space:]]*//; s/['\"]//g")
 if [ -z "$live_allow" ]; then echo "FAIL live_allowlist: infra-plan.yml carries no PLAN_PROVIDER_ALLOWLIST"; failures=$((failures + 1))
 else
-  out=$(bash "$guard" "$repo" "$live_allow" 2>&1); rc=$?
-  if [ "$rc" = 0 ]; then echo "ok   live_tree_passes_the_workflows_allowlist"; else echo "FAIL live_tree: rc=$rc $out"; failures=$((failures + 1)); fi
+  # The live tree needs the REAL parser (its files change; nothing is cached for them): CI only.
+  if [ -n "${H2J_REAL:-}" ]; then
+    out=$(HCL2JSON="$H2J_REAL" bash "$guard" "$repo" "$live_allow" 2>&1); rc=$?
+    if [ "$rc" = 0 ]; then echo "ok   live_tree_passes_the_workflows_allowlist"; else echo "FAIL live_tree: rc=$rc $out"; failures=$((failures + 1)); fi
+  else
+    echo "skip live_tree_passes_the_workflows_allowlist (needs the real hcl2json: CI only, and CI's own-tree step runs it)"
+  fi
   # Differential: the lockfiles hold only those providers, and the allowlist is not wider than what they hold.
   held=$(grep -rhoE '^provider "registry.terraform.io/[^"]+"' --include=.terraform.lock.hcl "$repo/environments" "$repo/modules" 2>/dev/null | sed -E 's#^provider "registry.terraform.io/##; s#"$##' | sort -u | tr '\n' ',' | sed 's/,$//')
   want=$(printf '%s' "$live_allow" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')

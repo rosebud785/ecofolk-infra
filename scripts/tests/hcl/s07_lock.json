@@ -1,0 +1,19 @@
+{
+  "provider": {
+    "registry.terraform.io/hashicorp/external": [
+      {
+        "version": "2.0.0"
+      }
+    ],
+    "registry.terraform.io/hashicorp/google": [
+      {
+        "constraints": "~> 5.0",
+        "hashes": [
+          "h1:abc=",
+          "zh:def"
+        ],
+        "version": "5.1.0"
+      }
+    ]
+  }
+}

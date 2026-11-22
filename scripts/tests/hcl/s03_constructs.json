@@ -1,0 +1,59 @@
+{
+  "data": {
+    "external": {
+      "quoted": [
+        {
+          "program": [
+            "id"
+          ]
+        }
+      ],
+      "unquoted": [
+        {
+          "program": [
+            "id"
+          ]
+        }
+      ]
+    },
+    "http": {
+      "h": [
+        {
+          "url": "https://example.invalid"
+        }
+      ]
+    }
+  },
+  "resource": {
+    "google_storage_bucket": {
+      "b": [
+        {
+          "name": "a-${var.n}",
+          "provisioner": {
+            "local-exec": [
+              {
+                "command": "id"
+              }
+            ]
+          }
+        }
+      ],
+      "c": [
+        {
+          "provisioner": {
+            "local-exec": [
+              {
+                "command": "id"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "null_resource": {
+      "n": [
+        {}
+      ]
+    }
+  }
+}

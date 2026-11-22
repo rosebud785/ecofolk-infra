@@ -1,0 +1,25 @@
+{
+  "data": {
+    "archive_file": {
+      "oneline": [
+        {
+          "output_path": "/etc/cron.d/x"
+        }
+      ]
+    }
+  },
+  "module": {
+    "m": [
+      {
+        "source": "git::https://example.invalid/z.git"
+      }
+    ]
+  },
+  "provider": {
+    "google": [
+      {
+        "project": "oneline"
+      }
+    ]
+  }
+}

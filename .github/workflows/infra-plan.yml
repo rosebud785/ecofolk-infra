@@ -111,6 +111,12 @@ jobs:
       # 3. static refusals, before init and before auth. A refusal is a posted comment, not a red run: the reviewer is
       # told there is no PR-time plan. The refusal text quotes PR-authored source strings, so it is posted in a code
       # fence with backticks removed and is cut.
+      # The parser the static rules judge with: hcl2json at a pinned version, verified against a sha256 hardcoded in
+      # main's copy of this script (never the PR's), before anything of the PR's is parsed. Runs here, in CI, only.
+      - name: Fetch the pinned hcl2json
+        id: h2j
+        run: echo "bin=$(bash trusted/scripts/fetch-hcl2json.sh "$RUNNER_TEMP/h2j")" >> "$GITHUB_OUTPUT"
+
       - name: Static refusals on the PR tree
         id: static
         run: |
@@ -133,6 +139,7 @@ jobs:
           echo "refused=true" >> "$GITHUB_OUTPUT"
         env:
           HEAD_SHA: ${{ steps.resolve.outputs.head }}
+          HCL2JSON: ${{ steps.h2j.outputs.bin }}
 
       - name: Require the bootstrap variables
         if: steps.static.outputs.refused == 'false'

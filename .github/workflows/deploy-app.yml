@@ -221,6 +221,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------------------------
   build:
     needs: resolve
+    if: github.ref == 'refs/heads/main' && github.ref_protected && inputs.env == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: gcp-${{ inputs.env }}
@@ -291,6 +292,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------------------------
   deploy:
     needs: [resolve, build]
+    if: github.ref == 'refs/heads/main' && github.ref_protected && inputs.env == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: gcp-${{ inputs.env }}

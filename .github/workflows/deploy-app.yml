@@ -28,6 +28,8 @@ name: Deploy app (session-triggered)
 # per job that names it (resolve, build, deploy) until prod is enabled and that is reviewed. The jobs run only on this repo's
 # protected main (`if:` below); GCP trusts ONLY this workflow file at refs/heads/main for ecofolk-deploy
 # (attribute.workflow_ref, bootstrap paste #165 section B). That enforcement is on the GCP side, not in this file.
+# Residual (Architect, #185): build holds the read token; the exposure is read of ecofolk, the same class as the
+# checked-out source.
 #
 # This repo is public: run logs and artifacts are public. Names, digests and revision ids are printed, never an env
 # value. The checkout token and the access token are ::add-mask::ed. Inputs reach the shell only through env: variables.

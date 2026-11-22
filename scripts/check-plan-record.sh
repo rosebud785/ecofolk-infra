@@ -45,8 +45,14 @@ head_tree="$(gh api "repos/$repo/git/commits/$head" --jq .tree.sha)" || die "cou
 [ -n "$merge_tree" ] && [ "$merge_tree" = "$head_tree" ] \
   || die "the merged tree is not pull request #$pr's head tree: the plan that was reviewed is not this code"
 
+# A record is the LAST line of a comment by github-actions[bot] whose FIRST line is one of infra-plan.yml's two headers
+# (R4, Architect c7084973633). A record line anywhere else in a bot comment (a future workflow that echoes PR text, say)
+# is not a record. Whole-body CRs and trailing newlines are normalised first.
 comments="$(gh api --paginate "repos/$repo/issues/$pr/comments" \
-  --jq '.[] | select(.user.login == "github-actions[bot]") | .body')" || die "could not read pull request #$pr's comments"
+  --jq '.[] | select(.user.login == "github-actions[bot]")
+        | (.body | gsub("\r"; "") | rtrimstr("\n") | split("\n")) as $l
+        | select(($l[0] | startswith("### terraform plan (dev) for ")) or ($l[0] | startswith("### No PR-time plan for ")))
+        | $l[-1]')" || die "could not read pull request #$pr's comments"
 latest="$(printf '%s\n' "$comments" | grep -E "^plan-record: $head " | tail -n1 || true)"
 [ -n "$latest" ] || die "pull request #$pr has no plan-record for its head $head (run infra-plan.yml on it, then re-run this apply)"
 rec="${latest##* }"

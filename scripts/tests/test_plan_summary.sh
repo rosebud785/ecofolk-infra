@@ -49,6 +49,22 @@ jq '.resource_changes |= reverse' "$tmp/plan.json" >"$tmp/reordered.json"
 [ "$(bash "$tool" hash "$tmp/reordered.json")" = "$h0" ] && ok hash_ignores_order || bad hash_ignores_order
 jq '(.resource_changes[] | select(.address=="google_cloud_run_v2_service.api") | .change.after.image) = "another"' "$tmp/plan.json" >"$tmp/value.json"
 [ "$(bash "$tool" hash "$tmp/value.json")" = "$h0" ] && ok hash_ignores_values || bad hash_ignores_values
+# R3 (Architect c7084973633): same resource and same action, a DIFFERENT set of changed attribute names, is a different
+# hash (console drift between the plan and the merge that updates other attributes must not match). Identical plans
+# are identical, and a value-only change (same names) stays equal (hash_ignores_values above).
+jq '(.resource_changes[] | select(.address=="google_cloud_run_v2_service.api") | .change) |= (.before.timeout = "30s" | .after.timeout = "60s")' "$tmp/plan.json" >"$tmp/names.json"
+[ "$(bash "$tool" hash "$tmp/names.json")" != "$h0" ] && ok hash_moves_when_a_changed_attribute_name_is_added || bad hash_moves_when_a_changed_attribute_name_is_added
+jq '(.resource_changes[] | select(.address=="google_cloud_run_v2_service.api") | .change) |= (.before = {image:"old",name:"api",labels:"a"} | .after = {image:"new",name:"api",labels:"b"})' "$tmp/plan.json" >"$tmp/names2.json"
+[ "$(bash "$tool" hash "$tmp/names2.json")" != "$h0" ] && ok hash_moves_when_the_changed_names_differ_not_just_their_count || bad hash_moves_when_the_changed_names_differ_not_just_their_count
+cp "$tmp/plan.json" "$tmp/identical.json"
+[ "$(bash "$tool" hash "$tmp/identical.json")" = "$h0" ] && ok identical_plans_hash_identically || bad identical_plans_hash_identically
+# An attribute that is the same before and after is not a changed name.
+jq '(.resource_changes[] | select(.address=="google_cloud_run_v2_service.api") | .change) |= (.before.same = "x" | .after.same = "x")' "$tmp/plan.json" >"$tmp/unchanged_attr.json"
+[ "$(bash "$tool" hash "$tmp/unchanged_attr.json")" = "$h0" ] && ok an_unchanged_attribute_is_not_a_changed_name || bad an_unchanged_attribute_is_not_a_changed_name
+# The hash covers the FULL name list even where the comment cuts it at 20.
+jq '(.resource_changes[] | select(.address=="google_secret_manager_secret.new") | .change.after) += ([range(0;30)|{key:("k"+tostring),value:1}]|from_entries)' "$tmp/plan.json" >"$tmp/wide2.json"
+jq '(.resource_changes[] | select(.address=="google_secret_manager_secret.new") | .change.after) += ([range(0;31)|{key:("k"+tostring),value:1}]|from_entries)' "$tmp/plan.json" >"$tmp/wide3.json"
+[ "$(bash "$tool" hash "$tmp/wide2.json")" != "$(bash "$tool" hash "$tmp/wide3.json")" ] && ok hash_covers_names_beyond_the_comments_cut || bad hash_covers_names_beyond_the_comments_cut
 jq '(.resource_changes[] | select(.address=="google_pubsub_topic.gone") | .address) = "google_pubsub_topic.other"' "$tmp/plan.json" >"$tmp/addr.json"
 [ "$(bash "$tool" hash "$tmp/addr.json")" != "$h0" ] && ok hash_moves_on_address || bad hash_moves_on_address
 jq '(.resource_changes[] | select(.address=="google_cloud_run_v2_service.api") | .change.actions) = ["delete","create"]' "$tmp/plan.json" >"$tmp/act.json"

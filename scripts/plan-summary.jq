@@ -1,30 +1,7 @@
 # plan-summary.jq — the NAMES-ONLY comment body for plan-summary.sh (ecofolk-infra#162). Called with
-#   jq -r --arg head <40-hex> --arg rec "<plan-record line>" -f plan-summary.jq <terraform show -json plan>
-# No value of any attribute is ever selected: only addresses, actions and attribute NAMES.
-
-def clean: gsub("[\n\r`]"; "");
-
-# Changed entries: everything except pure no-op and read-only data reads.
-def changed: [.resource_changes[] | select((.change.actions) as $a | ($a != ["no-op"] and $a != ["read"]))];
-
-def obj: if type == "object" then . else {} end;
-
-# Attribute names that differ between before and after, or are unknown until apply.
-def names:
-  (.change.before | obj) as $b
-  | (.change.after | obj) as $a
-  | (.change.after_unknown | obj) as $u
-  | ([($b | keys[]), ($a | keys[]), ($u | keys[])] | unique)
-  | map(select(. as $k | ($b[$k] != $a[$k]) or ($u[$k] == true)))
-  | map(clean);
-
-def kind:
-  (.change.actions) as $x
-  | if ($x | index("delete")) and ($x | index("create")) then "replace"
-    elif $x == ["create"] then "add"
-    elif $x == ["update"] then "change"
-    elif $x == ["delete"] then "destroy"
-    else "other" end;
+#   jq -r -L <scripts dir> --arg head <40-hex> --arg rec "<plan-record line>" -f plan-summary.jq <terraform show -json plan>
+# No value of any attribute is ever selected: only addresses, actions and attribute NAMES (plan-names.jq).
+include "plan-names";
 
 def rank: if kind == "replace" then 0 elif kind == "destroy" then 1 else 2 end;
 

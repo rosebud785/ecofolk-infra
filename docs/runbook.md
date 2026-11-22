@@ -697,15 +697,17 @@ ecofolk stays as the break-glass path.
 gh workflow run deploy-app.yml -R rosebud785/ecofolk-infra -f env=dev -f sha=<40-hex ecofolk main commit>
 ```
 
-Three jobs (#177): **resolve** (gate, checkout check, cloud auth, reads the API url and Firebase web key; id-token, no
-npm), **build** (all npm and the web bundle; no id-token, no cloud credentials) and **deploy** (image, jobs, Cloud Run,
-Hosting, smoke; id-token, no npm). Only the public web bundle and the pinned firebase-tools pass between jobs as an
-artifact; the image is built in deploy because an image artifact would publish private source from a public repo.
+Four jobs (#177): **resolve** (gate, checkout check, cloud auth, reads the API url and Firebase web key; id-token, no
+npm), **build** (the app's `npm ci`, tsc and the web bundle; no id-token, no cloud credentials), **tools** (firebase-tools
+from the lockfile in `tools/firebase/`, `npm ci --ignore-scripts`; no id-token, no ecofolk checkout, no app code) and
+**deploy** (image, jobs, Cloud Run, Hosting, smoke; id-token, no npm). Only the public web bundle (`dist/`, plain files)
+and the tools archive (pinned by a sha256 job output) pass between jobs as artifacts; the image is built in deploy because
+an image artifact would publish private source from a public repo.
 
 Dev runs on its own. **`env=prod` is not enabled yet**: step 1 refuses it and the `resolve` job's
 `if: inputs.env == 'dev'` skips the run before any `environment:` reference, so a prod dispatch
 cannot auto-create `gcp-prod`. The §A job split is done (#177); before enabling prod, note that each of the three jobs
-names the environment, so prod would ask for the approve tap three times. When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
+names the environment, so prod would ask for the approve tap three times (resolve, build, deploy; `tools` names none). When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
 older main sha; the run prints the previous serving revision and the one-line traffic rollback.
 
 **What it refuses** (as deploy-dev.sh does): a sha not reachable from ecofolk main; not exactly one merged PR; any
@@ -847,14 +849,21 @@ attributes that change, with destroy and replace called out at the top, and a ma
 before auth): the PR is not open, is from a fork, or does not target `main`; the tree has a `data "external"` /
 `data "http"`, a provider `external` / `http` / `local` / `null` (or a resource of one), a `provisioner`, a module
 `source` that is not a local path, a `*.tf.json`, or a provider outside `PLAN_PROVIDER_ALLOWLIST` (in the workflow, on
-`main`: today `hashicorp/google`, `hashicorp/google-beta`, `hashicorp/archive`, exactly what the lockfiles hold). Such a
+`main`: today `hashicorp/google`, `hashicorp/google-beta`, `hashicorp/archive`, exactly what the lockfiles hold). Also
+refused, because they run at plan time or pick where the credential goes: an `output_path` that is not exactly
+`"${path.root}/.terraform/tmp/<file name>"` (the archive data source WRITES a file at plan time); a backend that is not
+exactly one `backend "gcs"` with only `prefix = "<literal>"` in `environments/dev`, any `cloud` block, any backend of
+another type, any backend in a module; a `*_custom_endpoint` attribute; and any symbolic link. Such a
 PR gets a comment saying there is no PR-time plan and records `plan-record: <sha> static-refused`; the apply's own plan
 is then the first one, as before.
 
 **The drift rule.** `infra-apply.yml` still re-plans on merge and applies its own saved plan, but a plan WITH changes
 applies only if `scripts/check-plan-record.sh` finds, for the merged PR: the merge commit's tree equals the PR head's
 tree (use strict "up to date" branch protection, or merge only a PR that is current with `main`), and the latest
-`plan-record` from `github-actions[bot]` for that head has the hash of the apply's own plan (or says `static-refused`).
+`plan-record` for that head has the hash of the apply's own plan (or says `static-refused`). The hash covers each
+changed resource's address, its actions and the full list of changed attribute NAMES (never a value), so an apply that
+updates different attributes than the reviewer saw does not match. A record counts only as the LAST line of a comment by
+`github-actions[bot]` whose FIRST line is one of the two headers `infra-plan.yml` writes.
 No record, a different tree or a different hash: the apply REFUSES, applies nothing, and the run goes red. Recovery is a
 fresh `infra-plan.yml` dispatch on the PR's head, then a re-run of the apply. While `TF_APPLY_ENABLED` is not `true` the
 existing gate already refuses any change; that behaviour is kept.

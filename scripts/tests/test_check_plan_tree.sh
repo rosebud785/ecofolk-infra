@@ -23,6 +23,9 @@ VERSIONS_OK='terraform {
       version = "~> 5.0"
     }
   }
+  backend "gcs" {
+    prefix = "dev"
+  }
 }
 '
 
@@ -30,11 +33,12 @@ VERSIONS_OK='terraform {
 # Optional env: LOCK (lockfile body), EXTRA_FILE / EXTRA_BODY (a second file).
 run_case() {
   local name=$1 want=$2 pattern=$3 allow=${4:-$ALLOW} d="$tmp/$1" out rc
-  mkdir -p "$d/env" "$d/mod"
-  printf '%s' "$VERSIONS_OK" >"$d/env/versions.tf"
-  printf '%s' "${LOCK-$LOCK_OK}" >"$d/env/.terraform.lock.hcl"
-  cat >"$d/env/main.tf"
-  if [ -n "${EXTRA_FILE:-}" ]; then printf '%s' "$EXTRA_BODY" >"$d/$EXTRA_FILE"; fi
+  mkdir -p "$d/environments/dev" "$d/modules/m"
+  printf '%s' "${VERSIONS-$VERSIONS_OK}" >"$d/environments/dev/versions.tf"
+  printf '%s' "${LOCK-$LOCK_OK}" >"$d/environments/dev/.terraform.lock.hcl"
+  cat >"$d/environments/dev/main.tf"
+  if [ -n "${EXTRA_FILE:-}" ]; then mkdir -p "$(dirname "$d/$EXTRA_FILE")"; printf '%s' "$EXTRA_BODY" >"$d/$EXTRA_FILE"; fi
+  if [ -n "${LINK:-}" ]; then ln -s /etc "$d/$LINK"; fi
   out=$(bash "$guard" "$d" "$allow" 2>&1); rc=$?
   if [ "$rc" -ne "$want" ]; then echo "FAIL $name: expected rc=$want, got rc=$rc: $out"; failures=$((failures + 1)); return; fi
   if ! printf '%s' "$out" | grep -qE "$pattern"; then echo "FAIL $name: right rc, wrong reason: $out"; failures=$((failures + 1)); return; fi
@@ -42,7 +46,7 @@ run_case() {
 }
 
 CLEAN='module "a" {
-  source = "../mod"
+  source = "../../modules/m"
 }
 resource "google_storage_bucket" "b" {
   name = "x"
@@ -159,7 +163,7 @@ provider "registry.terraform.io/hashicorp/external" {
 ' run_case lockfile_provider 1 'lockfile provider "registry.terraform.io/hashicorp/external" is not in the allowlist' <<<"$CLEAN"
 
 # JSON HCL is not scanned, so it is not accepted.
-EXTRA_FILE=env/extra.tf.json EXTRA_BODY='{"data":{"external":{"x":{"program":["id"]}}}}' \
+EXTRA_FILE=environments/dev/extra.tf.json EXTRA_BODY='{"data":{"external":{"x":{"program":["id"]}}}}' \
   run_case tf_json 1 'extra.tf.json: *1|\.tf\.json:1: .tf.json is not accepted|tf.json is not accepted' <<<"$CLEAN"
 
 # Comments are not code: the same words in a comment must NOT refuse (and must not hide a real one below).
@@ -173,6 +177,183 @@ run_case comment_does_not_hide_real_line 1 'main.tf:2: data "external"' <<'EOF'
 # data "external" "decoy" {}
 data "external" "real" {}
 EOF
+
+# ---- R1 (Architect c7084973633): archive_file writes a file at plan time, wherever output_path says. ----
+# The real line from modules/billing_killswitch passes (positive control), as does the module-relative spelling.
+run_case output_path_real_line_passes 0 'ok \(' <<'EOF'
+data "archive_file" "source" {
+  type        = "zip"
+  source_dir  = "${path.module}/src"
+  output_path = "${path.root}/.terraform/tmp/billing-killswitch-source.zip"
+}
+EOF
+run_case output_path_module_spelling_passes 0 'ok \(' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.module}/.terraform/tmp/a_b-c.1.zip"
+}
+EOF
+run_case output_path_absolute 1 'main.tf:2: output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "/home/runner/work/_temp/_runner_file_commands/set_env_x"
+}
+EOF
+run_case output_path_dotdot 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/.terraform/tmp/../../../../x.zip"
+}
+EOF
+run_case output_path_dotdot_as_the_name 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/.terraform/tmp/.."
+}
+EOF
+run_case output_path_dot_as_the_name 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/.terraform/tmp/."
+}
+EOF
+run_case output_path_interpolated_var 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/.terraform/tmp/${var.name}"
+}
+EOF
+run_case output_path_variable_dir 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${var.dir}/.terraform/tmp/a.zip"
+}
+EOF
+run_case output_path_fileset_path 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = tolist(fileset("/home/runner/work/_temp/_runner_file_commands", "set_env_*"))[0]
+}
+EOF
+run_case output_path_non_literal 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = local.out
+}
+EOF
+run_case output_path_wrong_dir 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/tmp/a.zip"
+}
+EOF
+run_case output_path_subdir 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/.terraform/tmp/sub/a.zip"
+}
+EOF
+run_case output_path_trailing_text 1 'output_path must be' <<'EOF'
+data "archive_file" "s" {
+  output_path = "${path.root}/.terraform/tmp/a.zip" # fine
+}
+EOF
+run_case output_path_one_line_block 1 'output_path must be' <<'EOF'
+data "archive_file" "s" { type = "zip", output_path = "/etc/cron.d/x" }
+EOF
+run_case output_path_reading_it_is_fine 0 'ok \(' <<'EOF'
+resource "google_storage_bucket_object" "o" {
+  source = data.archive_file.source.output_path
+}
+EOF
+
+# ---- R2: the PR controls the backend block. ----
+VERSIONS='terraform {
+  backend "http" {
+    address = "https://example.invalid/state"
+  }
+}
+' run_case backend_http 1 'backend "http" is not accepted' <<<"$CLEAN"
+VERSIONS='terraform {
+  cloud {
+    organization = "x"
+  }
+}
+' run_case cloud_block 1 'a cloud block is not accepted' <<<"$CLEAN"
+# The planned root with NO backend would plan against local state: refused.
+VERSIONS='terraform {
+  required_providers {
+    google = { source = "hashicorp/google" }
+  }
+}
+' run_case root_without_a_backend 1 'exactly one backend "gcs" \(found 0\)' <<<"$CLEAN"
+VERSIONS='terraform {
+  backend "gcs" {
+    prefix = "dev"
+  }
+  backend "gcs" {
+    prefix = "other"
+  }
+}
+' run_case two_gcs_backends_in_the_root 1 'exactly one backend "gcs" \(found 2\)' <<<"$CLEAN"
+# A gcs backend that points the token at another host, or at another bucket, or impersonates.
+VERSIONS='terraform {
+  backend "gcs" {
+    prefix                  = "dev"
+    storage_custom_endpoint = "https://example.invalid"
+  }
+}
+' run_case gcs_backend_with_an_endpoint 1 'may set only prefix' <<<"$CLEAN"
+VERSIONS='terraform {
+  backend "gcs" {
+    prefix = "dev"
+    bucket = "someone-elses"
+  }
+}
+' run_case gcs_backend_with_a_bucket 1 'may set only prefix' <<<"$CLEAN"
+VERSIONS='terraform {
+  backend "gcs" {
+    prefix = "${var.x}"
+  }
+}
+' run_case gcs_backend_prefix_not_a_literal 1 'may set only prefix' <<<"$CLEAN"
+VERSIONS='terraform { backend "gcs" { prefix = "dev" } }
+' run_case gcs_backend_on_one_line 1 'must open at the end of its line' <<<"$CLEAN"
+# A backend (of any type) in a MODULE, and a second root with the wrong type.
+EXTRA_FILE=modules/m/main.tf EXTRA_BODY='terraform {
+  backend "http" {}
+}
+' run_case second_backend_in_a_module 1 'modules/m/main.tf:2: backend "http" is not accepted' <<<"$CLEAN"
+EXTRA_FILE=modules/m/main.tf EXTRA_BODY='terraform {
+  backend "gcs" {
+    prefix = "x"
+  }
+}
+' run_case gcs_backend_in_a_module 1 'a backend block in a module is not accepted' <<<"$CLEAN"
+EXTRA_FILE=environments/qa/main.tf EXTRA_BODY='terraform {
+  backend "http" {}
+}
+' run_case other_root_with_http_backend 1 'environments/qa/main.tf:2: backend "http" is not accepted' <<<"$CLEAN"
+# Positive control: another environment root with a gcs backend (as qa and prod have today) is fine.
+EXTRA_FILE=environments/qa/main.tf EXTRA_BODY='terraform {
+  backend "gcs" {
+    prefix = "qa"
+  }
+}
+' run_case other_root_with_gcs_backend_passes 0 'ok \(' <<<"$CLEAN"
+# Backend words in a comment are not code.
+VERSIONS='terraform {
+  # backend "http" {}
+  backend "gcs" {
+    # prefix = "x"
+    prefix = "dev"
+  }
+}
+' run_case backend_words_in_comments_are_not_code 0 'ok \(' <<<"$CLEAN"
+
+# ---- provider endpoint override, and symbolic links ----
+run_case custom_endpoint 1 'main.tf:2: a \*_custom_endpoint attribute' <<'EOF'
+provider "google" {
+  storage_custom_endpoint = "https://example.invalid/"
+}
+EOF
+LINK=environments/dev/innocent run_case symlink_in_the_tree 1 'innocent: *1|innocent:1: a symbolic link is not accepted|a symbolic link is not accepted' <<<"$CLEAN"
+LINK=modules/m/data run_case symlink_in_a_module 1 'a symbolic link is not accepted' <<<"$CLEAN"
+
+# A root that is not in the tree is a usage error, never a pass; a bad root spelling too.
+out=$(bash "$guard" "$tmp/clean" "$ALLOW" environments/prod 2>&1); rc=$?
+if [ "$rc" = 2 ]; then echo "ok   missing_root_is_an_error"; else echo "FAIL missing_root_is_an_error: rc=$rc $out"; failures=$((failures + 1)); fi
+out=$(bash "$guard" "$tmp/clean" "$ALLOW" "../x" 2>&1); rc=$?
+if [ "$rc" = 2 ]; then echo "ok   dotdot_root_is_an_error"; else echo "FAIL dotdot_root_is_an_error: rc=$rc $out"; failures=$((failures + 1)); fi
 
 # Fail closed on bad usage.
 out=$(bash "$guard" "$tmp/clean" "" 2>&1); rc=$?

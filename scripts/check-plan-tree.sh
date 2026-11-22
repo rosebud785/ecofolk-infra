@@ -13,9 +13,21 @@
 #   5. any module or provider `source` that is not a local path (./ or ../) or an allowlisted provider
 #   6. any provider in a .terraform.lock.hcl outside the allowlist
 #   7. any *.tf.json file (JSON HCL: not scanned, so not accepted)
+#   8. any `output_path` that is not exactly "${path.root|module}/.terraform/tmp/<plain file name>" (R1, Architect
+#      c7084973633): hashicorp/archive's data source WRITES a zip at plan time, to wherever output_path says. Pointed
+#      at a runner file-command file (a BASH_ENV= line in $GITHUB_ENV) it is code execution in a later step while the
+#      plan identity's credential file exists. The one real use (modules/billing_killswitch) has exactly this shape.
+#   9. the backend (R2, same review): `terraform init` honours the PR's backend block, so the planned root
+#      (environments/dev) must declare EXACTLY ONE `backend "gcs"` whose body is a `prefix = "<literal>"` and nothing
+#      else (a custom endpoint would send the access token anywhere), no `cloud` block, and no other backend type or
+#      `cloud` block anywhere in the tree. A gcs backend in another environment root is allowed (qa, prod have one);
+#      in a module it is not. The bucket stays the workflow's -backend-config.
+#  10. a `*_custom_endpoint` attribute (a provider pointed at another host would send the access token there);
+#  11. any symbolic link in the tree (a link could point a plan-time write or read at a runner file).
 # Fail closed: an unreadable tree, an empty allowlist or an allowlist entry that is not `namespace/name` is an error.
 #
-# Usage: check-plan-tree.sh <tree-dir> <allowed-providers, comma-separated, e.g. hashicorp/google,hashicorp/google-beta>
+# Usage: check-plan-tree.sh <tree-dir> <allowed-providers, comma-separated, e.g. hashicorp/google,hashicorp/google-beta> [root]
+# root = the planned root module, relative to the tree (default environments/dev).
 # The allowlist is passed in by the caller and lives in infra-plan.yml ON MAIN, never in the PR's tree. This script is
 # run from main's checkout against the PR's checkout.
 # Exit: 0 clean; 1 a refusal (names each); 2 bad usage / unreadable tree.
@@ -24,7 +36,10 @@ set -uo pipefail
 
 dir="${1:-}"
 allow_csv="${2:-}"
+root="${3:-environments/dev}"
 [ -n "$dir" ] && [ -d "$dir" ] || { echo "check-plan-tree: tree directory '$dir' not found" >&2; exit 2; }
+[[ "$root" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$root" != *..* ]] || { echo "check-plan-tree: root '$root' is not a plain relative path" >&2; exit 2; }
+[ -d "$dir/$root" ] || { echo "check-plan-tree: the planned root '$root' is not in the tree" >&2; exit 2; }
 [ -n "$allow_csv" ] || { echo "check-plan-tree: the provider allowlist is empty (fail closed)" >&2; exit 2; }
 
 # Portable to bash 3.2 (a Mac) as well as CI's bash 5: no associative arrays, no mapfile.
@@ -62,6 +77,9 @@ provider_ok() {
   [[ "$s" =~ ^[a-z0-9-]+/[a-z0-9-]+$ ]] && [[ "$allowed" == *",$s,"* ]]
 }
 
+# The ONE allowed output_path line (R1). A file name must start with a letter or digit, so `.` and `..` cannot be one.
+output_path_re='^[[:space:]]*output_path[[:space:]]*=[[:space:]]*"\$\{path\.(root|module)\}/\.terraform/tmp/[A-Za-z0-9][A-Za-z0-9._-]*"[[:space:]]*$'
+
 for f in "${tf_files[@]}"; do
   n=0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -84,6 +102,30 @@ for f in "${tf_files[@]}"; do
     if [[ "$line" =~ ^[[:space:]]*provisioner[[:space:]]+\" ]]; then
       report "$f" "$n" "provisioner blocks are not accepted in a PR-time plan"
     fi
+    # 8. output_path: exactly a plain file name under ${path.root|module}/.terraform/tmp/. Detected anywhere in the line
+    # (a one-line block included), then the WHOLE line must be the one allowed shape. A non-literal, an absolute path, a
+    # `..`, an interpolated variable or a fileset() path is a refusal.
+    if [[ "$line" =~ (^|[^A-Za-z0-9_.])output_path[[:space:]]*=([^=]|$) ]]; then
+      [[ "$line" =~ $output_path_re ]] || report "$f" "$n" "output_path must be \"\${path.root}/.terraform/tmp/<file>\" (an archive is WRITTEN at plan time): $(printf '%s' "$line" | tr -d '`' | cut -c1-120)"
+    fi
+    # 10. a provider endpoint override.
+    if [[ "$line" =~ _custom_endpoint[[:space:]]*= ]]; then
+      report "$f" "$n" "a *_custom_endpoint attribute would send the access token to another host"
+    fi
+    # 9. a `cloud` block, or a backend that is not gcs, anywhere; a gcs backend in a module. The planned root's own
+    # backend is checked as a whole after this loop.
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])cloud[[:space:]]*\{ ]]; then
+      report "$f" "$n" "a cloud block is not accepted (the PR would choose the backend)"
+    fi
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])backend[[:space:]]+\"([^\"]*)\" ]]; then
+      btype="${BASH_REMATCH[2]}"
+      rel="${f#"$dir"/}"
+      if [ "$btype" != gcs ]; then
+        report "$f" "$n" "backend \"$btype\" is not accepted (only gcs, in a root module)"
+      elif [[ "$rel" == modules/* ]]; then
+        report "$f" "$n" "a backend block in a module is not accepted"
+      fi
+    fi
     if [[ "$line" =~ ^[[:space:]]*source[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
       src="${BASH_REMATCH[1]}"
       case "$src" in
@@ -98,6 +140,37 @@ for f in "${tf_files[@]}"; do
     # Any string-literal source anywhere is checked above, so a local-looking attribute path is the only false positive.
   done <"$f"
 done
+
+# 9 (continued). The planned root's own backend: exactly one `backend "gcs" {` whose body is only `prefix = "<literal>"`.
+backends=0
+for f in "$dir/$root"/*.tf; do
+  [ -f "$f" ] || continue
+  n=0 in_backend=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    [[ "$line" =~ ^[[:space:]]*(#|//) ]] && continue
+    if [ "$in_backend" = 1 ]; then
+      if [[ "$line" =~ ^[[:space:]]*\}[[:space:]]*$ ]]; then in_backend=0
+      elif [[ "$line" =~ ^[[:space:]]*$ ]]; then :
+      elif [[ "$line" =~ ^[[:space:]]*prefix[[:space:]]*=[[:space:]]*\"[A-Za-z0-9._/-]+\"[[:space:]]*$ ]]; then :
+      else report "$f" "$n" "the gcs backend may set only prefix = \"<literal>\" (the bucket is the workflow's): $(printf '%s' "$line" | tr -d '`' | cut -c1-80)"
+      fi
+      continue
+    fi
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])backend[[:space:]]+\"gcs\" ]]; then
+      backends=$((backends + 1))
+      if [[ "$line" =~ backend[[:space:]]+\"gcs\"[[:space:]]*\{[[:space:]]*$ ]]; then in_backend=1
+      else report "$f" "$n" "the gcs backend block must open at the end of its line and hold only prefix = \"<literal>\""
+      fi
+    fi
+  done <"$f"
+  [ "$in_backend" = 0 ] || report "$f" "$n" "the gcs backend block is not closed"
+done
+[ "$backends" = 1 ] || report "$dir/$root" 1 "the planned root must declare exactly one backend \"gcs\" (found $backends)"
+
+# 11. Symbolic links anywhere in the tree (never under .git or .terraform).
+while IFS= read -r -d '' link; do report "$link" 1 "a symbolic link is not accepted"; done \
+  < <(find "$dir" \( -name .git -o -name .terraform \) -prune -o -type l -print0)
 
 for f in "${lock_files[@]}"; do
   n=0

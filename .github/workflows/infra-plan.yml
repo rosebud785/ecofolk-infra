@@ -15,7 +15,9 @@ name: Infra plan (a named PR, dev)
 #   1. the PR is resolved through the API BEFORE any checkout: open, head repo is THIS repo (no forks), 40-hex head sha;
 #   2. static refusals on the PR tree BEFORE `terraform init` and before auth (scripts/check-plan-tree.sh, run from
 #      MAIN's checkout, never the PR's): no data external/http, no provider external/http/local/null, no provisioner, no
-#      non-local module source, no provider outside the allowlist below. The allowlist lives HERE, on main, not in the PR;
+#      non-local module source, no provider outside the allowlist below, no archive output_path that could write a
+#      runner file at plan time, no backend but one `backend "gcs"` with only a prefix, no *_custom_endpoint, no symlink.
+#      The allowlist lives HERE, on main, not in the PR;
 #   3. `tf-plan` is read-only (viewer + state-bucket objectViewer + secretmanager.viewer, never secretAccessor) and
 #      the plan runs -lock=false -input=false, with `init -lockfile=readonly` so the PR cannot swap a provider in;
 #   4. the comment is NAMES ONLY (scripts/plan-summary.sh): resource addresses, actions and changed attribute NAMES.

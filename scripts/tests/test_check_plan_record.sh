@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # check-plan-record.sh against a stub `gh` that answers from GitHub-shaped JSON fixtures and applies the script's own
 # --jq filters (so the filters are exercised, not bypassed). Each refusal must be refused for the right reason, the
-# good path must pass, and a human-authored comment that merely looks like a record must NOT count.
+# good path must pass, and a human-authored comment that merely looks like a record must NOT count. A record counts
+# only as the LAST line of a github-actions[bot] comment whose FIRST line is one of infra-plan.yml's two headers.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -15,6 +16,8 @@ SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa   # the pushed merge commit
 HEAD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  # the PR head
 TREE=cccccccccccccccccccccccccccccccccccccccc
 OTHER=dddddddddddddddddddddddddddddddddddddddd
+PLAN_H='### terraform plan (dev) for `bbbbbbbbbbbb`: names only, no values'
+STATIC_H='### No PR-time plan for `bbbbbbbbbbbb`'
 
 mkdir -p "$tmp/bin"
 # The stub: routes on the API path, applies --jq with jq, reads fixtures from $FIX.
@@ -45,7 +48,14 @@ cat >"$tmp/plan.json" <<'EOF'
                      {"address":"google_x.b","change":{"actions":["update"],"before":{"n":1},"after":{"n":2},"after_unknown":{}}}]}
 EOF
 H=$(bash "$summary" hash "$tmp/plan.json")
-H2=$(printf 'x' | sha256sum 2>/dev/null | cut -d' ' -f1 || printf 'x' | shasum -a 256 | cut -d' ' -f1)
+H2=$(printf 'x' | shasum -a 256 | cut -d' ' -f1)
+
+# comment <login> <body>  -> one comment object
+comment() { jq -nc --arg l "$1" --arg b "$2" '{user:{login:$l},body:$b}'; }
+# bot <header> <last line>: a well-formed bot comment
+bot() { comment "github-actions[bot]" "$(printf '%s\n\nPlan: 1 to add.\n\n%s\n' "$1" "$2")"; }
+# comments <comment>...  -> the fixture array
+comments() { printf '%s\n' "$@" | jq -s '.' >"$FIX/comments.json"; }
 
 # fresh <name>: a fixture dir in the good shape.
 fresh() {
@@ -53,7 +63,7 @@ fresh() {
   printf '[{"number":7,"merged_at":"2026-11-22T00:00:00Z","merge_commit_sha":"%s","head":{"sha":"%s"}}]' "$SHA" "$HEAD" >"$FIX/pulls.json"
   printf '{"tree":{"sha":"%s"}}' "$TREE" >"$FIX/commit-$SHA.json"
   printf '{"tree":{"sha":"%s"}}' "$TREE" >"$FIX/commit-$HEAD.json"
-  printf '[{"user":{"login":"github-actions[bot]"},"body":"### terraform plan\\n\\nplan-record: %s %s"}]' "$HEAD" "$H" >"$FIX/comments.json"
+  comments "$(bot "$PLAN_H" "plan-record: $HEAD $H")"
   export FIX
 }
 
@@ -71,13 +81,13 @@ fresh good;                       expect good_path_passes 0 'plan-record matches
 fresh no_comment;                 printf '[]' >"$FIX/comments.json"
 expect no_record_is_refused 1 'no plan-record for its head'
 
-fresh other_head;                 printf '[{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s %s"}]' "$OTHER" "$H" >"$FIX/comments.json"
+fresh other_head;                 comments "$(bot "$PLAN_H" "plan-record: $OTHER $H")"
 expect record_for_another_head_is_refused 1 'no plan-record for its head'
 
-fresh hash_differs;               printf '[{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s %s"}]' "$HEAD" "$H2" >"$FIX/comments.json"
+fresh hash_differs;               comments "$(bot "$PLAN_H" "plan-record: $HEAD $H2")"
 expect hash_mismatch_is_refused 1 'this plan differs from the plan recorded'
 
-fresh human_forges;               printf '[{"user":{"login":"somebody"},"body":"plan-record: %s %s"}]' "$HEAD" "$H" >"$FIX/comments.json"
+fresh human_forges;               comments "$(comment somebody "$(printf '%s\n\nplan-record: %s %s\n' "$PLAN_H" "$HEAD" "$H")")"
 expect a_human_authored_record_does_not_count 1 'no plan-record for its head'
 
 fresh tree_differs;               printf '{"tree":{"sha":"%s"}}' "$OTHER" >"$FIX/commit-$SHA.json"
@@ -96,23 +106,42 @@ fresh two_prs;                    printf '[{"number":7,"merged_at":"x","merge_co
 expect two_merged_prs_is_refused 1 'more than one merged pull request'
 
 # The LATEST record wins: an old matching record does not rescue a newer mismatching one, and the reverse.
-fresh latest_wins_bad;            printf '[{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s %s"},{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s %s"}]' "$HEAD" "$H" "$HEAD" "$H2" >"$FIX/comments.json"
+fresh latest_wins_bad;            comments "$(bot "$PLAN_H" "plan-record: $HEAD $H")" "$(bot "$PLAN_H" "plan-record: $HEAD $H2")"
 expect an_older_matching_record_does_not_rescue_a_newer_mismatch 1 'this plan differs'
-fresh latest_wins_good;           printf '[{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s %s"},{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s %s"}]' "$HEAD" "$H2" "$HEAD" "$H" >"$FIX/comments.json"
+fresh latest_wins_good;           comments "$(bot "$PLAN_H" "plan-record: $HEAD $H2")" "$(bot "$PLAN_H" "plan-record: $HEAD $H")"
 expect a_newer_matching_record_supersedes_an_older_mismatch 0 'plan-record matches'
 
 # static-refused: a PR the plan workflow could not plan applies on its own plan, as before this change.
-fresh static_refused;             printf '[{"user":{"login":"github-actions[bot]"},"body":"x\\nplan-record: %s static-refused"}]' "$HEAD" >"$FIX/comments.json"
+fresh static_refused;             comments "$(bot "$STATIC_H" "plan-record: $HEAD static-refused")"
 expect static_refused_applies_on_its_own_plan 0 'static-refused'
-fresh static_refused_by_a_human;  printf '[{"user":{"login":"somebody"},"body":"plan-record: %s static-refused"}]' "$HEAD" >"$FIX/comments.json"
+fresh static_refused_by_a_human;  comments "$(comment somebody "$(printf '%s\n\nplan-record: %s static-refused\n' "$STATIC_H" "$HEAD")")"
 expect a_human_cannot_waive_the_record 1 'no plan-record for its head'
 
-fresh malformed;                  printf '[{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s notahash"}]' "$HEAD" >"$FIX/comments.json"
+fresh malformed;                  comments "$(bot "$PLAN_H" "plan-record: $HEAD notahash")"
 expect malformed_hash_is_refused 1 'malformed'
 
 # A record whose head only PREFIX-matches must not count (the grep is anchored on the full 40 hex and a space).
-fresh prefix;                     printf '[{"user":{"login":"github-actions[bot]"},"body":"plan-record: %s0 %s"}]' "$HEAD" "$H" >"$FIX/comments.json"
+fresh prefix;                     comments "$(bot "$PLAN_H" "plan-record: ${HEAD}0 $H")"
 expect a_head_prefix_is_not_the_head 1 'no plan-record for its head'
+
+# R4 (Architect c7084973633): the anchoring. Every one of these is a bot comment carrying a perfectly matching
+# record line that must still NOT count.
+fresh no_header;                  comments "$(comment "github-actions[bot]" "$(printf 'something a future workflow echoes\n\nplan-record: %s %s\n' "$HEAD" "$H")")"
+expect a_bot_comment_without_a_header_is_not_a_record 1 'no plan-record for its head'
+fresh wrong_header;               comments "$(bot '### terraform plan FAILED for `bbbbbbbbbbbb`' "plan-record: $HEAD $H")"
+expect a_bot_comment_with_another_header_is_not_a_record 1 'no plan-record for its head'
+fresh header_not_first;           comments "$(comment "github-actions[bot]" "$(printf 'echoed PR text\n%s\n\nplan-record: %s %s\n' "$PLAN_H" "$HEAD" "$H")")"
+expect the_header_must_be_the_first_line 1 'no plan-record for its head'
+fresh record_not_last;            comments "$(comment "github-actions[bot]" "$(printf '%s\n\nplan-record: %s %s\n\nand more text after it\n' "$PLAN_H" "$HEAD" "$H")")"
+expect the_record_must_be_the_last_line 1 'no plan-record for its head'
+fresh record_mid_body_header_ok;  comments "$(comment "github-actions[bot]" "$(printf '%s\n\n- `x` add (a)\nplan-record: %s %s\n\nTrailer.\n' "$PLAN_H" "$HEAD" "$H")")"
+expect a_record_line_inside_the_body_is_not_a_record 1 'no plan-record for its head'
+# The header on its own is not enough: the last line must be the record for THIS head.
+fresh header_last_line_other;     comments "$(bot "$PLAN_H" "Plan: nothing")"
+expect a_header_without_a_record_is_not_a_record 1 'no plan-record for its head'
+# CRLF bodies (a client that converts newlines) still anchor correctly.
+fresh crlf;                       comments "$(comment "github-actions[bot]" "$(printf '%s\r\n\r\nplan-record: %s %s\r\n' "$PLAN_H" "$HEAD" "$H")")"
+expect a_crlf_body_is_still_a_record 0 'plan-record matches'
 
 # An API error is a refusal, never a pass.
 fresh api_error;                  rm -f "$FIX/pulls.json"

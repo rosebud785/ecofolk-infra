@@ -4,24 +4,28 @@ name: Deploy app (session-triggered)
 # deploy sittings (ecofolk scripts/deploy/deploy-dev.sh, now the break-glass path). Ports that script and keeps every
 # refusal. It does NOT relax ecofolk#883: the private ecofolk repo holds no cloud identity; the identity is here.
 #
-# ecofolk-infra#177 (Architect, infra#176 stamp §A): THREE JOBS, so npm never runs in a job that can mint the deploy
-# identity. A compromised dependency in an npm install/build would otherwise hold `id-token: write`.
+# ecofolk-infra#177 (Architect, infra#176 stamp §A; rework c7084561816): FOUR JOBS, so no code the app's npm touches
+# ever runs in a job that can mint the deploy identity. A compromised dependency would otherwise hold `id-token: write`.
 #   resolve  id-token, NO npm: validate, test gate, checkout check, WIF auth, read the two cloud-derived web config values.
-#   build    NO id-token, NO cloud credentials: npm ci, tsc, the web bundle, and a pinned firebase-tools install. It hands
-#            the deploy job one tarball (public web bundle + public npm packages; no private source, see below).
-#   deploy   id-token, NO npm: image build + push, check-config, migrate, Cloud Run, Firebase Hosting, smoke.
-# Exposure that remains in deploy, stated plainly: `docker buildx build` runs `npm ci` INSIDE the image build. The
-# container does not see the runner's environment (the OIDC request variables and the credentials file stay on the
-# runner), so that npm has no identity to mint. The image is built here, not in build, because an image handed over as
-# an artifact would publish private source: this repo is public and so are its artifacts. Hosting is deployed with the
-# firebase-tools that build installed (version-pinned): deploy runs that binary, never `npm`/`npx`.
-# The invariant to keep: no npm/npx command in a job that holds id-token (resolve, deploy).
+#   build    NO id-token, NO cloud credentials: the app's npm ci, tsc and web bundle. Only dist/ leaves it, as plain files.
+#   tools    NO id-token, NO ecofolk checkout: firebase-tools from tools/firebase/package-lock.json in THIS repo
+#            (`npm ci --ignore-scripts`, the whole transitive tree pinned). The deploy tool never touches the app's npm.
+#   deploy   id-token, NO npm: image build, then auth, then push, check-config, migrate, Cloud Run, Hosting, smoke.
+# What deploy trusts from the other jobs, and how: dist/ (plain files; a symlink is refused, index.html must exist) and
+# the tools archive (listed before it is unpacked). firebase.json and .firebaserc come from deploy's OWN checkout, never
+# an artifact, and a predeploy/postdeploy hook in firebase.json is refused (`firebase deploy` runs those as shell).
+# Exposure that remains in deploy, stated plainly: `docker buildx build` runs `npm ci` INSIDE the image build. It runs
+# BEFORE the auth step, so no credentials file and no docker login exist yet, and the container never sees the
+# runner's environment. The image is built here, not in build, because an image handed over as an artifact would
+# publish private source: this repo is public and so are its artifacts.
+# Invariants to keep: no npm/npx command in a job that holds id-token (resolve, deploy); the image build passes no
+# --secret, no --ssh, no credential --build-arg and no --network=host, and stays before the auth step.
 #
 # Trigger: workflow_dispatch ONLY (no push, no PR). A session runs
 #   gh workflow run deploy-app.yml -f env=dev -f sha=<40-hex ecofolk commit>
 # Environments: gcp-dev (no reviewer) and gcp-prod (required reviewer: Andy, branches: main only). Every job that reads
 # the ECOFOLK_READ_TOKEN or an environment variable names the environment, so a prod run asks for the approve tap once
-# per job (resolve, build, deploy) until prod is enabled and that is reviewed. The jobs run only on this repo's
+# per job that names it (resolve, build, deploy) until prod is enabled and that is reviewed. The jobs run only on this repo's
 # protected main (`if:` below); GCP trusts ONLY this workflow file at refs/heads/main for ecofolk-deploy
 # (attribute.workflow_ref, bootstrap paste #165 section B). That enforcement is on the GCP side, not in this file.
 #
@@ -266,24 +270,45 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN="$SITE.web.app" npm run build --workspace packages/web
           [ -f packages/web/dist/index.html ] || { echo "::error::the web build left no dist/index.html"; exit 1; }
 
-      # The hosting deploy tool is installed HERE (npm, no identity) so the deploy job runs a binary and never npm.
-      - name: Install and pack the hosting deploy tool
-        run: |
-          stage="$RUNNER_TEMP/hosting-stage"
-          mkdir -p "$stage/web"
-          npm install --prefix "$stage/fbtools" firebase-tools@15.37.0
-          [ -x "$stage/fbtools/node_modules/.bin/firebase" ] || { echo "::error::firebase-tools did not install"; exit 1; }
-          cp -R app/packages/web/dist "$stage/web/dist"
-          cp app/packages/web/firebase.json "$stage/web/firebase.json"
-          if [ -f app/packages/web/.firebaserc ]; then cp app/packages/web/.firebaserc "$stage/web/.firebaserc"; fi
-          # tar, not the artifact's own file walk: the .bin symlinks and the exec bits must survive.
-          tar -C "$stage" -czf "$RUNNER_TEMP/hosting.tgz" .
-
-      # Public by design: the web bundle that is about to be served, and public npm packages. NOT the private source.
+      # Only dist/ crosses from this job to deploy, as plain files (no tar, so no archive this job authored is ever
+      # unpacked in deploy). Public by design: it is the bundle about to be served. NOT the private source, and NOT
+      # firebase.json, .firebaserc or any tool: deploy takes those from its own checkout and from the tools job.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: hosting-${{ github.run_id }}
-          path: ${{ runner.temp }}/hosting.tgz
+          name: web-dist-${{ github.run_id }}
+          path: app/packages/web/dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------------------------------------
+  # tools: the hosting deploy tool, from a lockfile committed in THIS repo. No id-token, no ecofolk checkout, no app
+  # code: nothing the app's npm run can touch is in this job (F1/F5, Architect on #185).
+  # ---------------------------------------------------------------------------------------------------------------
+  tools:
+    needs: resolve
+    if: github.ref == 'refs/heads/main' && github.ref_protected && inputs.env == 'dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # npm ci installs EXACTLY tools/firebase/package-lock.json (the whole transitive tree) and fails on any drift;
+      # --ignore-scripts runs no dependency install script.
+      - name: Install firebase-tools from the lockfile
+        working-directory: tools/firebase
+        run: |
+          npm ci --ignore-scripts
+          [ -x node_modules/.bin/firebase ] || { echo "::error::firebase-tools did not install"; exit 1; }
+          node_modules/.bin/firebase --version
+          # tar, not the artifact's own file walk: the .bin symlinks and the exec bits must survive.
+          tar -czf "$RUNNER_TEMP/firebase-tools.tgz" node_modules
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firebase-tools-${{ github.run_id }}
+          path: ${{ runner.temp }}/firebase-tools.tgz
           retention-days: 1
           if-no-files-found: error
 
@@ -291,7 +316,7 @@ jobs:
   # deploy: the cloud mutations. id-token, no npm/npx anywhere in this job.
   # ---------------------------------------------------------------------------------------------------------------
   deploy:
-    needs: [resolve, build]
+    needs: [resolve, build, tools]
     if: github.ref == 'refs/heads/main' && github.ref_protected && inputs.env == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -328,18 +353,58 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "::error::checkout is not $SHA"; exit 1; }
           [ "$(git rev-parse 'HEAD^{tree}')" = "$TREE" ] || { echo "::error::tree differs from the one resolve checked"; exit 1; }
 
-      # The deploy tool, as built (no npm here).
+      # Two artifacts, from two different jobs. Neither is trusted beyond what is checked here. Both are fetched and
+      # checked BEFORE any credential exists on this runner.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: hosting-${{ github.run_id }}
-          path: ${{ runner.temp }}/hosting-in
+          name: web-dist-${{ github.run_id }}
+          path: ${{ runner.temp }}/dist-in
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: firebase-tools-${{ github.run_id }}
+          path: ${{ runner.temp }}/tools-in
 
-      - name: Unpack the hosting bundle
+      # dist/ came out of the npm job: plain files only. A symlink could point a later `firebase deploy` read at any
+      # file on this runner, so one is a refusal. firebase.json and .firebaserc are NOT taken from it: they are read
+      # from this job's own checkout (packages/web, at the tree-checked sha), and a hook key in firebase.json is
+      # refused because `firebase deploy` runs predeploy/postdeploy as shell commands with the token in the environment.
+      - name: Check the web bundle and the hosting config
         run: |
-          mkdir -p "$RUNNER_TEMP/hosting"
-          tar -C "$RUNNER_TEMP/hosting" -xzf "$RUNNER_TEMP/hosting-in/hosting.tgz"
-          [ -f "$RUNNER_TEMP/hosting/web/dist/index.html" ] || { echo "::error::the hosting bundle has no dist/index.html"; exit 1; }
-          [ -x "$RUNNER_TEMP/hosting/fbtools/node_modules/.bin/firebase" ] || { echo "::error::the hosting bundle has no firebase binary"; exit 1; }
+          die() { echo "::error::REFUSED: $*"; exit 1; }
+          dist="$RUNNER_TEMP/dist-in"
+          [ -f "$dist/index.html" ] || die "the web bundle has no index.html"
+          [ -z "$(find "$dist" -type l)" ] || die "the web bundle contains a symbolic link"
+          web="$GITHUB_WORKSPACE/app/packages/web"
+          [ -f "$web/firebase.json" ] || die "packages/web/firebase.json is missing from the checkout"
+          [ ! -e "$web/dist" ] || die "the checkout already has packages/web/dist"
+          jq -e '[.. | objects | keys[] | select(. == "predeploy" or . == "postdeploy")] | length == 0' "$web/firebase.json" >/dev/null \
+            || die "packages/web/firebase.json has a predeploy or postdeploy hook"
+          [ "$(jq -r '.hosting.public' "$web/firebase.json")" = "dist" ] || die "firebase.json hosting.public is not dist"
+          cp -R "$dist" "$web/dist"
+
+      # The deploy tool came from the tools job: a lockfile in this repo, no app code. The archive is still listed
+      # before it is unpacked: no absolute or parent-directory member, and every member under node_modules/.
+      - name: Unpack the deploy tool
+        run: |
+          die() { echo "::error::REFUSED: $*"; exit 1; }
+          tgz="$RUNNER_TEMP/tools-in/firebase-tools.tgz"
+          [ -f "$tgz" ] || die "the tools artifact has no firebase-tools.tgz"
+          tar -tzf "$tgz" | grep -Ev '^node_modules(/|$)' && die "the tools archive has a member outside node_modules/" || true
+          tar -tzf "$tgz" | grep -E '(^|/)\.\.(/|$)' && die "the tools archive has a parent-directory member" || true
+          mkdir -p "$RUNNER_TEMP/tools"
+          tar -C "$RUNNER_TEMP/tools" -xzf "$tgz"
+          [ -x "$RUNNER_TEMP/tools/node_modules/.bin/firebase" ] || die "the tools archive has no firebase binary"
+
+      # image: linux/amd64. Built BEFORE the auth step below, so no credentials file and no docker login exist while the
+      # image's own `npm ci` runs (Architect F3, #185). The build passes no --secret, no --ssh, no credential
+      # --build-arg and no --network=host: keep it that way; a future edit that adds one breaks the premise above.
+      - name: Build the API image (no credentials on this runner yet)
+        working-directory: app
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT/$AR_REPO/$SERVICE"
+          docker buildx build --platform linux/amd64 --target runtime \
+            --build-arg "GIT_SHA=$SHA" --build-arg "GIT_TREE=$TREE" --tag "$IMAGE:$SHA" --load .
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       # keyless identity: WIF -> ecofolk-deploy (GCP trusts only this workflow file on main).
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -347,19 +412,14 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SA }}
 
-      # image: linux/amd64, plain docker push, then by DIGEST from here on.
-      - name: Build and push the API image
-        working-directory: app
+      # push, then by DIGEST from here on.
+      - name: Push the API image
         run: |
           REGISTRY="$REGION-docker.pkg.dev"
-          IMAGE="$REGISTRY/$PROJECT/$AR_REPO/$SERVICE"
           gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "$REGISTRY" >/dev/null
-          docker buildx build --platform linux/amd64 --target runtime \
-            --build-arg "GIT_SHA=$SHA" --build-arg "GIT_TREE=$TREE" --tag "$IMAGE:$SHA" --load .
           docker push "$IMAGE:$SHA"
           DIGEST="$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE:$SHA" | grep "^$IMAGE@" | head -n1 | sed 's/.*@//')"
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no sha256 digest for $IMAGE:$SHA"; exit 1; }
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
           echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
           echo "image digest: $DIGEST"
 
@@ -384,13 +444,13 @@ jobs:
 
       # web: hosting only (the bundle was built by the build job, before any cloud mutation).
       - name: Deploy web to Firebase Hosting
-        working-directory: ${{ runner.temp }}/hosting/web
+        working-directory: app/packages/web
         run: |
           TOKEN="$(gcloud auth print-access-token)"; echo "::add-mask::$TOKEN"
           # Actions' default shell is `bash -e` WITHOUT pipefail, so a pipe here would hide a failed deploy (ef-qa
           # c7065202652). Capture the deploy's own exit status first; only then read the version out of its output.
           set -o pipefail
-          OUT="$(GOOGLE_OAUTH_ACCESS_TOKEN="$TOKEN" "$RUNNER_TEMP/hosting/fbtools/node_modules/.bin/firebase" deploy --only hosting --project "$PROJECT" --json)" \
+          OUT="$(GOOGLE_OAUTH_ACCESS_TOKEN="$TOKEN" "$RUNNER_TEMP/tools/node_modules/.bin/firebase" deploy --only hosting --project "$PROJECT" --json)" \
             || { echo "::error::firebase deploy failed (hosting was NOT updated)"; exit 1; }
           # firebase-tools 15.37.0 --json success is {"status":"success","result":{"hosting":"<version name>"}}.
           VERSION="$(printf '%s' "$OUT" | jq -er 'select(.status == "success") | .result.hosting | select(type == "string" and length > 0)' || true)"

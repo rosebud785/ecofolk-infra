@@ -1,0 +1,9 @@
+{
+  "name": "ecofolk-infra-firebase-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Firebase Hosting deploy tool for .github/workflows/deploy-app.yml (infra#177). Lockfile is committed so the whole tree is pinned; installed with npm ci --ignore-scripts in a job with no app code and no id-token.",
+  "dependencies": {
+    "firebase-tools": "15.37.0"
+  }
+}

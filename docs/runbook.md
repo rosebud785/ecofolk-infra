@@ -697,9 +697,15 @@ ecofolk stays as the break-glass path.
 gh workflow run deploy-app.yml -R rosebud785/ecofolk-infra -f env=dev -f sha=<40-hex ecofolk main commit>
 ```
 
-Dev runs on its own. **`env=prod` is not enabled yet**: step 1 refuses it ("prod deploys are not enabled until the #165
-§A job split") and the job's `if: inputs.env == 'dev'` skips it before any `environment:` reference, so a prod dispatch
-cannot auto-create `gcp-prod`. When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
+Three jobs (#177): **resolve** (gate, checkout check, cloud auth, reads the API url and Firebase web key; id-token, no
+npm), **build** (all npm and the web bundle; no id-token, no cloud credentials) and **deploy** (image, jobs, Cloud Run,
+Hosting, smoke; id-token, no npm). Only the public web bundle and the pinned firebase-tools pass between jobs as an
+artifact; the image is built in deploy because an image artifact would publish private source from a public repo.
+
+Dev runs on its own. **`env=prod` is not enabled yet**: step 1 refuses it and the `resolve` job's
+`if: inputs.env == 'dev'` skips the run before any `environment:` reference, so a prod dispatch
+cannot auto-create `gcp-prod`. The §A job split is done (#177); before enabling prod, note that each of the three jobs
+names the environment, so prod would ask for the approve tap three times. When prod is enabled it waits for Andy's Approve on the `gcp-prod` Environment. Rollback is a re-run with an
 older main sha; the run prints the previous serving revision and the one-line traffic rollback.
 
 **What it refuses** (as deploy-dev.sh does): a sha not reachable from ecofolk main; not exactly one merged PR; any

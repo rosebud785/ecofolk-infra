@@ -291,6 +291,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # The archive's sha256, as a JOB OUTPUT: only this job can write it. Deploy verifies the downloaded file against it,
+    # because the build job (the app's npm) runs in the same run and could try to replace an artifact by name (F6).
+    outputs:
+      tgz_sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -298,6 +302,7 @@ jobs:
       # npm ci installs EXACTLY tools/firebase/package-lock.json (the whole transitive tree) and fails on any drift;
       # --ignore-scripts runs no dependency install script.
       - name: Install firebase-tools from the lockfile
+        id: pack
         working-directory: tools/firebase
         run: |
           npm ci --ignore-scripts
@@ -305,6 +310,7 @@ jobs:
           node_modules/.bin/firebase --version
           # tar, not the artifact's own file walk: the .bin symlinks and the exec bits must survive.
           tar -czf "$RUNNER_TEMP/firebase-tools.tgz" node_modules
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/firebase-tools.tgz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: firebase-tools-${{ github.run_id }}
@@ -382,13 +388,19 @@ jobs:
           [ "$(jq -r '.hosting.public' "$web/firebase.json")" = "dist" ] || die "firebase.json hosting.public is not dist"
           cp -R "$dist" "$web/dist"
 
-      # The deploy tool came from the tools job: a lockfile in this repo, no app code. The archive is still listed
-      # before it is unpacked: no absolute or parent-directory member, and every member under node_modules/.
+      # The deploy tool came from the tools job: a lockfile in this repo, no app code. It is pinned by the sha256 the
+      # tools job published as a job output (the control: the artifact is found by name, and the app's npm job shares
+      # the run), then listed before it is unpacked: no absolute or parent-directory member, every member under
+      # node_modules/.
       - name: Unpack the deploy tool
+        env:
+          TOOLS_SHA256: ${{ needs.tools.outputs.tgz_sha256 }}
         run: |
           die() { echo "::error::REFUSED: $*"; exit 1; }
           tgz="$RUNNER_TEMP/tools-in/firebase-tools.tgz"
           [ -f "$tgz" ] || die "the tools artifact has no firebase-tools.tgz"
+          [[ "$TOOLS_SHA256" =~ ^[0-9a-f]{64}$ ]] || die "the tools job published no sha256 for the archive"
+          [ "$(sha256sum "$tgz" | cut -d' ' -f1)" = "$TOOLS_SHA256" ] || die "the tools archive does not match the sha256 the tools job published"
           tar -tzf "$tgz" | grep -Ev '^node_modules(/|$)' && die "the tools archive has a member outside node_modules/" || true
           tar -tzf "$tgz" | grep -E '(^|/)\.\.(/|$)' && die "the tools archive has a parent-directory member" || true
           mkdir -p "$RUNNER_TEMP/tools"

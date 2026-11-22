@@ -149,6 +149,21 @@ variable "sql_export_absence_duration_seconds" {
   description = "Absence duration of the stale-export alert, in seconds (19 h). With the alignment period the horizon must be over 24 h and at most 25 h."
 }
 
+# Horizon of the sync-health absence condition (#158): the same API cap and the same 24 h floor as the export one,
+# for the same reason (the job runs every 24 h). Variables only so the tests can drive known-wrong values through
+# the real precondition; callers should not set them.
+variable "sync_health_absence_duration_seconds" {
+  type        = number
+  default     = 68400
+  description = "Absence duration of the sync-health ran-line condition, in seconds (19 h). With the alignment period the horizon must be over 24 h and at most 25 h."
+}
+
+variable "sync_health_alignment_period_seconds" {
+  type        = number
+  default     = 21600
+  description = "Alignment period of the sync-health ran-line condition, in seconds (6 h). With the absence duration the horizon must be over 24 h and at most 25 h."
+}
+
 variable "sql_export_alignment_period_seconds" {
   type        = number
   default     = 21600

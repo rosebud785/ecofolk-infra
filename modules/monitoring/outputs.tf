@@ -17,8 +17,9 @@ output "log_metric_names" {
     sql_export_successes   = google_logging_metric.sql_export_successes.name
     sync_health_failed     = google_logging_metric.sync_health_failed.name
     outbound_429           = google_logging_metric.outbound_429.name
+    sync_health_ran        = google_logging_metric.sync_health_ran.name
   }
-  description = "Names of the five log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109)."
+  description = "Names of the six log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109)."
 }
 
 # Issue #5: for ef#406's alert policies to reference (metric.label.check_id in an uptime_check filter).
@@ -46,6 +47,7 @@ output "resource_names" {
     "google_logging_metric/${google_logging_metric.sql_export_successes.name}",
     "google_logging_metric/${google_logging_metric.sync_health_failed.name}",
     "google_logging_metric/${google_logging_metric.outbound_429.name}",
+    "google_logging_metric/${google_logging_metric.sync_health_ran.name}",
   ]
   description = "Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test)."
 }

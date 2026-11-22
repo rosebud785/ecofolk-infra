@@ -25,6 +25,7 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | [google_logging_metric.outbound_429](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
 | [google_logging_metric.sql_export_successes](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
 | [google_logging_metric.sync_health_failed](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
+| [google_logging_metric.sync_health_ran](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_metric) | resource |
 | [google_monitoring_alert_policy.api_5xx_rate](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.db_connection_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
 | [google_monitoring_alert_policy.media_write_failures](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/monitoring_alert_policy) | resource |
@@ -51,6 +52,8 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 | sql_export_alignment_period_seconds | Alignment period of the stale-export alert, in seconds (6 h). With the absence duration the horizon must be over 24 h and at most 25 h. | `number` | `21600` | no |
 | sql_export_job_name | Id of the nightly export's Cloud Scheduler job, for the stale-export alert (pass module.cloudsql.export_job_name). | `string` | n/a | yes |
 | sql_instance_name | Name of the Cloud SQL instance the dashboard's database tiles watch and the stale-export alert names (modules/cloudsql's instance_name). | `string` | `"ecofolk-pg"` | no |
+| sync_health_absence_duration_seconds | Absence duration of the sync-health ran-line condition, in seconds (19 h). With the alignment period the horizon must be over 24 h and at most 25 h. | `number` | `68400` | no |
+| sync_health_alignment_period_seconds | Alignment period of the sync-health ran-line condition, in seconds (6 h). With the absence duration the horizon must be over 24 h and at most 25 h. | `number` | `21600` | no |
 | web_host | Hostname of the EcoFolk web build (modules/web_hosting: <project>-web.web.app), probed at https://<web_host>/. | `string` | n/a | yes |
 
 ## Outputs
@@ -59,7 +62,7 @@ Alerts on the API 5xx rate, DB connections and media write failures, with channe
 |------|-------------|
 | alert_policy_names | Resource names of the six alert policies. |
 | dashboard_id | Resource id of the EcoFolk dashboard. |
-| log_metric_names | Names of the five log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109). |
+| log_metric_names | Names of the six log-based metrics (logging.googleapis.com/user/<name>). sql_export_successes counts successful runs of the nightly export job (#109). |
 | resource_names | Every resource name this module sets, as <type>/<name> (#13's dev/qa collision test). |
 | uptime_check_ids | Uptime check IDs of the API /health and web root checks. |
 <!-- END_TF_DOCS -->

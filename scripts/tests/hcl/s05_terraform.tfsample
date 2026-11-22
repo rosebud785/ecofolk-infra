@@ -27,4 +27,3 @@ terraform {
     address = "https://example.invalid/state"
   }
 }
-terraform { backend "gcs" { prefix = "oneline" } }

@@ -25,6 +25,5 @@ provider "google" {
   }
   storage_custom_endpoint = "https://example.invalid/"
 }
-provider "google-beta" { project = "oneline", credentials = "y" }
 provider "archive" {
 }

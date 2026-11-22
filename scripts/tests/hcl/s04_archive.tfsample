@@ -18,7 +18,6 @@ data "archive_file" "local" {
 data "archive_file" "fileset" {
   output_path = tolist(fileset("/tmp", "x*"))[0]
 }
-data archive_file oneline { type = "zip", output_path = "/etc/cron.d/x" }
 resource "google_storage_bucket_object" "o" {
   source = data.archive_file.real.output_path
 }

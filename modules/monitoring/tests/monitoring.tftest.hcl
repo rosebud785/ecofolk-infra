@@ -305,6 +305,7 @@ run "env_dev_keeps_its_names_and_labels" {
       "google_logging_metric/ecofolk-sql-export-successes",
       "google_logging_metric/ecofolk-sync-health-failed",
       "google_logging_metric/ecofolk-outbound-429",
+      "google_logging_metric/ecofolk-sync-health-ran",
     ]
     error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
   }
@@ -347,6 +348,7 @@ run "env_qa_suffixes_names_and_labels" {
       "google_logging_metric/ecofolk-sql-export-successes-qa",
       "google_logging_metric/ecofolk-sync-health-failed-qa",
       "google_logging_metric/ecofolk-outbound-429-qa",
+      "google_logging_metric/ecofolk-sync-health-ran-qa",
     ]
     error_message = "resource_names must be every name the module sets (#13), got ${jsonencode(output.resource_names)}"
   }
@@ -737,12 +739,12 @@ run "sync_health_metrics_match_exactly_the_app_log_lines" {
   }
 }
 
-run "sync_health_policy_ors_two_conditions_on_those_metrics_and_notifies_the_one_channel" {
+run "sync_health_policy_ors_three_conditions_on_those_metrics_and_notifies_the_one_channel" {
   command = plan
 
   assert {
-    condition     = google_monitoring_alert_policy.sync_health.combiner == "OR" && length(google_monitoring_alert_policy.sync_health.conditions) == 2
-    error_message = "the sync-health policy must OR exactly two conditions"
+    condition     = google_monitoring_alert_policy.sync_health.combiner == "OR" && length(google_monitoring_alert_policy.sync_health.conditions) == 3
+    error_message = "the sync-health policy must OR exactly three conditions (failed, 429, ran-line absence)"
   }
 
   assert {
@@ -755,10 +757,10 @@ run "sync_health_policy_ors_two_conditions_on_those_metrics_and_notifies_the_one
 
   assert {
     condition = alltrue([
-      for c in google_monitoring_alert_policy.sync_health.conditions :
+      for c in slice(google_monitoring_alert_policy.sync_health.conditions, 0, 2) :
       c.condition_threshold[0].comparison == "COMPARISON_GT" && c.condition_threshold[0].threshold_value == 0
     ])
-    error_message = "each condition must fire on any matching entry (> 0)"
+    error_message = "the two bad-line conditions must fire on any matching entry (> 0)"
   }
 
   assert {
@@ -769,5 +771,88 @@ run "sync_health_policy_ors_two_conditions_on_those_metrics_and_notifies_the_one
   assert {
     condition     = strcontains(google_monitoring_alert_policy.sync_health.documentation[0].content, "What broke") && strcontains(google_monitoring_alert_policy.sync_health.documentation[0].content, "First thing to check")
     error_message = "the sync-health policy must say what broke and the first thing to check"
+  }
+}
+
+# ecofolk-infra#158 — the absence condition on the job's own "[job:sync-health] ran" line, same policy, same channel.
+run "sync_health_ran_metric_matches_exactly_the_ran_line" {
+  command = plan
+
+  assert {
+    condition     = google_logging_metric.sync_health_ran.filter == "resource.type=\"cloud_run_revision\" AND jsonPayload.msg=\"[job:sync-health] ran\""
+    error_message = "the ran metric must match exactly that message on the Cloud Run revision"
+  }
+
+  assert {
+    condition     = !can(regex("(?i)(\\bOR\\b|\\bNOT\\b)", google_logging_metric.sync_health_ran.filter))
+    error_message = "the ran filter must be a pure AND of its clauses"
+  }
+}
+
+run "sync_health_absence_condition_is_an_absence_over_the_ran_metric" {
+  command = plan
+
+  assert {
+    condition = (
+      strcontains(google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].filter, "logging.googleapis.com/user/ecofolk-sync-health-ran") &&
+      google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].comparison == "COMPARISON_LT" &&
+      google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].threshold_value == 1
+    )
+    error_message = "the third condition must be COMPARISON_LT 1 on the ran metric"
+  }
+
+  # Differential: with no points at all the condition must still fire (the silent-job case this exists for).
+  assert {
+    condition     = google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].evaluation_missing_data == "EVALUATION_MISSING_DATA_ACTIVE"
+    error_message = "missing data must count as a violation, or a job that never logs again looks healthy"
+  }
+
+  assert {
+    condition     = google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].duration == "68400s" && google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].aggregations[0].alignment_period == "21600s"
+    error_message = "the default horizon is 19 h + 6 h"
+  }
+
+  assert {
+    condition     = strcontains(google_monitoring_alert_policy.sync_health.documentation[0].content, "ecofolk#408")
+    error_message = "the documentation must say the placeholder-image page on dev is expected"
+  }
+}
+
+run "sync_health_horizon_over_25h_is_rejected" {
+  command = plan
+  variables {
+    sync_health_absence_duration_seconds = 84600
+    sync_health_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sync_health]
+}
+
+run "sync_health_horizon_of_exactly_24h_is_rejected" {
+  command = plan
+  variables {
+    sync_health_absence_duration_seconds = 64800
+    sync_health_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sync_health]
+}
+
+run "sync_health_horizon_just_over_25h_is_rejected" {
+  command = plan
+  variables {
+    sync_health_absence_duration_seconds = 68401
+    sync_health_alignment_period_seconds = 21600
+  }
+  expect_failures = [google_monitoring_alert_policy.sync_health]
+}
+
+run "sync_health_fallback_horizon_of_24_5h_passes" {
+  command = plan
+  variables {
+    sync_health_absence_duration_seconds = 66600
+    sync_health_alignment_period_seconds = 21600
+  }
+  assert {
+    condition     = google_monitoring_alert_policy.sync_health.conditions[2].condition_threshold[0].duration == "66600s"
+    error_message = "the fallback duration must flow through to the policy"
   }
 }

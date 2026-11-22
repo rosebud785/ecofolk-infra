@@ -853,7 +853,11 @@ before auth): the PR is not open, is from a fork, or does not target `main`; the
 refused, because they run at plan time or pick where the credential goes: an `output_path` that is not exactly
 `"${path.root}/.terraform/tmp/<file name>"` (the archive data source WRITES a file at plan time); a backend that is not
 exactly one `backend "gcs"` with only `prefix = "<literal>"` in `environments/dev`, any `cloud` block, any backend of
-another type, any backend in a module; a `*_custom_endpoint` attribute; and any symbolic link. Such a
+another type, any backend in a module; a `*_custom_endpoint` attribute; any symbolic link; and, in a `provider "google"`
+or `"google-beta"` block, any attribute or nested block other than `project`, `region`, `zone`, `alias` and
+`default_labels` (an allowlist, so a credential, token, impersonation, universe or endpoint change, or anything a
+future provider version adds, is refused without anyone naming it). CI runs the same script on this repo's own tree, so
+a rule that would refuse today's code fails at review. Such a
 PR gets a comment saying there is no PR-time plan and records `plan-record: <sha> static-refused`; the apply's own plan
 is then the first one, as before.
 

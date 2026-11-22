@@ -146,6 +146,14 @@ jobs:
       - run: bash scripts/tests/test_check_plan_tree.sh
       - run: bash scripts/tests/test_plan_summary.sh
       - run: bash scripts/tests/test_check_plan_record.sh
+      # R5 (Architect c7085505351): the repo's OWN tree against the plan workflow's allowlist, so a later rule that
+      # refuses today's code fails here, at review, and not at the first plan dispatch. The allowlist is read from
+      # infra-plan.yml, the one place it lives, so the two cannot drift.
+      - name: check-plan-tree on this repo's own tree
+        run: |
+          allow="$(sed -n "s/^[[:space:]]*PLAN_PROVIDER_ALLOWLIST:[[:space:]]*'\(.*\)'[[:space:]]*$/\1/p" .github/workflows/infra-plan.yml | head -n1)"
+          [ -n "$allow" ] || { echo "::error::no PLAN_PROVIDER_ALLOWLIST in infra-plan.yml"; exit 1; }
+          bash scripts/check-plan-tree.sh . "$allow"
       # ecofolk-infra#70: provider majors are ignored in dependabot.yml (taken by hand, one per PR).
       - run: bash scripts/tests/test_check_dependabot_majors.sh
       - run: bash scripts/check-dependabot-majors.sh

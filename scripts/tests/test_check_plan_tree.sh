@@ -355,6 +355,142 @@ if [ "$rc" = 2 ]; then echo "ok   missing_root_is_an_error"; else echo "FAIL mis
 out=$(bash "$guard" "$tmp/clean" "$ALLOW" "../x" 2>&1); rc=$?
 if [ "$rc" = 2 ]; then echo "ok   dotdot_root_is_an_error"; else echo "FAIL dotdot_root_is_an_error: rc=$rc $out"; failures=$((failures + 1)); fi
 
+# ---- R5 (Architect c7085505351): google provider blocks take an attribute ALLOWLIST ----
+# The real provider blocks of dev, qa and prod pass (positive controls), as does a block using every allowed attribute.
+run_case provider_dev_shape_passes 0 'ok \(' <<'EOF'
+provider "google" {
+  project = var.project_id
+}
+
+# Same keyless ADC as `google`, no credentials argument; used only by modules/web_hosting (#22).
+provider "google-beta" {
+  project = var.project_id
+}
+EOF
+run_case provider_prod_shape_passes 0 'ok \(' <<'EOF'
+provider "google" {
+  project = local.project_id
+}
+provider "google-beta" {
+  project = local.project_id
+}
+EOF
+run_case provider_every_allowed_attribute_passes 0 'ok \(' <<'EOF'
+provider "google" {
+  alias   = "second"
+  project = var.project_id
+  region  = "northamerica-northeast1"
+  zone    = "northamerica-northeast1-a"
+  # a comment inside the block is not an attribute
+  default_labels = {
+    env     = "dev"
+    "owner" = "ecofolk"
+  }
+}
+EOF
+# Each named attribute is refused (the line names it), in google and in google-beta.
+for attr in credentials access_token impersonate_service_account impersonate_service_account_delegates \
+  universe_domain scopes billing_project user_project_override request_reason \
+  storage_custom_endpoint compute_custom_endpoint; do
+  run_case "provider_attr_$attr" 1 "main.tf:3: provider attribute or block \"$attr\" is not on the google provider's allowlist" <<EOF
+provider "google" {
+  project = var.project_id
+  $attr = "x"
+}
+EOF
+done
+run_case provider_beta_attr_refused 1 'main.tf:3: provider attribute or block "credentials"' <<'EOF'
+provider "google-beta" {
+  project = var.project_id
+  credentials = "x"
+}
+EOF
+# Nested blocks, and an attribute no one has heard of (a future provider version's), are refused too.
+run_case provider_external_credentials_block 1 'block "external_credentials"' <<'EOF'
+provider "google" {
+  project = var.project_id
+  external_credentials {
+    audience = "x"
+  }
+}
+EOF
+run_case provider_batching_block 1 'block "batching"' <<'EOF'
+provider "google" {
+  project = var.project_id
+  batching {
+    send_after = "3s"
+  }
+}
+EOF
+run_case provider_made_up_attribute 1 'attribute or block "some_future_setting"' <<'EOF'
+provider "google" {
+  project = var.project_id
+  some_future_setting = true
+}
+EOF
+# The attribute after a bad one, and a bad one hidden after good ones.
+run_case provider_bad_attribute_last 1 'main.tf:5: provider attribute or block "access_token"' <<'EOF'
+provider "google" {
+  project = var.project_id
+  region  = "x"
+  zone    = "y"
+  access_token = "z"
+}
+EOF
+# A block closed on the same line cannot hide an attribute (the same way the backend rule treats it).
+run_case provider_closed_on_the_same_line 1 'must open its block at the end of the line' <<'EOF'
+provider "google" { project = "x", credentials = "y" }
+EOF
+run_case provider_one_line_empty_block 1 'must open its block at the end of the line' <<'EOF'
+provider "google" {}
+EOF
+# default_labels takes plain key = value lines only.
+run_case provider_default_labels_nested_block 1 'default_labels takes plain key = value' <<'EOF'
+provider "google" {
+  project = var.project_id
+  default_labels = {
+    env = {
+      a = "b"
+    }
+  }
+}
+EOF
+# An attribute AFTER default_labels closes is still checked (depth is tracked, not assumed).
+run_case provider_attribute_after_default_labels 1 'main.tf:8: provider attribute or block "credentials"' <<'EOF'
+provider "google" {
+  project = var.project_id
+  default_labels = {
+    env = "dev"
+  }
+  region = "x"
+  zone = "y"
+  credentials = "z"
+}
+EOF
+# An unclosed block is a refusal, not a pass.
+run_case provider_unclosed 1 'the google provider block is not closed' <<'EOF'
+provider "google" {
+  project = var.project_id
+EOF
+# In a module too (a provider block there is unusual; its extra attributes are refused all the same).
+EXTRA_FILE=modules/m/main.tf EXTRA_BODY='provider "google" {
+  project = "x"
+  impersonate_service_account = "y"
+}
+' run_case provider_attr_in_a_module 1 'modules/m/main.tf:3: provider attribute or block "impersonate_service_account"' <<<"$CLEAN"
+# Another provider's block is not this rule's business (archive has none to set, and is allowlisted).
+run_case other_provider_block_is_not_this_rule 0 'ok \(' <<'EOF'
+provider "archive" {
+}
+EOF
+# Words in a comment are not attributes.
+run_case provider_comment_is_not_an_attribute 0 'ok \(' <<'EOF'
+provider "google" {
+  # credentials = "x"
+  project = var.project_id
+}
+EOF
+
 # Fail closed on bad usage.
 out=$(bash "$guard" "$tmp/clean" "" 2>&1); rc=$?
 if [ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'allowlist is empty'; then echo "ok   empty_allowlist_is_an_error"; else echo "FAIL empty_allowlist_is_an_error: rc=$rc $out"; failures=$((failures + 1)); fi

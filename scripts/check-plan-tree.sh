@@ -24,6 +24,11 @@
 #      in a module it is not. The bucket stays the workflow's -backend-config.
 #  10. a `*_custom_endpoint` attribute (a provider pointed at another host would send the access token there);
 #  11. any symbolic link in the tree (a link could point a plan-time write or read at a runner file).
+#  12. (R5, Architect c7085505351) a `provider "google"` / `"google-beta"` block takes an ATTRIBUTE ALLOWLIST: project,
+#      region, zone, alias and default_labels (plain key = value lines). Any other attribute or nested block is a
+#      refusal that names it, so a credential, a token, an impersonation, a universe or endpoint change, a scope, a
+#      billing project or anything a future provider version adds is refused without anyone having to know its name.
+#      The block must open at the end of its line.
 # Fail closed: an unreadable tree, an empty allowlist or an allowlist entry that is not `namespace/name` is an error.
 #
 # Usage: check-plan-tree.sh <tree-dir> <allowed-providers, comma-separated, e.g. hashicorp/google,hashicorp/google-beta> [root]
@@ -81,7 +86,7 @@ provider_ok() {
 output_path_re='^[[:space:]]*output_path[[:space:]]*=[[:space:]]*"\$\{path\.(root|module)\}/\.terraform/tmp/[A-Za-z0-9][A-Za-z0-9._-]*"[[:space:]]*$'
 
 for f in "${tf_files[@]}"; do
-  n=0
+  n=0 in_prov=0 depth=0 in_labels=0 prov_line=0
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
     # A whole-line comment is not code. (A block comment or an inline one is not stripped: that can only add refusals.)
@@ -138,7 +143,41 @@ for f in "${tf_files[@]}"; do
     # A non-literal `source = expr` is ignored on purpose: a module or provider source must be a string literal
     # (Terraform refuses anything else at init), so it can only be a plain attribute such as a bucket object's source.
     # Any string-literal source anywhere is checked above, so a local-looking attribute path is the only false positive.
+
+    # 12. (R5) A google / google-beta provider block takes an ATTRIBUTE ALLOWLIST: project, region, zone, alias and
+    # default_labels (a map of plain `key = value` lines). Anything else, an unknown or future attribute and any nested
+    # block included, is a refusal that names it. This replaces a list of credential and endpoint names (credentials,
+    # access_token, impersonate_service_account*, universe_domain, scopes, billing_project, user_project_override,
+    # request_reason, external_credentials, batching, *_custom_endpoint ...): deny everything not needed. The block must
+    # open at the end of its line, so a block closed on its own line cannot hide an attribute.
+    if [ "$in_prov" = 0 ]; then
+      if [[ "$line" =~ ^[[:space:]]*provider[[:space:]]+\"(google|google-beta)\" ]]; then
+        pname="${BASH_REMATCH[1]}"
+        if [[ "$line" =~ \"[[:space:]]*\{[[:space:]]*$ ]]; then
+          in_prov=1 depth=1 in_labels=0 prov_line=$n
+        else
+          report "$f" "$n" "provider \"$pname\" must open its block at the end of the line (its attributes are an allowlist)"
+        fi
+      fi
+    elif [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      :
+    elif [[ "$line" =~ ^[[:space:]]*\}[[:space:]]*$ ]]; then
+      depth=$((depth - 1))
+      [ "$in_labels" = 1 ] && [ "$depth" = 1 ] && in_labels=0
+      [ "$depth" = 0 ] && in_prov=0
+    elif [ "$in_labels" = 1 ]; then
+      [[ "$line" =~ ^[[:space:]]*[A-Za-z0-9_\"-]+[[:space:]]*=[^{}]+$ ]] \
+        || report "$f" "$n" "default_labels takes plain key = value lines only: $(printf '%s' "$line" | tr -d '`' | cut -c1-80)"
+    elif [[ "$line" =~ ^[[:space:]]*(project|region|zone|alias)[[:space:]]*=[^{}]+$ ]]; then
+      :
+    elif [[ "$line" =~ ^[[:space:]]*default_labels[[:space:]]*=[[:space:]]*\{[[:space:]]*$ ]]; then
+      in_labels=1 depth=2
+    else
+      attr="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*//; s/[[:space:]]*[={].*$//' | tr -d '`' | cut -c1-60)"
+      report "$f" "$n" "provider attribute or block \"$attr\" is not on the google provider's allowlist (project, region, zone, alias, default_labels)"
+    fi
   done <"$f"
+  [ "$in_prov" = 0 ] || report "$f" "$prov_line" "the google provider block is not closed"
 done
 
 # 9 (continued). The planned root's own backend: exactly one `backend "gcs" {` whose body is only `prefix = "<literal>"`.

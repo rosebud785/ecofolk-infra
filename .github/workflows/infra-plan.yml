@@ -16,7 +16,8 @@ name: Infra plan (a named PR, dev)
 #   2. static refusals on the PR tree BEFORE `terraform init` and before auth (scripts/check-plan-tree.sh, run from
 #      MAIN's checkout, never the PR's): no data external/http, no provider external/http/local/null, no provisioner, no
 #      non-local module source, no provider outside the allowlist below, no archive output_path that could write a
-#      runner file at plan time, no backend but one `backend "gcs"` with only a prefix, no *_custom_endpoint, no symlink.
+#      runner file at plan time, no backend but one `backend "gcs"` with only a prefix, no *_custom_endpoint, no symlink,
+#      and no google provider attribute beyond project / region / zone / alias / default_labels.
 #      The allowlist lives HERE, on main, not in the PR;
 #   3. `tf-plan` is read-only (viewer + state-bucket objectViewer + secretmanager.viewer, never secretAccessor) and
 #      the plan runs -lock=false -input=false, with `init -lockfile=readonly` so the PR cannot swap a provider in;

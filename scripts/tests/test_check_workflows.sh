@@ -1399,6 +1399,35 @@ stepcase w2_shell_function_residual pass '      - run: |
 stepcase q1_expansion_in_echo_no_dir fail '      - run: echo "$X terraform apply"'
 stepcase q2_dev_with_fd_redirect pass '      - run: terraform -chdir=environments/dev apply 2>&1'
 stepcase q3_echo_backslash_not_text fail '      - run: echo "a\\" terraform apply'
+# Architect c7113042887 (ha-qa HOLD c7113025215): a terraform-family ACTION is capable unless setup-only, and its
+# `with:` values must prove dev whatever the inputs are called.
+stepcase u1_terragrunt_action_prod fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: environments/prod'
+stepcase u2_terragrunt_action_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: ${{ inputs.dir }}'
+stepcase u3_terragrunt_action_dev pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: environments/dev'
+stepcase u4_dflook_apply_prod fail '      - uses: dflook/terraform-apply@'"$SHA"'
+        with:
+          path: environments/prod'
+stepcase u5_setup_terraform_ok pass '      - uses: hashicorp/setup-terraform@'"$SHA"
+stepcase u6_unrelated_action_not_capable_passes pass '      - uses: actions/upload-artifact@'"$SHA"'
+        with:
+          path: environments/prod/plan.json'
+stepcase u7_action_no_with fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"
+stepcase u8_action_dev_via_env pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: ${{ env.TF_DIR }}' '  TF_DIR: environments/dev'
+stepcase u9_action_dotdot fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev/../prod'
+stepcase u10_setup_tflint_ok pass '      - uses: terraform-linters/setup-tflint@'"$SHA"
 # Architect c7112778221: any `..` segment anywhere in a target is unsafe, the dev part and its suffix included.
 stepcase dd1_env_dotdot_prod fail '      - run: terraform -chdir="$TF_DIR/../prod" apply' '  TF_DIR: environments/dev'
 stepcase dd2_quoted_dev_then_dotdot fail '      - run: terraform -chdir="environments/dev"/../prod apply'

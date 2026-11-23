@@ -22,8 +22,14 @@
 #        comment. Any other character (& | < > $ a backtick, an unbalanced quote) makes it not text, so
 #        `echo x & terraform ...`, `echo <(terraform ...)`, `echo "..." | bash` and `echo "$(terraform ...)"`
 #        are all capable. Fails closed on every form it does not fully model; the residual below is what a
-#        text reader cannot see. Never widen the text grammar. A `uses:` action named plan/apply and any job-level
-#        reusable-workflow call are capable too, and need the whole workflow to prove dev.
+#        text reader cannot see. Never widen the text grammar. A job-level reusable-workflow call is capable too,
+#        and needs the whole workflow to prove dev.
+#      - a `uses:` STEP is capable if its action reference (case-insensitive) contains terraform, tofu,
+#        opentofu, terragrunt, plan or apply, unless it is on the setup-only allowlist (hashicorp/setup-
+#        terraform, opentofu/setup-opentofu, terraform-linters/setup-tflint; adding an entry is a guard-surface
+#        change). Its target is its `with:` values, whatever the inputs are called: at least one must name
+#        environments/dev, and every `environments/` in any of them must be exactly dev (no `..`, no
+#        non-literal expression); otherwise unsafe.
 #      - each capable segment's directory comes from its `-chdir=`, else the step's `working-directory`, else
 #        the job's, else the workflow's `defaults.run.working-directory`; no source = unsafe. It must resolve
 #        to [<prefix>/]environments/dev (then end or `/`; the prefix a fixed relative path, no `..`, no
@@ -37,7 +43,8 @@
 #      workflow text): a wrapper script that targets prod internally (`./deploy.sh`); a run-time `cd` out
 #      of, or a rewrite of, the named dev directory (`TF_DIR="${TF_DIR%dev}prod"`); a subcommand assembled
 #      from variables (`ACTION: apply` ... `terraform "$ACTION"`); an in-workflow shell function or alias
-#      wrapping terraform (`tf() { terraform "$@"; }` then `tf -chdir=... apply`). Defence in depth, same
+#      wrapping terraform (`tf() { terraform "$@"; }` then `tf -chdir=... apply`); an action not named for terraform/tofu/terragrunt that runs it internally (a
+#      generic deploy action), the action-level twin of a wrapper script. Defence in depth, same
 #      bar as #188: the obvious and idiomatic forms are caught, the rest is stated, not chased.
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.

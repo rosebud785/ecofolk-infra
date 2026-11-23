@@ -332,7 +332,6 @@ ON_KEYS = ("on", "true", "True")
 PATH_FILTERS = ("paths", "paths-ignore")  # on.<event>.paths filters pick which pushes run; not a target
 # A `terraform`/`tofu` word with plan or apply after it, in one (de-quoted) segment.
 TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu|terragrunt)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
-ACTION_PLAN = re.compile(r"(plan|apply)", re.IGNORECASE)
 # The splitter is FIXED and small (Architect design review, ecofolk-infra#193 round 4): newline, `;`, `&&`, `||`.
 # NOTHING is added in later rounds. A lone `&`, `|`, `$(`, backticks, `<(`, `>(` and redirections are not
 # separators: they stay inside their segment, where the closed text grammar below treats them as disqualifying.
@@ -382,6 +381,15 @@ def _target_ok(source: str | None, envs: list[dict[str, str]]) -> bool:
     if source is None:
         return False
 
+    resolved = _resolve_env(source, envs)
+    if "$" in resolved or "{{" in resolved:
+        return False
+    return bool(DEV_TARGET.match(resolved)) and not DOTDOT.search(resolved)
+
+
+def _resolve_env(source: str, envs: list[dict[str, str]]) -> str:
+    """Substitute ${{ env.X }}, $X and ${X} where X is a literal in an env map (nearest first); leave the rest."""
+
     def sub(m: re.Match) -> str:
         name = m.group(1) or m.group(2) or m.group(3)
         for e in envs:
@@ -389,10 +397,33 @@ def _target_ok(source: str | None, envs: list[dict[str, str]]) -> bool:
                 return e[name]
         return m.group(0)
 
-    resolved = ENV_REF.sub(sub, source)
-    if "$" in resolved or "{{" in resolved:
+    return ENV_REF.sub(sub, source)
+
+
+# A `uses:` step is plan/apply-capable if its action reference names the terraform family or plan/apply, unless
+# it is on this setup-only allowlist (Architect c7113042887). Adding an entry is a guard-surface change.
+ACTION_FAMILY = re.compile(r"terraform|tofu|opentofu|terragrunt|plan|apply", re.IGNORECASE)
+SETUP_ONLY_ACTIONS = frozenset({"hashicorp/setup-terraform", "opentofu/setup-opentofu", "terraform-linters/setup-tflint"})
+
+
+def _with_proves_dev(with_node: yaml.Node | None, envs: list[dict[str, str]]) -> bool:
+    """A terraform-family action's target is its `with:` values, whatever the inputs are called: at least one
+    value must name environments/dev, and every `environments/` in any value must be exactly dev (no `..`, no
+    non-literal expression in a value that carries one). Otherwise unsafe."""
+    if with_node is None:
         return False
-    return bool(DEV_TARGET.match(resolved)) and not DOTDOT.search(resolved)
+    saw_dev = False
+    for sc in scalar_nodes(with_node):
+        value = _resolve_env(sc.value, envs)
+        if "environments/" not in value:
+            continue
+        if "$" in value or "{{" in value:
+            return False
+        for m in ENV_OCC.finditer(value):
+            if not _dev_occurrence(value, m.start()):
+                return False
+            saw_dev = True
+    return saw_dev
 
 
 def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
@@ -483,17 +514,26 @@ def tf_violations(path: str) -> list[int]:
                         for st in steps.value:
                             step_wd = _mapping_get(st, loader, "working-directory")
                             wds = [step_wd.value if isinstance(step_wd, yaml.ScalarNode) else None, job_wd, wf_wd]
-                            check_unit(scalar_nodes(st), [_literal_env(st, loader), job_env, wf_env], wds)
+                            step_envs = [_literal_env(st, loader), job_env, wf_env]
+                            check_unit(scalar_nodes(st), step_envs, wds)
+                            uses_n = _mapping_get(st, loader, "uses")
+                            if isinstance(uses_n, yaml.ScalarNode):
+                                ref = uses_n.value.split("@", 1)[0].strip().lower()
+                                if ACTION_FAMILY.search(ref) and ref not in SETUP_ONLY_ACTIONS and not (
+                                    no_foreign_env and _with_proves_dev(_mapping_get(st, loader, "with"), step_envs)
+                                ):
+                                    hits.add(uses_n.start_mark.line + 1)
                     check_unit(scalar_nodes(job, ("steps",)), [job_env, wf_env], [job_wd, wf_wd])
             skip = ("jobs",)
             rest = [s for k, v in mapping_items(root, loader) if key_name(k) not in skip for s in on_scalars(v, key_name(k))]
             check_unit(rest, [wf_env], [wf_wd])
 
-            # Action named plan/apply, and job-level reusable-workflow calls: no directory source of their own,
-            # so the whole workflow must prove dev (some environments/dev, and nothing else under environments/).
+            # Reusable-workflow calls: no directory source of their own, so the whole workflow must prove dev
+            # (some environments/dev, and nothing else under environments/). A terraform-family `uses:` STEP is
+            # judged above by its own `with:` values.
             for uses_v in _uses_values(root, loader):
                 name = uses_v.value.split("@", 1)[0]
-                if (ACTION_PLAN.search(name) or ".github/workflows/" in name) and not workflow_dev_only:
+                if ".github/workflows/" in name and not workflow_dev_only:
                     hits.add(uses_v.start_mark.line + 1)
             return sorted(hits)
         finally:

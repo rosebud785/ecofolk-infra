@@ -778,7 +778,7 @@ check "c" {
 }
 EOF
 # Controls: a check-scoped google_* data source passes, and so does a check with only an assertion.
-run_case f3_check_scoped_google_data_passes 0 'ok \(' <<'EOF'
+run_case f3_check_scoped_google_data_is_refused_with_its_check 1 'top-level block "check" is not accepted' <<'EOF'
 check "c" {
   data "google_client_config" "x" {}
   assert {
@@ -787,7 +787,7 @@ check "c" {
   }
 }
 EOF
-run_case f3_check_with_only_an_assertion_passes 0 'ok \(' <<'EOF'
+run_case f3_check_with_only_an_assertion_is_refused_too 1 'top-level block "check" is not accepted' <<'EOF'
 check "c" {
   assert {
     condition     = true
@@ -796,24 +796,83 @@ check "c" {
 }
 EOF
 # Ephemeral blocks have the same two-label shape and are judged the same way, fail closed.
-run_case f3_ephemeral_non_allowlisted_type 1 '"random_password" belongs to a provider' <<'EOF'
+run_case f3_ephemeral_non_allowlisted_type 1 'top-level block "ephemeral" is not accepted' <<'EOF'
 ephemeral "random_password" "p" {
   length = 16
 }
 EOF
-run_case f3_ephemeral_unquoted 1 '"mystery_thing" belongs to a provider' <<'EOF'
+run_case f3_ephemeral_unquoted 1 'top-level block "ephemeral" is not accepted' <<'EOF'
 ephemeral mystery_thing p {}
 EOF
-run_case f3_ephemeral_google_passes 0 'ok \(' <<'EOF'
+run_case f3_ephemeral_google_is_refused_too 1 'top-level block "ephemeral" is not accepted' <<'EOF'
 ephemeral "google_service_account_access_token" "t" {
   target_service_account = "x"
 }
 EOF
 # An action block runs provider code: same allowlist.
-run_case f3_action_non_allowlisted_type 1 '"mystery_action" belongs to a provider' <<'EOF'
+run_case f3_action_is_refused 1 'top-level block "action" is not accepted' <<'EOF'
 action "mystery_action" "a" {
   config {
     x = "y"
+  }
+}
+EOF
+# Top-level block kinds are an ALLOWLIST (Architect, infra#162 c7089836077): terraform, provider, variable, locals,
+# output, module, resource, data, moved, import, removed. Anything else, a kind added later included, is refused by name.
+run_case kinds_unknown_kind_refused 1 'top-level block "mystery" is not accepted' <<'EOF'
+mystery "x" "y" {
+  z = 1
+}
+EOF
+run_case kinds_unquoted_unknown_kind_refused 1 'top-level block "future_kind" is not accepted' <<'EOF'
+future_kind thing {}
+EOF
+run_case kinds_comment_prefixed_check_refused 1 'top-level block "check" is not accepted' <<'EOF'
+/* x */ check "c" {
+  assert {
+    condition     = true
+    error_message = "x"
+  }
+}
+EOF
+run_case kinds_list_block_refused 1 'top-level block "list" is not accepted' <<'EOF'
+list "google_x" "y" {
+  provider = google
+}
+EOF
+# Every ALLOWED kind in one file passes (the positive control for the allowlist, and a real-parse row for each shape).
+run_case kinds_every_allowed_kind_passes 0 'ok \(' <<'EOF'
+variable "project_id" {
+  type = string
+}
+locals {
+  env = "dev"
+}
+provider "google" {
+  project = var.project_id
+}
+module "a" {
+  source = "../../modules/m"
+}
+resource "google_storage_bucket" "b" {
+  name = "x-${local.env}"
+}
+data "google_client_config" "c" {}
+output "bucket" {
+  value = google_storage_bucket.b.name
+}
+moved {
+  from = google_storage_bucket.old
+  to   = google_storage_bucket.b
+}
+import {
+  to = google_storage_bucket.b
+  id = "x"
+}
+removed {
+  from = google_storage_bucket.gone
+  lifecycle {
+    destroy = false
   }
 }
 EOF

@@ -39,6 +39,11 @@ def declared($kind): [everywhere | select(has($kind)) | .[$kind] | select(blockm
 if $mode == "lock" then
   ((.provider // {}) | keys[] | select(providerok(.) | not) | err("lockfile provider \"" + . + "\" is not in the allowlist"))
 else
+  # 0. (Architect, infra#162 c7089836077) the TOP-LEVEL block kinds are an ALLOWLIST, so a kind Terraform adds later (or one
+  # that can nest a data block: `check`, `ephemeral`, `action`) is refused by name instead of being understood: simpler,
+  # and fail closed. Everything an EcoFolk root or module uses today is in the list.
+  (keys[] | select(IN("terraform", "provider", "variable", "locals", "output", "module", "resource", "data", "moved", "import", "removed") | not)
+     | err("top-level block \"" + . + "\" is not accepted in a PR-time plan (allowed kinds: terraform, provider, variable, locals, output, module, resource, data, moved, import, removed)")),
   # 1. data sources that run a program or a request at plan time (named, for the clearest message)
   (declared("data")[] | select(. == "external" or . == "http") | err("data \"" + . + "\" runs code or a request at plan time")),
   # 3. (R6) resource and data TYPES are an ALLOWLIST: a type must start with the prefix of an allowlisted provider
@@ -46,8 +51,9 @@ else
   # denylist of dangerous names missed the BUILT-IN `terraform_remote_state`, whose backend and config are plain HCL (a
   # plan-time request to any host carrying interpolated file() content: the runner's credential file). Everything not
   # on the list is refused by name: terraform_remote_state, terraform_data, random_*, external_*, http_*, local_*, null_*…
-  # The kinds judged: resource, data (top level AND scoped in a check block), ephemeral, and action (it runs provider code).
-  ((declared("resource")[]), (declared("data")[]), (declared("ephemeral")[]), (declared("action")[]) | . as $type
+  # The kinds judged: resource and data, wherever they are nested (belt and braces behind rule 0: a block map of this shape
+  # anywhere is judged, so even a nesting rule 0 does not know about cannot hide one).
+  ((declared("resource")[]), (declared("data")[]) | . as $type
      | ($allow | map(split("/")[1] | sub("-.*$"; "") + "_") | unique) as $prefixes
      | select(any($prefixes[]; . as $p | $type | startswith($p)) | not)
      | err("\"" + $type + "\" belongs to a provider that is not accepted in a PR-time plan (resource and data types must start with: " + ($prefixes | join(", ")) + ")")),

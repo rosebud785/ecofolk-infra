@@ -1,0 +1,1 @@
+{"check":{"c":[{"assert":[{"condition":"${data.google_client_config.x.project != \"\"}","error_message":"x"}],"data":{"google_client_config":{"x":[{}]}}}]}}

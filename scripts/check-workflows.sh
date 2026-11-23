@@ -14,7 +14,7 @@
 #   5. could plan or apply anything but environments/dev (ecofolk-infra#88, #12, pipeline design §6.2: CI only
 #      validates prod, it never plans or applies it). POSITIVE PROOF per step, not a prod denylist
 #      (`check-workflow-permissions.py --tf-violations`, on the PARSED scalars):
-#      - capable = a `terraform`/`tofu` word with plan or apply after it, in a segment (the scalar with
+#      - capable = a `terraform`/`tofu`/`terragrunt` word with plan or apply after it, in a segment (the scalar with
 #        `\`-newline joined and quote characters removed, split on newline ; && || | $( and backticks) that is
 #        not TEXT. A segment is text only if, after leading VAR=value assignments, it starts with echo, printf
 #        or `:`, or it is a whole-line comment. Everything else counts (env, if, time, command, sudo, heredoc

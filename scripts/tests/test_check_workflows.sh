@@ -1374,6 +1374,9 @@ stepcase x2_printf_subst fail '      - run: printf "%s" "$(terraform -chdir=envi
 stepcase x3_colon_subst fail '      - run: : "$(terraform -chdir=environments/prod apply)"'
 stepcase x4_echo_backtick fail '      - run: echo `terraform -chdir=environments/prod apply`'
 stepcase x5_echo_and fail '      - run: echo x && terraform -chdir=environments/prod apply'
+stepcase t1_terragrunt_apply_prod fail '      - run: terragrunt -chdir=environments/prod apply'
+stepcase t2_terragrunt_run_all fail '      - run: terragrunt run-all apply'
+stepcase t3_terragrunt_dev_ok pass '      - run: terragrunt -chdir=environments/dev plan'
 stepcase d1_dev_still_passes pass '      - run: terraform -chdir=environments/dev plan'
 
 # The live workflows must pass (infra-apply.yml is job-level only and push-triggered).

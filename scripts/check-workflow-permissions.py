@@ -320,7 +320,7 @@ ENV_DEV = re.compile(r"environments/dev(?=$|[/\"'\s])")
 ON_KEYS = ("on", "true", "True")
 PATH_FILTERS = ("paths", "paths-ignore")  # on.<event>.paths filters pick which pushes run; not a target
 # A `terraform`/`tofu` word with plan or apply after it, in one (de-quoted) segment.
-TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
+TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu|terragrunt)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
 ACTION_PLAN = re.compile(r"(plan|apply)", re.IGNORECASE)
 SEGMENT_SPLIT = re.compile(r"\n|;|&&|\|\||\||\$\(|`")
 ASSIGNMENTS = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*")

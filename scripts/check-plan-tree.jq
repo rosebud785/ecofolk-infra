@@ -26,17 +26,28 @@ def err($m): "ERR\t" + $m;
 # every object at any depth (a nested block or a map), to find a key wherever it hides
 def everywhere: .. | objects;
 
+# (F3, ef-qa c7089806892) Terraform loads `data` / `resource` blocks NOT ONLY at the top level: a `data` block scoped
+# inside a `check "…" {}` block is read during PLAN (and an `ephemeral` block is a block of the same two-label shape). A
+# rule that reads only the top-level keys never judges a nested one. So the judge looks at EVERY depth for a key named
+# data / resource / ephemeral / action whose value has the two-label block shape `{type: {name: [ {…} ]}}`, and judges
+# its types. Fail closed: a block of that shape is judged wherever it hides. A provider-schema attribute that merely
+# shares the name (`data = { a = "b" }`, or `data { … }` with no labels) has a different shape and is not a block map.
+def blockmap: type == "object" and length > 0
+  and all(.[]; type == "object" and length > 0 and all(.[]; type == "array" and length > 0 and all(.[]; type == "object")));
+def declared($kind): [everywhere | select(has($kind)) | .[$kind] | select(blockmap) | keys[]] | unique;
+
 if $mode == "lock" then
   ((.provider // {}) | keys[] | select(providerok(.) | not) | err("lockfile provider \"" + . + "\" is not in the allowlist"))
 else
   # 1. data sources that run a program or a request at plan time (named, for the clearest message)
-  ((.data // {}) | keys[] | select(. == "external" or . == "http") | err("data \"" + . + "\" runs code or a request at plan time")),
+  (declared("data")[] | select(. == "external" or . == "http") | err("data \"" + . + "\" runs code or a request at plan time")),
   # 3. (R6) resource and data TYPES are an ALLOWLIST: a type must start with the prefix of an allowlisted provider
   # (google_ for google and google-beta, archive_ for archive: the provider's name before any hyphen, plus "_"). A
   # denylist of dangerous names missed the BUILT-IN `terraform_remote_state`, whose backend and config are plain HCL (a
   # plan-time request to any host carrying interpolated file() content: the runner's credential file). Everything not
   # on the list is refused by name: terraform_remote_state, terraform_data, random_*, external_*, http_*, local_*, null_*…
-  (((.resource // {}) | keys[]), ((.data // {}) | keys[]) | . as $type
+  # The kinds judged: resource, data (top level AND scoped in a check block), ephemeral, and action (it runs provider code).
+  ((declared("resource")[]), (declared("data")[]), (declared("ephemeral")[]), (declared("action")[]) | . as $type
      | ($allow | map(split("/")[1] | sub("-.*$"; "") + "_") | unique) as $prefixes
      | select(any($prefixes[]; . as $p | $type | startswith($p)) | not)
      | err("\"" + $type + "\" belongs to a provider that is not accepted in a PR-time plan (resource and data types must start with: " + ($prefixes | join(", ")) + ")")),

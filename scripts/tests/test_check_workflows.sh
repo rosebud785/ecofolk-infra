@@ -1374,6 +1374,12 @@ stepcase x2_printf_subst fail '      - run: printf "%s" "$(terraform -chdir=envi
 stepcase x3_colon_subst fail '      - run: : "$(terraform -chdir=environments/prod apply)"'
 stepcase x4_echo_backtick fail '      - run: echo `terraform -chdir=environments/prod apply`'
 stepcase x5_echo_and fail '      - run: echo x && terraform -chdir=environments/prod apply'
+# ef-qa c7112539799: a lone `&` and process substitution are command separators too.
+stepcase s1_lone_ampersand fail '      - run: echo x & terraform -chdir=environments/prod apply'
+stepcase s2_ampersand_nospace fail '      - run: echo x &terraform -chdir=environments/prod apply'
+stepcase s3_process_subst_in fail '      - run: echo <(terraform -chdir=environments/prod apply)'
+stepcase s4_process_subst_out fail '      - run: echo x > >(terraform -chdir=environments/prod apply)'
+stepcase s5_redirect_fd_dev_ok pass '      - run: terraform -chdir=environments/dev plan 2>&1 | tee out.txt'
 stepcase t1_terragrunt_apply_prod fail '      - run: terragrunt -chdir=environments/prod apply'
 stepcase t2_terragrunt_run_all fail '      - run: terragrunt run-all apply'
 stepcase t3_terragrunt_dev_ok pass '      - run: terragrunt -chdir=environments/dev plan'

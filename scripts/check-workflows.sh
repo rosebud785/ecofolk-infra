@@ -32,7 +32,9 @@
 #      prod's SA trust (#165 §D) requires `gcp-prod` + Andy's reviewer. STATED RESIDUAL (this rule reads
 #      workflow text): a wrapper script that targets prod internally (`./deploy.sh`); a run-time `cd` out
 #      of, or a rewrite of, the named dev directory (`TF_DIR="${TF_DIR%dev}prod"`); a subcommand assembled
-#      from variables (`ACTION: apply` ... `terraform "$ACTION"`). Defence in depth, same bar as #188: the
+#      from variables (`ACTION: apply` ... `terraform "$ACTION"`); a command fed to a shell as text
+#      (`echo "terraform ... apply" | bash`); a shell function defined in the workflow and called later
+#      (`f() { terraform "$@"; }; f apply`). Defence in depth, same bar as #188: the
 #      obvious and idiomatic forms are caught, the rest is stated, not chased.
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.

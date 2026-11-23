@@ -1,0 +1,1 @@
+{"resource":{"google_secret_manager_secret_version":{"v":[{"data":{"a":"b"},"secret":"x"}]},"google_x":{"y":[{"data":[{"name":"n"}],"resource":[{"name":"r"}]}]}}}

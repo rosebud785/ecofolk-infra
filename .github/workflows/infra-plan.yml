@@ -1,0 +1,276 @@
+name: Infra plan (a named PR, dev)
+
+# ecofolk-infra#162 (Architect ruling c7084664707, option B). A reviewer reads the REAL dev plan of a PR before it
+# merges and auto-applies. Replaces nothing: the apply (infra-apply.yml) still runs on merge and now refuses unless
+# the plan it computes matches the plan record this workflow posted for the merged PR head.
+#
+# WHY NOT pull_request: `terraform plan` executes PR-authored HCL, so any credential on a plan run is exposed to
+# whoever wrote the PR (a data source runs code at plan time; so does a provider or module the PR adds). A
+# pull_request trust would hand that to any PR. So: workflow_dispatch ONLY, on this repo's protected main, naming a PR
+# by number. GCP trusts `tf-plan` ONLY for this workflow file at refs/heads/main (attribute.workflow_ref), the same
+# shape as tf-apply's trust of infra-apply.yml. No pull_request trigger and no PR-ref trust, ever; nothing PR-triggered
+# may start this workflow. That enforcement is on the GCP side, not in this file (runbook section 10).
+#
+# Because this still runs PR code with a credential, the controls are required, not optional:
+#   1. the PR is resolved through the API BEFORE any checkout: open, head repo is THIS repo (no forks), 40-hex head sha;
+#   2. static refusals on the PR tree's PARSE TREE (hcl2json, sha256-pinned) BEFORE `terraform init` and before auth
+#      (a line scan was bypassed by unquoted labels and a leading comment; ef-qa c7086176386) (scripts/check-plan-tree.sh, run from
+#      MAIN's checkout, never the PR's): no data external/http, no provider external/http/local/null, no provisioner, no
+#      non-local module source, no provider outside the allowlist below, no archive output_path that could write a
+#      runner file at plan time, no backend but one `backend "gcs"` with only a prefix, no *_custom_endpoint, no symlink,
+#      and no google provider attribute beyond project / region / zone / alias / default_labels.
+#      The allowlist lives HERE, on main, not in the PR;
+#   3. `tf-plan` is read-only (viewer + state-bucket objectViewer + secretmanager.viewer, never secretAccessor) and
+#      the plan runs -lock=false -input=false, with `init -lockfile=readonly` so the PR cannot swap a provider in;
+#   4. the comment is NAMES ONLY (scripts/plan-summary.sh): resource addresses, actions and changed attribute NAMES.
+#      This repo is public. No value, sensitive or not, is ever posted;
+#   5. the job that holds the cloud token never writes to the PR: a second job, with no id-token and no PR code, posts.
+#
+# Dev only. Prod is the same mechanism with its own plan SA once environments/prod exists (ecofolk#400's gates).
+#
+# Identifiers are repo VARIABLES (none is a credential): GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_PLAN_SA, TF_STATE_BUCKET
+# (+ ALERT_CHANNEL_IDS and the two log filters, as infra-apply.yml).
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Number of the open pull request (same repo) to plan
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: '0'
+  TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+  TF_VAR_alert_notification_channels: ${{ vars.ALERT_CHANNEL_IDS }}
+  TF_VAR_db_connection_failure_log_filter: ${{ vars.DB_CONNECTION_FAILURE_LOG_FILTER }}
+  TF_VAR_media_write_failure_log_filter: ${{ vars.MEDIA_WRITE_FAILURE_LOG_FILTER }}
+  TF_DIR: environments/dev
+  # Providers a PR may plan with: exactly what the lockfiles hold today. A new one is a reviewed change to THIS file
+  # on main, never something a PR can add. scripts/tests/test_check_plan_tree.sh fails if a lockfile holds one that is
+  # not listed here.
+  PLAN_PROVIDER_ALLOWLIST: 'hashicorp/google,hashicorp/google-beta,hashicorp/archive'
+
+concurrency:
+  group: infra-plan
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main' && github.ref_protected
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    outputs:
+      has_comment: ${{ steps.finish.outputs.has_comment }}
+      plan_failed: ${{ steps.plan.outputs.rc == '1' }}
+    env:
+      PR: ${{ inputs.pr }}
+    steps:
+      # 1. the PR, through the API, before anything is checked out.
+      - name: Resolve the pull request
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          die() { echo "::error::REFUSED: $*"; exit 1; }
+          [[ "$PR" =~ ^[0-9]{1,7}$ ]] || die "pr must be a pull request number"
+          row="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.state, .head.repo.full_name // "", .head.sha, .base.ref] | @tsv')" \
+            || die "could not read pull request #$PR"
+          IFS=$'\t' read -r state head_repo head_sha base_ref <<<"$row"
+          [ "$state" = open ] || die "pull request #$PR is $state, not open"
+          [ "$head_repo" = "$GITHUB_REPOSITORY" ] || die "pull request #$PR's head is '$head_repo', not this repository (no forks)"
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || die "pull request #$PR's head sha is not 40 lowercase hex"
+          [ "$base_ref" = main ] || die "pull request #$PR does not target main"
+          echo "head=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "planning #$PR at $head_sha"
+
+      # 2. two checkouts: main's (the scripts that run) and the PR's (the tree that is judged and planned).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.resolve.outputs.head }}
+          path: pr
+          persist-credentials: false
+      - name: The PR checkout is the head sha, and the trusted one is main
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head }}
+        run: |
+          [ "$(git -C pr rev-parse HEAD)" = "$HEAD_SHA" ] || { echo "::error::the PR checkout is not $HEAD_SHA"; exit 1; }
+          [ "$(git -C trusted rev-parse HEAD)" = "$GITHUB_SHA" ] || { echo "::error::the trusted checkout is not $GITHUB_SHA"; exit 1; }
+
+      # 3. static refusals, before init and before auth. A refusal is a posted comment, not a red run: the reviewer is
+      # told there is no PR-time plan. The refusal text quotes PR-authored source strings, so it is posted in a code
+      # fence with backticks removed and is cut.
+      # The parser the static rules judge with: hcl2json at a pinned version, verified against a sha256 hardcoded in
+      # main's copy of this script (never the PR's), before anything of the PR's is parsed. Runs here, in CI, only.
+      - name: Fetch the pinned hcl2json
+        id: h2j
+        run: echo "bin=$(bash trusted/scripts/fetch-hcl2json.sh "$RUNNER_TEMP/h2j")" >> "$GITHUB_OUTPUT"
+
+      - name: Static refusals on the PR tree
+        id: static
+        run: |
+          rc=0
+          out="$(bash trusted/scripts/check-plan-tree.sh pr "$PLAN_PROVIDER_ALLOWLIST" 2>&1)" || rc=$?
+          if [ "$rc" = 0 ]; then echo "$out"; echo "refused=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$rc" != 1 ]; then echo "$out"; echo "::error::check-plan-tree failed with $rc"; exit 1; fi
+          echo "$out"
+          {
+            echo "### No PR-time plan for \`${HEAD_SHA:0:12}\`"
+            echo
+            echo "This tree needs something a PR-time plan will not run (see \`scripts/check-plan-tree.sh\`). The apply's own plan is the first one, as before."
+            echo
+            echo '```text'
+            printf '%s\n' "$out" | tr -d '`' | head -n 40 | cut -c1-300
+            echo '```'
+            echo
+            echo "plan-record: $HEAD_SHA static-refused"
+          } > "$RUNNER_TEMP/comment.md"
+          echo "refused=true" >> "$GITHUB_OUTPUT"
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head }}
+          HCL2JSON: ${{ steps.h2j.outputs.bin }}
+
+      - name: Require the bootstrap variables
+        if: steps.static.outputs.refused == 'false'
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_PLAN_SA: ${{ vars.GCP_PLAN_SA }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          missing=""
+          for v in GCP_PROJECT_ID GCP_WIF_PROVIDER GCP_PLAN_SA TF_STATE_BUCKET; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::repo variable(s) not set:$missing (runbook section 10, ecofolk-infra#162)"
+            exit 1
+          fi
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        if: steps.static.outputs.refused == 'false'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PLAN_SA }}
+
+      - name: No user-managed service-account keys
+        if: steps.static.outputs.refused == 'false'
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          SAS: ${{ vars.GCP_PLAN_SA }}
+        run: |
+          bad=0
+          for sa in $SAS; do
+            if ! keys=$(gcloud iam service-accounts keys list --iam-account="$sa" --managed-by=user \
+              --project="$GCP_PROJECT_ID" --format='value(name)' 2>"$RUNNER_TEMP/keys.err"); then
+              echo "::error::could not list keys for $sa: $(tr '\n' ' ' < "$RUNNER_TEMP/keys.err")"
+              bad=1
+            elif [ -n "$keys" ]; then
+              echo "::error::$sa has $(printf '%s\n' "$keys" | grep -c .) user-managed key(s); there must be none"
+              bad=1
+            else
+              echo "ok: $sa has no user-managed keys"
+            fi
+          done
+          exit $bad
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: steps.static.outputs.refused == 'false'
+        with:
+          terraform_version: 1.16.3
+          terraform_wrapper: false
+
+      # -lockfile=readonly: init may not add or change a provider; the PR's lockfile (checked above) is what installs.
+      - name: Init
+        if: steps.static.outputs.refused == 'false'
+        working-directory: pr/${{ env.TF_DIR }}
+        run: terraform init -input=false -lockfile=readonly -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      # -lock=false: tf-plan cannot write the state lock, and a plan must never block an apply. exit 1 = error,
+      # 0 = no changes, 2 = changes (both are a plan to show).
+      - name: Plan
+        id: plan
+        if: steps.static.outputs.refused == 'false'
+        working-directory: pr/${{ env.TF_DIR }}
+        run: |
+          rc=0
+          terraform plan -lock=false -input=false -no-color -detailed-exitcode -out="$RUNNER_TEMP/tfplan" || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" = 1 ]; then echo "::error::terraform plan failed"; fi
+          exit 0
+
+      # names only, by main's scripts (the PR's are never run).
+      - name: Summarise (names only) and record
+        id: summary
+        if: steps.static.outputs.refused == 'false' && steps.plan.outputs.rc != '1'
+        working-directory: pr/${{ env.TF_DIR }}
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head }}
+        run: |
+          terraform show -json -no-color "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
+          bash "$GITHUB_WORKSPACE/trusted/scripts/plan-summary.sh" comment "$RUNNER_TEMP/plan.json" "$HEAD_SHA" > "$RUNNER_TEMP/comment.md"
+
+      - name: If the plan failed, say so and name nothing
+        if: steps.static.outputs.refused == 'false' && steps.plan.outputs.rc == '1'
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head }}
+        run: |
+          {
+            echo "### terraform plan FAILED for \`${HEAD_SHA:0:12}\`"
+            echo
+            echo "Read the run log: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. No plan record was posted, so the apply on merge will refuse until a plan succeeds."
+          } > "$RUNNER_TEMP/comment.md"
+
+      - id: finish
+        run: echo "has_comment=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plan-comment-${{ github.run_id }}
+          path: ${{ runner.temp }}/comment.md
+          retention-days: 1
+          if-no-files-found: error
+
+  # The job that posts holds NO cloud token and runs NO PR code. It posts a file the plan job wrote.
+  comment:
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.ref_protected && needs.plan.outputs.has_comment == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plan-comment-${{ github.run_id }}
+          path: ${{ runner.temp }}/in
+      - name: Post the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          [[ "$PR" =~ ^[0-9]{1,7}$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
+          f="$RUNNER_TEMP/in/comment.md"
+          [ -s "$f" ] || { echo "::error::the comment file is empty"; exit 1; }
+          # A plan record line is a machine line the apply trusts from github-actions[bot]; the body is one this
+          # workflow wrote. Posted as the bot, with the file as the body (gh api -f would not read a file).
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$f" --jq '.html_url'
+
+      # A failed plan posted its note above and is still a red run (the plan job stays green so this job can post).
+      - name: Fail the run if the plan failed
+        if: needs.plan.outputs.plan_failed == 'true'
+        run: |
+          echo "::error::terraform plan failed (see the plan job's log)"
+          exit 1

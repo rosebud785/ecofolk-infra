@@ -1,0 +1,1 @@
+{"provider":{"google":[{"impersonate_service_account_delegates":"x","project":"${var.project_id}"}]}}

@@ -1,0 +1,1 @@
+{"provider":{"google":[{"alias":"second","default_labels":{"env":"dev","owner":"ecofolk"},"project":"${var.project_id}","region":"northamerica-northeast1","zone":"northamerica-northeast1-a"}]}}

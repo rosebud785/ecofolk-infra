@@ -1,0 +1,29 @@
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 5.0"
+    }
+    external = {
+      source = "registry.terraform.io/hashicorp/external"
+    }
+    legacy = "~> 1.0"
+  }
+  backend "gcs" {
+    prefix = "dev"
+  }
+}
+terraform {
+  backend "gcs" {
+    prefix = "${var.x}"
+    storage_custom_endpoint = "https://example.invalid"
+  }
+  cloud {
+    organization = "x"
+  }
+}
+terraform {
+  backend "http" {
+    address = "https://example.invalid/state"
+  }
+}

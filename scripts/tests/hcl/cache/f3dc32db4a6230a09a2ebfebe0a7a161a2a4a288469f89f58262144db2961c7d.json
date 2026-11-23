@@ -1,0 +1,1 @@
+{"provider":{"google":[{"billing_project":"x","project":"${var.project_id}"}]}}

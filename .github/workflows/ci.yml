@@ -141,6 +141,45 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash scripts/tests/test_check_workflows.sh
       - run: bash scripts/check-workflows.sh
+      # ecofolk-infra#162: the PR-time plan's static refusals, its names-only comment and hash, and the apply's
+      # refuse-on-diff. Each has known-wrong fixtures; jq is on the runner.
+      # hcl2json (HashiCorp hcl/v2, pinned by sha256 in scripts/fetch-hcl2json.sh) runs ONLY in CI (Architect, infra#162):
+      # the rules are judged locally on committed JSON, and the steps below prove that JSON is what the real binary emits.
+      - name: Fetch the pinned hcl2json (CI only)
+        run: echo "H2J_REAL=$(bash scripts/fetch-hcl2json.sh "$RUNNER_TEMP/h2j")" >> "$GITHUB_ENV"
+      - name: check-plan-tree fixtures, on the REAL parser (answers recorded)
+        env:
+          H2J_RECORD: ${{ runner.temp }}/h2j-record
+        run: bash scripts/tests/test_check_plan_tree.sh
+      - name: the committed shape samples are what the real parser emits
+        run: |
+          fail=0
+          for f in scripts/tests/hcl/*.tfsample scripts/tests/hcl/*.hclsample; do
+            b="${f%.*}"
+            rc=0; out="$("$H2J_REAL" "$f" 2>&1)" || rc=$?
+            if [ -f "$b.json" ]; then
+              [ "$rc" = 0 ] && [ "$(printf '%s' "$out" | jq -cS .)" = "$(jq -cS . "$b.json")" ] || { echo "::error::$f: the committed $b.json is not what hcl2json emits"; fail=1; }
+            else
+              [ "$rc" != 0 ] || { echo "::error::$f has no committed .json, so it must NOT parse, and it does"; fail=1; }
+            fi
+          done
+          exit $fail
+      - name: the committed hcl2json answers are what the real parser emits
+        run: bash scripts/tests/hcl/verify-hcl-cache.sh "$RUNNER_TEMP/h2j-record"
+      - name: on a cache mismatch, print the recorded answers (to commit them; harvest the lines after @@@)
+        if: failure()
+        run: |
+          for r in "$RUNNER_TEMP"/h2j-record/*; do [ -e "$r" ] || continue; echo "@@@ $(basename "$r")"; cat "$r"; done
+      - run: bash scripts/tests/test_plan_summary.sh
+      - run: bash scripts/tests/test_check_plan_record.sh
+      # R5 (Architect c7085505351): the repo's OWN tree against the plan workflow's allowlist, so a later rule that
+      # refuses today's code fails here, at review, and not at the first plan dispatch. The allowlist is read from
+      # infra-plan.yml, the one place it lives, so the two cannot drift.
+      - name: check-plan-tree on this repo's own tree
+        run: |
+          allow="$(sed -n "s/^[[:space:]]*PLAN_PROVIDER_ALLOWLIST:[[:space:]]*'\(.*\)'[[:space:]]*$/\1/p" .github/workflows/infra-plan.yml | head -n1)"
+          [ -n "$allow" ] || { echo "::error::no PLAN_PROVIDER_ALLOWLIST in infra-plan.yml"; exit 1; }
+          HCL2JSON="$H2J_REAL" bash scripts/check-plan-tree.sh . "$allow"
       # ecofolk-infra#70: provider majors are ignored in dependabot.yml (taken by hand, one per PR).
       - run: bash scripts/tests/test_check_dependabot_majors.sh
       - run: bash scripts/check-dependabot-majors.sh

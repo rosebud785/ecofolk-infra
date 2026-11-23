@@ -1,0 +1,28 @@
+{
+  "locals": [
+    {
+      "doc": "provider \"google\" {\n  credentials = \"in a heredoc\"\n}\n",
+      "env": "dev"
+    }
+  ],
+  "resource": {
+    "google_x": {
+      "dyn": [
+        {
+          "dynamic": {
+            "ingress": [
+              {
+                "content": [
+                  {
+                    "port": "${ingress.value}"
+                  }
+                ],
+                "for_each": "${var.rules}"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

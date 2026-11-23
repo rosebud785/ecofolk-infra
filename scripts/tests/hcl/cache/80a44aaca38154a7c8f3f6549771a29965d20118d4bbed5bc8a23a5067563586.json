@@ -1,0 +1,1 @@
+{"provider":{"google":[{"credentials":"z","default_labels":{"env":"dev"},"project":"${var.project_id}","region":"x","zone":"y"}]}}

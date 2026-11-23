@@ -1,0 +1,42 @@
+{
+  "provider": {
+    "archive": [
+      {}
+    ],
+    "google": [
+      {
+        "project": "${var.project_id}"
+      },
+      {
+        "project": "unquoted",
+        "universe_domain": "attacker.example"
+      },
+      {
+        "alias": "second",
+        "batching": [
+          {
+            "send_after": "3s"
+          }
+        ],
+        "default_labels": {
+          "env": "dev",
+          "owner": "ecofolk"
+        },
+        "external_credentials": [
+          {
+            "audience": "x"
+          }
+        ],
+        "region": "northamerica-northeast1",
+        "storage_custom_endpoint": "https://example.invalid/",
+        "zone": "northamerica-northeast1-a"
+      }
+    ],
+    "google-beta": [
+      {
+        "access_token": "x",
+        "project": "p"
+      }
+    ]
+  }
+}

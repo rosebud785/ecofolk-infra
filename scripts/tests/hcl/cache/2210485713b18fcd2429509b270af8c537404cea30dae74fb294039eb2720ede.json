@@ -1,0 +1,1 @@
+{"terraform":[{"backend":{"gcs":[{"bucket":"someone-elses","prefix":"dev"}]}}]}

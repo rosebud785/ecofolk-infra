@@ -1,0 +1,30 @@
+{
+  "module": {
+    "commented": [
+      {
+        "source": "git::https://example.invalid/y.git"
+      }
+    ],
+    "git": [
+      {
+        "source": "git::https://example.invalid/x.git"
+      }
+    ],
+    "interp": [
+      {
+        "source": "./${var.dir}"
+      }
+    ],
+    "local": [
+      {
+        "source": "../../modules/m"
+      }
+    ],
+    "registry": [
+      {
+        "source": "terraform-google-modules/network/google",
+        "version": "9.0.0"
+      }
+    ]
+  }
+}

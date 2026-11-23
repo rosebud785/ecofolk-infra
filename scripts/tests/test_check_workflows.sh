@@ -1399,6 +1399,17 @@ stepcase w2_shell_function_residual pass '      - run: |
 stepcase q1_expansion_in_echo_no_dir fail '      - run: echo "$X terraform apply"'
 stepcase q2_dev_with_fd_redirect pass '      - run: terraform -chdir=environments/dev apply 2>&1'
 stepcase q3_echo_backslash_not_text fail '      - run: echo "a\\" terraform apply'
+# Architect c7112778221: any `..` segment anywhere in a target is unsafe, the dev part and its suffix included.
+stepcase dd1_env_dotdot_prod fail '      - run: terraform -chdir="$TF_DIR/../prod" apply' '  TF_DIR: environments/dev'
+stepcase dd2_quoted_dev_then_dotdot fail '      - run: terraform -chdir="environments/dev"/../prod apply'
+stepcase dd3_plain_dev_dotdot fail '      - run: terraform -chdir=environments/dev/../prod apply'
+stepcase dd4_dev_dot_dotdot fail '      - run: terraform -chdir=environments/dev/./../prod apply'
+stepcase dd5_working_directory_dotdot fail '      - working-directory: environments/dev/../prod
+        run: terraform apply'
+stepcase dd6_dotdot_in_prefix fail '      - working-directory: pr/../environments/dev
+        run: terraform plan'
+stepcase dd7_quoted_dollar_dev_ok pass '      - run: terraform -chdir="$TF_DIR" apply' '  TF_DIR: environments/dev'
+stepcase dd8_quoted_literal_dev_ok pass '      - run: terraform -chdir="environments/dev" plan'
 stepcase t1_terragrunt_apply_prod fail '      - run: terragrunt -chdir=environments/prod apply'
 stepcase t2_terragrunt_run_all fail '      - run: terragrunt run-all apply'
 stepcase t3_terragrunt_dev_ok pass '      - run: terragrunt -chdir=environments/dev plan'

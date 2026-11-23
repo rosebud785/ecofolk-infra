@@ -317,6 +317,17 @@ def trigger_of(path: str) -> str:
 # Positive proof, per plan/apply-capable segment, never a denylist of prod spellings. See check-workflows.sh.
 ENV_OCC = re.compile(r"environments/")
 ENV_DEV = re.compile(r"environments/dev(?=$|[/\"'\s])")
+# Any `..` path segment, anywhere (prefix, the dev part, or after it), makes a target unsafe (Architect, c7112778221).
+DOTDOT = re.compile(r"(^|/)\.\.(/|$)")
+
+
+def _dev_occurrence(value: str, start: int) -> bool:
+    """An `environments/` at `start` that is exactly environments/dev, with no `..` segment in the rest of
+    the same token (`environments/dev/../prod` and `"environments/dev"/../prod` are not dev)."""
+    if not ENV_DEV.match(value, start):
+        return False
+    tail = re.split(r"\s", value[start + len("environments/dev"):], maxsplit=1)[0]
+    return not DOTDOT.search(re.sub(r"[\"'\\]", "", tail))
 ON_KEYS = ("on", "true", "True")
 PATH_FILTERS = ("paths", "paths-ignore")  # on.<event>.paths filters pick which pushes run; not a target
 # A `terraform`/`tofu` word with plan or apply after it, in one (de-quoted) segment.
@@ -381,7 +392,7 @@ def _target_ok(source: str | None, envs: list[dict[str, str]]) -> bool:
     resolved = ENV_REF.sub(sub, source)
     if "$" in resolved or "{{" in resolved:
         return False
-    return bool(DEV_TARGET.match(resolved))
+    return bool(DEV_TARGET.match(resolved)) and not DOTDOT.search(resolved)
 
 
 def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
@@ -445,7 +456,7 @@ def tf_violations(path: str) -> list[int]:
                 if isinstance(k, yaml.ScalarNode):
                     all_scalars.append(k)
                 all_scalars.extend(on_scalars(v, key_name(k)))
-            occ = [bool(ENV_DEV.match(s.value, m.start())) for s in all_scalars for m in ENV_OCC.finditer(s.value)]
+            occ = [_dev_occurrence(s.value, m.start()) for s in all_scalars for m in ENV_OCC.finditer(s.value)]
             no_foreign_env = all(occ)  # every `environments/` is exactly environments/dev
             workflow_dev_only = no_foreign_env and bool(occ)
 

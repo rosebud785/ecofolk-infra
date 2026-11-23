@@ -22,6 +22,8 @@ Rule 3 lives here too: in an UNTRUSTED workflow, ANY `secrets` identifier inside
 
 Usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...
        check-workflow-permissions.py --trigger <file>   # prints `trusted` or the untrusted trigger name
+       check-workflow-permissions.py --tf-target <file>   # prints `dev` or `unsafe` (check-workflows.sh rule 5)
+       check-workflow-permissions.py --tf-lines <file>    # line numbers of plan/apply-capable lines (rule 5)
 Prints `file:line: message` per violation (line = the offending `permissions:` key); exit 1 if any.
 Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 """
@@ -311,9 +313,268 @@ def trigger_of(path: str) -> str:
         return "<unparseable workflow>"
 
 
+# ---- Rule 5 of check-workflows.sh (#88): plan/apply only against a PROVEN environments/dev target. ----
+# Positive proof, per plan/apply-capable segment, never a denylist of prod spellings. See check-workflows.sh.
+ENV_OCC = re.compile(r"environments/")
+ENV_DEV = re.compile(r"environments/dev(?=$|[/\"'\s])")
+# Any `..` path segment, anywhere (prefix, the dev part, or after it), makes a target unsafe (Architect, c7112778221).
+DOTDOT = re.compile(r"(^|/)\.\.(/|$)")
+
+
+def _dev_occurrence(value: str, start: int) -> bool:
+    """An `environments/` at `start` that is exactly environments/dev, with no `..` segment in the rest of
+    the same token (`environments/dev/../prod` and `"environments/dev"/../prod` are not dev)."""
+    if not ENV_DEV.match(value, start):
+        return False
+    tail = re.split(r"\s", value[start + len("environments/dev"):], maxsplit=1)[0]
+    return not DOTDOT.search(re.sub(r"[\"'\\]", "", tail))
+ON_KEYS = ("on", "true", "True")
+PATH_FILTERS = ("paths", "paths-ignore")  # on.<event>.paths filters pick which pushes run; not a target
+# A `terraform`/`tofu` word with plan or apply after it, in one (de-quoted) segment.
+TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu|terragrunt)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
+# The splitter is FIXED and small (Architect design review, ecofolk-infra#193 round 4): newline, `;`, `&&`, `||`.
+# NOTHING is added in later rounds. A lone `&`, `|`, `$(`, backticks, `<(`, `>(` and redirections are not
+# separators: they stay inside their segment, where the closed text grammar below treats them as disqualifying.
+SEGMENT_SPLIT = re.compile(r"\n|;|&&|\|\|")
+_WORD = r"[A-Za-z0-9_./:,=+%@-]+"
+_SQ = r"'[^']*'"
+_DQ = r"\"[^$`\\\"]*\""  # no `$`, backtick or backslash
+_ARG = rf"(?:{_WORD}|{_SQ}|{_DQ})"
+ASSIGNMENTS = re.compile(rf"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=(?:{_WORD}|{_SQ}|{_DQ})?\s+)*")
+LEAD_OPENERS = re.compile(r"^\s*(?:(?:[{(]|then|do|else)(?:\s+|$))*")
+# TEXT: echo|printf|`:` and then only literal arguments, an optional closing } or ). Anything else
+# (& | < > $ a backtick, an unbalanced quote, a backslash) is not text. Never widen this.
+TEXT_RE = re.compile(rf"^(?:echo|printf|:)(?:\s+{_ARG})*\s*[)}}]?\s*$")
+CHDIR = re.compile(r"-chdir=((?:\$\{\{.*?\}\}|\S)+)")
+ENV_REF = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+# [<prefix>/]environments/dev, then end or `/`. A prefix is a fixed relative path: no `..`, no expression.
+DEV_TARGET = re.compile(r"^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*/)*environments/dev(?:/[A-Za-z0-9_./-]*)?$")
+
+
+def _mapping_get(node: yaml.Node | None, loader: yaml.SafeLoader, name: str) -> yaml.Node | None:
+    if node is None:
+        return None
+    hits = find(node, loader, name)
+    return hits[0][1] if hits else None
+
+
+def _literal_env(node: yaml.Node | None, loader: yaml.SafeLoader) -> dict[str, str]:
+    """`env:` entries whose value is a literal scalar (no `$`, so no expression and no expansion)."""
+    env = _mapping_get(node, loader, "env")
+    out: dict[str, str] = {}
+    if isinstance(env, yaml.MappingNode):
+        for k, v in mapping_items(env, loader):
+            if isinstance(k, yaml.ScalarNode) and isinstance(v, yaml.ScalarNode) and "$" not in v.value:
+                out[k.value] = v.value
+    return out
+
+
+def _default_wd(node: yaml.Node | None, loader: yaml.SafeLoader) -> str | None:
+    d = _mapping_get(_mapping_get(_mapping_get(node, loader, "defaults"), loader, "run"), loader, "working-directory")
+    return d.value if isinstance(d, yaml.ScalarNode) else None
+
+
+def _target_ok(source: str | None, envs: list[dict[str, str]]) -> bool:
+    """Does the directory source resolve to [<prefix>/]environments/dev? The ONLY indirection allowed is
+    ${{ env.X }}, $X or ${X} with X a literal in an env map (nearest wins: step, job, workflow). Any other
+    expression, an unresolved variable, or no source at all is unsafe."""
+    if source is None:
+        return False
+
+    resolved = _resolve_env(source, envs)
+    if "$" in resolved or "{{" in resolved:
+        return False
+    return bool(DEV_TARGET.match(resolved)) and not DOTDOT.search(resolved)
+
+
+def _resolve_env(source: str, envs: list[dict[str, str]]) -> str:
+    """Substitute ${{ env.X }}, $X and ${X} where X is a literal in an env map (nearest first); leave the rest."""
+
+    def sub(m: re.Match) -> str:
+        name = m.group(1) or m.group(2) or m.group(3)
+        for e in envs:
+            if name in e:
+                return e[name]
+        return m.group(0)
+
+    return ENV_REF.sub(sub, source)
+
+
+# A `uses:` step is plan/apply-capable if its action reference names the terraform family or plan/apply, unless
+# it is on this setup-only allowlist (Architect c7113042887). Adding an entry is a guard-surface change.
+ACTION_FAMILY = re.compile(r"terraform|tofu|opentofu|terragrunt|plan|apply", re.IGNORECASE)
+SETUP_ONLY_ACTIONS = frozenset({"hashicorp/setup-terraform", "opentofu/setup-opentofu", "terraform-linters/setup-tflint"})
+
+
+def _plain_literal(value: str) -> bool:
+    """A literal that is not a path or an expression: no `/`, `$`, `{{`, `..`, no leading `~` or `.`."""
+    return not ("/" in value or "$" in value or "{{" in value or ".." in value or value.startswith(("~", ".")))
+
+
+def _with_proves_dev(with_node: yaml.Node | None, envs: list[dict[str, str]]) -> bool:
+    """A terraform-family action's target is its `with:` values, whatever the inputs are called, and EVERY value
+    is checked (Architect c7113200529 ruling): each must be (a) a dev path under C's resolver, or (b) a plain
+    literal that is not a path or an expression (`apply`, `true`, `1.9.8`, `-auto-approve`). Anything else, an
+    expression of any kind, a non-dev or absolute path, `..`, makes the step unsafe, and at least one value
+    must be (a). A decoy dev input therefore cannot vouch for an input that carries the real target."""
+    if not isinstance(with_node, yaml.MappingNode):
+        return False
+    saw_dev = False
+    for k, v in with_node.value:
+        for sc in scalar_nodes(v):
+            value = _resolve_env(sc.value, envs)
+            if _target_ok(sc.value, envs):
+                saw_dev = True
+            elif not _plain_literal(value):
+                return False
+    return saw_dev
+
+def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
+    """(1-based line, ORIGINAL segment text) for each command segment of a scalar: `\\`-newline joined,
+    split on newline ; && || only. Quotes are kept: the text test reads the original, `_capable` de-quotes
+    a copy for the command-word match. Shell comments are not stripped."""
+    first = sc.start_mark.line + 1 + (1 if sc.style in ("|", ">") else 0)
+    out: list[tuple[int, str]] = []
+    raw = sc.value.split("\n")
+    logical, start = "", None
+    for i, ln in enumerate(raw):
+        if start is None:
+            start = i
+        if ln.endswith("\\") and i < len(raw) - 1:
+            logical += ln[:-1] + " "
+            continue
+        logical += ln
+        for seg in SEGMENT_SPLIT.split(logical):
+            out.append((first + start, seg))
+        logical, start = "", None
+    return out
+
+
+def _capable(seg: str) -> bool:
+    """A segment that can plan or apply: a `terraform`/`tofu`/`terragrunt` word with plan|apply after it (on the
+    de-quoted copy), unless the segment is TEXT. TEXT is closed and literal-only, tested on the ORIGINAL text
+    after an optional opener (`{`, `(`, then, do, else) and leading VAR=value assignments: echo|printf|`:`
+    plus plain words, single-quoted strings, and double-quoted strings with no `$`, backtick or backslash.
+    A whole-line comment is text. Every other segment is capable (fails closed)."""
+    if not TF_PLAN.search(re.sub(r"[\"'\\]", "", seg)):
+        return False
+    if re.match(r"^\s*#", seg):
+        return False
+    rest = LEAD_OPENERS.sub("", seg)
+    rest = rest[ASSIGNMENTS.match(rest).end():]
+    return not TEXT_RE.match(rest)
+
+
+def tf_violations(path: str) -> list[int]:
+    """Lines of plan/apply-capable segments whose target is not PROVEN dev, per step. [1] on a parse failure.
+    A step's source is the segment's `-chdir=`, then the step's `working-directory`, then the job's, then the
+    workflow's `defaults.run.working-directory`; none = unsafe. A job-level reusable-workflow call and a
+    `uses:` action named plan/apply are capable too, and need the whole workflow to prove dev. Any non-dev
+    `environments/` anywhere outside the path filters (the `on:` inputs included) makes every capable
+    line unsafe."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        loader = yaml.SafeLoader(text)
+        try:
+            root = loader.get_single_node()
+            if root is None or not isinstance(root, yaml.MappingNode):
+                return [1]
+            hits: set[int] = set()
+
+            def on_scalars(v: yaml.Node, key: object) -> list[yaml.ScalarNode]:
+                return scalar_nodes(v, PATH_FILTERS if key in ON_KEYS else ())
+
+            all_scalars: list[yaml.ScalarNode] = []
+            for k, v in mapping_items(root, loader):
+                if isinstance(k, yaml.ScalarNode):
+                    all_scalars.append(k)
+                all_scalars.extend(on_scalars(v, key_name(k)))
+            occ = [_dev_occurrence(s.value, m.start()) for s in all_scalars for m in ENV_OCC.finditer(s.value)]
+            no_foreign_env = all(occ)  # every `environments/` is exactly environments/dev
+            workflow_dev_only = no_foreign_env and bool(occ)
+
+            wf_env = _literal_env(root, loader)
+            wf_wd = _default_wd(root, loader)
+            jobs = _mapping_get(root, loader, "jobs")
+
+            def check_unit(scalars: list[yaml.ScalarNode], envs: list[dict[str, str]], wds: list[str | None]) -> None:
+                source_wd = next((w for w in wds if w is not None), None)
+                for sc in scalars:
+                    for line, seg in _segments(sc):
+                        if not _capable(seg):
+                            continue
+                        m = CHDIR.search(re.sub(r"[\"'\\]", "", seg))
+                        source = m.group(1) if m else source_wd
+                        if not (no_foreign_env and _target_ok(source, envs)):
+                            hits.add(line)
+
+            if isinstance(jobs, yaml.MappingNode):
+                for _, job in mapping_items(jobs, loader):
+                    job_env, job_wd = _literal_env(job, loader), _default_wd(job, loader)
+                    steps = _mapping_get(job, loader, "steps")
+                    if isinstance(steps, yaml.SequenceNode):
+                        for st in steps.value:
+                            step_wd = _mapping_get(st, loader, "working-directory")
+                            wds = [step_wd.value if isinstance(step_wd, yaml.ScalarNode) else None, job_wd, wf_wd]
+                            step_envs = [_literal_env(st, loader), job_env, wf_env]
+                            check_unit(scalar_nodes(st), step_envs, wds)
+                            uses_n = _mapping_get(st, loader, "uses")
+                            if isinstance(uses_n, yaml.ScalarNode):
+                                ref = uses_n.value.split("@", 1)[0].strip().lower()
+                                if ACTION_FAMILY.search(ref) and ref not in SETUP_ONLY_ACTIONS and not (
+                                    no_foreign_env and _with_proves_dev(_mapping_get(st, loader, "with"), step_envs)
+                                ):
+                                    hits.add(uses_n.start_mark.line + 1)
+                    check_unit(scalar_nodes(job, ("steps",)), [job_env, wf_env], [job_wd, wf_wd])
+            skip = ("jobs",)
+            rest = [s for k, v in mapping_items(root, loader) if key_name(k) not in skip for s in on_scalars(v, key_name(k))]
+            check_unit(rest, [wf_env], [wf_wd])
+
+            # Reusable-workflow calls: no directory source of their own, so the whole workflow must prove dev
+            # (some environments/dev, and nothing else under environments/). A terraform-family `uses:` STEP is
+            # judged above by its own `with:` values.
+            for uses_v in _uses_values(root, loader):
+                name = uses_v.value.split("@", 1)[0]
+                if ".github/workflows/" in name and not workflow_dev_only:
+                    hits.add(uses_v.start_mark.line + 1)
+            return sorted(hits)
+        finally:
+            loader.dispose()
+    except (yaml.YAMLError, OSError, UnicodeDecodeError, RecursionError):
+        return [1]
+
+
+def _uses_values(node: yaml.Node, loader: yaml.SafeLoader) -> list[yaml.ScalarNode]:
+    """Values of every `uses` key anywhere (step actions and job-level reusable-workflow calls)."""
+    out: list[yaml.ScalarNode] = []
+    seen: set[int] = set()
+
+    def walk(n: yaml.Node) -> None:
+        if id(n) in seen:
+            return
+        seen.add(id(n))
+        if isinstance(n, yaml.SequenceNode):
+            for c in n.value:
+                walk(c)
+        elif isinstance(n, yaml.MappingNode):
+            for k, v in mapping_items(n, loader):
+                if key_name(k) == "uses" and isinstance(v, yaml.ScalarNode):
+                    out.append(v)
+                else:
+                    walk(v)
+
+    walk(node)
+    return out
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--trigger":
         print(trigger_of(argv[1]))
+        return 0
+    if len(argv) == 2 and argv[0] == "--tf-violations":
+        for n in tf_violations(argv[1]):
+            print(n)
         return 0
     if len(argv) < 2:
         print("usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...", file=sys.stderr)

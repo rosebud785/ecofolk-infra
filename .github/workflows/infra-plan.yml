@@ -233,7 +233,7 @@ jobs:
           HEAD_SHA: ${{ steps.resolve.outputs.head }}
         run: |
           {
-            echo "### terraform plan FAILED for \`${HEAD_SHA:0:12}\`"
+            echo "### Plan FAILED for \`${HEAD_SHA:0:12}\`"
             echo
             echo "Read the run log: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. No plan record was posted, so the apply on merge will refuse until a plan succeeds."
           } > "$RUNNER_TEMP/comment.md"

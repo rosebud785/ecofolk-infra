@@ -703,6 +703,8 @@ run_case main_dispatch_secrets_inherit_guarded_ok pass '-' ok8b.yml <<EOF2
 on: workflow_dispatch
 permissions:
   contents: read
+env:
+  TF_DIR: environments/dev   # rule 5: a reusable-workflow call must come with proof of a dev target
 jobs:
   a:
     if: github.ref == 'refs/heads/main' && github.ref_protected
@@ -1053,6 +1055,434 @@ run_case rule5_non_mapping_fails fail 'not a YAML mapping' bad5n.yml <<EOF2
 - just
 - a list
 EOF2
+
+# Rule 5 (#12): no workflow plans or applies environments/prod. CI only validates it.
+run_case prod_plan_chdir fail 'CI only validates prod' prod1.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=environments/prod plan -no-color
+EOF2
+
+run_case prod_apply_working_directory fail 'CI only validates prod' prod2.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply
+        working-directory: environments/prod
+        run: terraform apply -auto-approve
+EOF2
+
+run_case prod_via_env_var fail 'CI only validates prod' prod3.yml <<EOF2
+on:
+  push:
+    branches: [main]
+env:
+  TF_DIR: environments/prod
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - working-directory: \${{ env.TF_DIR }}
+        run: |
+          terraform init
+          terraform plan -out=tfplan
+EOF2
+
+run_case prod_via_glob_loop fail 'CI only validates prod' prod4.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for d in environments/*; do
+            terraform -chdir="\$d" apply -auto-approve
+          done
+EOF2
+
+run_case prod_via_runtime_path fail 'CI only validates prod' prod5.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - working-directory: environments/\${{ vars.TARGET_ENV }}
+        run: terraform plan
+EOF2
+
+run_case prod_apply_action fail 'CI only validates prod' prod6.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: example/terraform-apply@$SHA # v1
+        with:
+          path: environments/prod
+EOF2
+
+run_case prod_tofu_plan fail 'CI only validates prod' prod7.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: tofu -chdir=environments/prod plan
+EOF2
+
+run_case prod_validate_only_ok pass - prodok1.yml <<EOF2
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for d in environments/*; do
+            terraform -chdir="\$d" init -backend=false -input=false
+            terraform -chdir="\$d" validate
+          done
+EOF2
+
+run_case prod_dev_apply_with_paths_filter_ok pass - prodok2.yml <<EOF2
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'environments/**'
+      - 'environments/prod/**'
+env:
+  TF_DIR: environments/dev
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      # never plan or apply environments/prod here
+      - working-directory: \${{ env.TF_DIR }}
+        run: |
+          terraform plan -detailed-exitcode -out=tfplan
+          terraform apply -auto-approve tfplan
+EOF2
+
+# Positive proof of dev (Architect c7112003379): a near-miss of dev is NOT dev. Was an ok fixture under the
+# prod denylist; under the allowlist it fails closed.
+run_case prod_not_dev_prefix_fails fail 'CI only validates prod' prodok3.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=environments/production-like-dev plan
+EOF2
+
+# Known-wrong corpus for the redesign: each of these passed at a4db560a (Architect probes + ef-qa HOLD).
+bypass() { # name, step-yaml (indented under `steps:`)
+  run_case "bypass_$1" fail 'CI only validates prod' "bp_$1.yml" <<EOF3
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+$2
+EOF3
+}
+bypass continuation "      - run: |
+          terraform -chdir=environments/prod \\\\
+            plan -no-color"
+bypass double_slash "      - run: terraform -chdir=environments//prod plan"
+bypass dot_segment "      - run: terraform -chdir=environments/./prod plan"
+bypass quoted_segment "      - run: terraform -chdir=environments/\"prod\" plan"
+bypass glob_segment "      - run: terraform -chdir=environments/p* plan"
+bypass parent_dir_chdir "      - working-directory: environments
+        run: terraform -chdir=prod plan"
+bypass whole_path_from_var "      - run: terraform -chdir=\${{ vars.TF_DIR }} plan"
+bypass quoted_terraform "      - run: \"terraform\" -chdir=environments/prod plan"
+bypass quoted_apply "      - run: terraform -chdir=environments/prod 'apply'"
+bypass quoted_hash_before_apply "      - run: |
+          echo \"x #\" ; terraform -chdir=environments/prod apply"
+bypass not_dev_literal "      - run: terraform plan"
+
+run_case bypass_reusable_caller fail 'CI only validates prod' bp_reuse_caller.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    uses: ./.github/workflows/tf.yml
+    with:
+      dir: environments/prod
+EOF2
+
+run_case bypass_reusable_callee fail 'CI only validates prod' bp_reuse_callee.yml <<EOF2
+on:
+  workflow_call:
+    inputs:
+      dir:
+        type: string
+        required: true
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=\${{ inputs.dir }} apply
+EOF2
+
+run_case bypass_dispatch_input_default fail 'CI only validates prod' bp_dispatch_input.yml <<EOF2
+on:
+  workflow_dispatch:
+    inputs:
+      dir:
+        type: choice
+        default: environments/prod
+        options: [environments/dev, environments/prod]
+env:
+  TF_DIR: environments/dev
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=\$TF_DIR plan
+EOF2
+
+run_case bypass_matrix_env fail 'CI only validates prod' bp_matrix.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    strategy:
+      matrix:
+        env: [dev, prod]
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=environments/\${{ matrix.env }} plan
+EOF2
+
+run_case dev_continuation_ok pass - bp_dev_cont.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          terraform -chdir=environments/dev \\\\
+            plan -no-color
+EOF2
+
+# Scalar walk (Architect note on #84): a `#` inside a quoted scalar is content, not a comment, and a prod path
+# only in a real YAML comment is not named.
+run_case prod_after_hash_in_quoted_scalar fail 'CI only validates prod' prod8.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo '#' ; terraform -chdir=environments/prod plan"
+EOF2
+
+run_case prod_only_in_comment_ok pass - prodok4.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      # never plan or apply environments/prod here
+      - run: terraform -chdir=environments/dev plan
+EOF2
+
+# Per-step dev target + text segments (Architect addenda c7112080858 C and c7112113044 D').
+# stepcase NAME fail|pass STEP_YAML [WORKFLOW_ENV_YAML]  (steps indented 6, env lines indented 2)
+stepcase() {
+  local exp="$2" msg="CI only validates prod"; [ "$2" = pass ] && msg="-"
+  run_case "$1" "$exp" "$msg" "sc_$1.yml" <<EOF3
+on:
+  push:
+    branches: [main]
+${4:+env:
+$4}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+$3
+EOF3
+}
+# N1/N2: a literal dev named elsewhere must not vouch for a step whose directory is an expression.
+stepcase n1_inputs_dir fail '      - run: terraform -chdir=${{ inputs.dir }} apply' '  DEV_DIR: environments/dev'
+stepcase n2_vars_dir fail '      - run: terraform -chdir=${{ vars.TF_DIR }} apply' '  DEV_DIR: environments/dev'
+# N3: a run-time rewrite of a dev path is the stated residual (passes).
+stepcase n3_runtime_rewrite pass '      - run: |
+          TF_DIR="${TF_DIR%dev}prod"
+          terraform -chdir="$TF_DIR" apply' '  TF_DIR: environments/dev'
+# N4: the allowed indirections.
+stepcase n4_env_chdir pass '      - run: terraform -chdir="$TF_DIR" apply' '  TF_DIR: environments/dev'
+stepcase n4b_env_working_directory pass '      - working-directory: ${{ env.TF_DIR }}
+        run: terraform apply' '  TF_DIR: environments/dev'
+stepcase n4c_prefix_checkout pass '      - working-directory: pr/${{ env.TF_DIR }}
+        run: terraform plan' '  TF_DIR: environments/dev'
+stepcase n4d_braced pass '      - run: terraform -chdir=${TF_DIR} plan' '  TF_DIR: environments/dev'
+stepcase n5_env_value_is_expression fail '      - run: terraform -chdir="$TF_DIR" apply' '  TF_DIR: ${{ vars.X }}/environments/dev
+  DEV: environments/dev'
+stepcase n6_dotdot_prefix fail '      - working-directory: ../environments/dev
+        run: terraform apply'
+# E1/E2: text that mentions a command is not a command.
+stepcase e1_validate_or_echo pass '      - run: terraform validate || { echo "::error::terraform plan failed"; exit 1; }'
+stepcase e2_echo_mentions_apply pass '      - run: echo "terraform apply on environments/prod is never run from CI"'
+stepcase e3_whole_line_comment pass '      - run: |
+          # terraform apply is not run here
+          true'
+# C1-C7: wrappers around the command still count.
+stepcase c1_env_prefix fail '      - run: env TF_LOG=INFO terraform -chdir=environments/prod apply'
+stepcase c2_var_assignment fail '      - run: TF_LOG=INFO terraform -chdir=environments/prod apply'
+stepcase c3_true_and fail '      - run: true && terraform -chdir=environments/prod apply'
+stepcase c4_if fail '      - run: if terraform -chdir=environments/prod apply; then echo ok; fi'
+stepcase c5_time_command fail '      - run: time command terraform -chdir=environments/prod apply'
+stepcase c6_command_subst fail '      - run: x=$(terraform -chdir=environments/prod apply)'
+stepcase c7_pipe fail '      - run: terraform -chdir=environments/prod apply | tee out.txt'
+# X1-X5 (ef-qa): an echo/printf/`:` that wraps a running command is still a running command.
+stepcase x1_echo_subst fail '      - run: echo "$(terraform -chdir=environments/prod apply)"'
+stepcase x2_printf_subst fail '      - run: printf "%s" "$(terraform -chdir=environments/prod apply)"'
+stepcase x3_colon_subst fail '      - run: : "$(terraform -chdir=environments/prod apply)"'
+stepcase x4_echo_backtick fail '      - run: echo `terraform -chdir=environments/prod apply`'
+stepcase x5_echo_and fail '      - run: echo x && terraform -chdir=environments/prod apply'
+# ef-qa c7112539799: a lone `&` and process substitution are command separators too.
+stepcase s1_lone_ampersand fail '      - run: echo x & terraform -chdir=environments/prod apply'
+stepcase s2_ampersand_nospace fail '      - run: echo x &terraform -chdir=environments/prod apply'
+stepcase s3_process_subst_in fail '      - run: echo <(terraform -chdir=environments/prod apply)'
+stepcase s4_process_subst_out fail '      - run: echo x > >(terraform -chdir=environments/prod apply)'
+stepcase s5_redirect_fd_dev_ok pass '      - run: terraform -chdir=environments/dev plan 2>&1 | tee out.txt'
+# Architect design review (round 4): the splitter is newline ; && || only; text is a closed literal-only grammar.
+# ef-qa K1/K2/K3/K9 and W1 (c7112561187) are REFUSED; W2 is the named residual (passes).
+stepcase k1_bg_ampersand fail '      - run: |
+          echo start & terraform -chdir=environments/prod apply -auto-approve'
+stepcase k2_proc_subst_in fail '      - run: |
+          echo <(terraform -chdir=environments/prod apply -auto-approve)'
+stepcase k3_proc_subst_out fail '      - run: |
+          echo x > >(terraform -chdir=environments/prod apply -auto-approve)'
+stepcase k9_paren_echo_amp fail '      - run: |
+          ( echo go & terraform -chdir=environments/prod apply -auto-approve )'
+stepcase w1_echo_pipe_bash fail '      - run: |
+          echo "terraform -chdir=environments/prod apply -auto-approve" | bash'
+stepcase w1b_echo_pipe_bash_no_dir fail '      - run: echo "terraform apply" | bash'
+stepcase w2_shell_function_residual pass '      - run: |
+          tf() { terraform "$@"; }
+          tf -chdir=environments/dev apply -auto-approve'
+stepcase q1_expansion_in_echo_no_dir fail '      - run: echo "$X terraform apply"'
+stepcase q2_dev_with_fd_redirect pass '      - run: terraform -chdir=environments/dev apply 2>&1'
+stepcase q3_echo_backslash_not_text fail '      - run: echo "a\\" terraform apply'
+# Architect c7113042887 (ha-qa HOLD c7113025215): a terraform-family ACTION is capable unless setup-only, and its
+# `with:` values must prove dev whatever the inputs are called.
+stepcase u1_terragrunt_action_prod fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: environments/prod'
+stepcase u2_terragrunt_action_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: ${{ inputs.dir }}'
+stepcase u3_terragrunt_action_dev pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: environments/dev'
+stepcase u4_dflook_apply_prod fail '      - uses: dflook/terraform-apply@'"$SHA"'
+        with:
+          path: environments/prod'
+stepcase u5_setup_terraform_ok pass '      - uses: hashicorp/setup-terraform@'"$SHA"
+stepcase u6_unrelated_action_not_capable_passes pass '      - uses: actions/upload-artifact@'"$SHA"'
+        with:
+          path: environments/prod/plan.json'
+stepcase u7_action_no_with fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"
+stepcase u8_action_dev_via_env pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: ${{ env.TF_DIR }}' '  TF_DIR: environments/dev'
+stepcase u9_action_dotdot fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev/../prod'
+stepcase u10_setup_tflint_ok pass '      - uses: terraform-linters/setup-tflint@'"$SHA"
+# ha-qa FAIL c7113200529 / Architect ruling: EVERY with: value is checked; a decoy dev input cannot vouch for the
+# input that carries the real target.
+stepcase m3_decoy_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: ${{ vars.TG_DIR }}
+          tg_comment: environments/dev'
+stepcase m4_decoy_dotdot_in_command fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply --working-dir ../prod
+          tg_dir: environments/dev'
+stepcase m6_decoy_inputs_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: ${{ inputs.target }}
+          note: environments/dev'
+stepcase m9_decoy_absolute_path fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev
+          tg_config: /home/runner/work/x/x/prod/terragrunt.hcl'
+stepcase m10_decoy_dotdot_value fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          dir: environments/dev
+          tg_dir: ../prod'
+stepcase m11_decoy_extra_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev
+          extra: ${{ inputs.x }}'
+stepcase m12_token_input_fails_closed fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev
+          github_token: ${{ secrets.GITHUB_TOKEN }}'
+stepcase m13_all_literal_or_dev_ok pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: environments/dev
+          tg_version: 0.55.0'
+stepcase m14_literal_flag_ok pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: run-all apply -auto-approve
+          tg_dir: environments/dev'
+# Architect c7112778221: any `..` segment anywhere in a target is unsafe, the dev part and its suffix included.
+stepcase dd1_env_dotdot_prod fail '      - run: terraform -chdir="$TF_DIR/../prod" apply' '  TF_DIR: environments/dev'
+stepcase dd2_quoted_dev_then_dotdot fail '      - run: terraform -chdir="environments/dev"/../prod apply'
+stepcase dd3_plain_dev_dotdot fail '      - run: terraform -chdir=environments/dev/../prod apply'
+stepcase dd4_dev_dot_dotdot fail '      - run: terraform -chdir=environments/dev/./../prod apply'
+stepcase dd5_working_directory_dotdot fail '      - working-directory: environments/dev/../prod
+        run: terraform apply'
+stepcase dd6_dotdot_in_prefix fail '      - working-directory: pr/../environments/dev
+        run: terraform plan'
+stepcase dd7_quoted_dollar_dev_ok pass '      - run: terraform -chdir="$TF_DIR" apply' '  TF_DIR: environments/dev'
+stepcase dd8_quoted_literal_dev_ok pass '      - run: terraform -chdir="environments/dev" plan'
+stepcase t1_terragrunt_apply_prod fail '      - run: terragrunt -chdir=environments/prod apply'
+stepcase t2_terragrunt_run_all fail '      - run: terragrunt run-all apply'
+stepcase t3_terragrunt_dev_ok pass '      - run: terragrunt -chdir=environments/dev plan'
+stepcase d1_dev_still_passes pass '      - run: terraform -chdir=environments/dev plan'
 
 # The live workflows must pass (infra-apply.yml is job-level only and push-triggered).
 live=$(cd "$here/../.." && bash scripts/check-workflows.sh .github/workflows 2>&1) \

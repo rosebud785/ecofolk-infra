@@ -322,10 +322,19 @@ PATH_FILTERS = ("paths", "paths-ignore")  # on.<event>.paths filters pick which 
 # A `terraform`/`tofu` word with plan or apply after it, in one (de-quoted) segment.
 TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu|terragrunt)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
 ACTION_PLAN = re.compile(r"(plan|apply)", re.IGNORECASE)
-SEGMENT_SPLIT = re.compile(r"\n|;|&|\|\||\||\$\(|<\(|>\(|`")  # `&` covers && and a lone background &
-ASSIGNMENTS = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*")
+# The splitter is FIXED and small (Architect design review, ecofolk-infra#193 round 4): newline, `;`, `&&`, `||`.
+# NOTHING is added in later rounds. A lone `&`, `|`, `$(`, backticks, `<(`, `>(` and redirections are not
+# separators: they stay inside their segment, where the closed text grammar below treats them as disqualifying.
+SEGMENT_SPLIT = re.compile(r"\n|;|&&|\|\|")
+_WORD = r"[A-Za-z0-9_./:,=+%@-]+"
+_SQ = r"'[^']*'"
+_DQ = r"\"[^$`\\\"]*\""  # no `$`, backtick or backslash
+_ARG = rf"(?:{_WORD}|{_SQ}|{_DQ})"
+ASSIGNMENTS = re.compile(rf"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=(?:{_WORD}|{_SQ}|{_DQ})?\s+)*")
 LEAD_OPENERS = re.compile(r"^\s*(?:(?:[{(]|then|do|else)(?:\s+|$))*")
-TEXT_START = re.compile(r"^(?:echo|printf|:)(?![A-Za-z0-9_-])")
+# TEXT: echo|printf|`:` and then only literal arguments, an optional closing } or ). Anything else
+# (& | < > $ a backtick, an unbalanced quote, a backslash) is not text. Never widen this.
+TEXT_RE = re.compile(rf"^(?:echo|printf|:)(?:\s+{_ARG})*\s*[)}}]?\s*$")
 CHDIR = re.compile(r"-chdir=((?:\$\{\{.*?\}\}|\S)+)")
 ENV_REF = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 # [<prefix>/]environments/dev, then end or `/`. A prefix is a fixed relative path: no `..`, no expression.
@@ -376,9 +385,9 @@ def _target_ok(source: str | None, envs: list[dict[str, str]]) -> bool:
 
 
 def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
-    """(1-based line, segment) for each command segment of a scalar: `\\`-newline joined, shell quote
-    characters removed, split on newline ; && || | $( and backticks. Shell comments are NOT stripped
-    (over-detects, never misses)."""
+    """(1-based line, ORIGINAL segment text) for each command segment of a scalar: `\\`-newline joined,
+    split on newline ; && || only. Quotes are kept: the text test reads the original, `_capable` de-quotes
+    a copy for the command-word match. Shell comments are not stripped."""
     first = sc.start_mark.line + 1 + (1 if sc.style in ("|", ">") else 0)
     out: list[tuple[int, str]] = []
     raw = sc.value.split("\n")
@@ -390,24 +399,25 @@ def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
             logical += ln[:-1] + " "
             continue
         logical += ln
-        for seg in SEGMENT_SPLIT.split(re.sub(r"[\"'\\]", "", logical)):
+        for seg in SEGMENT_SPLIT.split(logical):
             out.append((first + start, seg))
         logical, start = "", None
     return out
 
 
 def _capable(seg: str) -> bool:
-    """A segment that can plan or apply: `terraform`/`tofu` ... plan|apply, unless the segment is TEXT: after
-    leading VAR=value assignments it starts with echo, printf or `:`, or it is a whole-line comment (D')."""
-    if not TF_PLAN.search(seg):
+    """A segment that can plan or apply: a `terraform`/`tofu`/`terragrunt` word with plan|apply after it (on the
+    de-quoted copy), unless the segment is TEXT. TEXT is closed and literal-only, tested on the ORIGINAL text
+    after an optional opener (`{`, `(`, then, do, else) and leading VAR=value assignments: echo|printf|`:`
+    plus plain words, single-quoted strings, and double-quoted strings with no `$`, backtick or backslash.
+    A whole-line comment is text. Every other segment is capable (fails closed)."""
+    if not TF_PLAN.search(re.sub(r"[\"'\\]", "", seg)):
         return False
     if re.match(r"^\s*#", seg):
         return False
-    # Grouping/compound-command openers (`{`, `(`, then, do, else) are skipped before the text test, so
-    # `{ echo "terraform plan failed"; }` is text; `{ terraform apply; }` still starts with the command.
     rest = LEAD_OPENERS.sub("", seg)
     rest = rest[ASSIGNMENTS.match(rest).end():]
-    return not TEXT_START.match(rest)
+    return not TEXT_RE.match(rest)
 
 
 def tf_violations(path: str) -> list[int]:
@@ -449,7 +459,7 @@ def tf_violations(path: str) -> list[int]:
                     for line, seg in _segments(sc):
                         if not _capable(seg):
                             continue
-                        m = CHDIR.search(seg)
+                        m = CHDIR.search(re.sub(r"[\"'\\]", "", seg))
                         source = m.group(1) if m else source_wd
                         if not (no_foreign_env and _target_ok(source, envs)):
                             hits.add(line)

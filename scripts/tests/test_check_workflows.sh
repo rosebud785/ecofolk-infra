@@ -1380,6 +1380,25 @@ stepcase s2_ampersand_nospace fail '      - run: echo x &terraform -chdir=enviro
 stepcase s3_process_subst_in fail '      - run: echo <(terraform -chdir=environments/prod apply)'
 stepcase s4_process_subst_out fail '      - run: echo x > >(terraform -chdir=environments/prod apply)'
 stepcase s5_redirect_fd_dev_ok pass '      - run: terraform -chdir=environments/dev plan 2>&1 | tee out.txt'
+# Architect design review (round 4): the splitter is newline ; && || only; text is a closed literal-only grammar.
+# ef-qa K1/K2/K3/K9 and W1 (c7112561187) are REFUSED; W2 is the named residual (passes).
+stepcase k1_bg_ampersand fail '      - run: |
+          echo start & terraform -chdir=environments/prod apply -auto-approve'
+stepcase k2_proc_subst_in fail '      - run: |
+          echo <(terraform -chdir=environments/prod apply -auto-approve)'
+stepcase k3_proc_subst_out fail '      - run: |
+          echo x > >(terraform -chdir=environments/prod apply -auto-approve)'
+stepcase k9_paren_echo_amp fail '      - run: |
+          ( echo go & terraform -chdir=environments/prod apply -auto-approve )'
+stepcase w1_echo_pipe_bash fail '      - run: |
+          echo "terraform -chdir=environments/prod apply -auto-approve" | bash'
+stepcase w1b_echo_pipe_bash_no_dir fail '      - run: echo "terraform apply" | bash'
+stepcase w2_shell_function_residual pass '      - run: |
+          tf() { terraform "$@"; }
+          tf -chdir=environments/dev apply -auto-approve'
+stepcase q1_expansion_in_echo_no_dir fail '      - run: echo "$X terraform apply"'
+stepcase q2_dev_with_fd_redirect pass '      - run: terraform -chdir=environments/dev apply 2>&1'
+stepcase q3_echo_backslash_not_text fail '      - run: echo "a\\" terraform apply'
 stepcase t1_terragrunt_apply_prod fail '      - run: terragrunt -chdir=environments/prod apply'
 stepcase t2_terragrunt_run_all fail '      - run: terragrunt run-all apply'
 stepcase t3_terragrunt_dev_ok pass '      - run: terragrunt -chdir=environments/dev plan'

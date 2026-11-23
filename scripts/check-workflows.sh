@@ -15,10 +15,14 @@
 #      validates prod, it never plans or applies it). POSITIVE PROOF per step, not a prod denylist
 #      (`check-workflow-permissions.py --tf-violations`, on the PARSED scalars):
 #      - capable = a `terraform`/`tofu`/`terragrunt` word with plan or apply after it, in a segment (the scalar with
-#        `\`-newline joined and quote characters removed, split on newline ; && || | $( and backticks) that is
-#        not TEXT. A segment is text only if, after leading VAR=value assignments, it starts with echo, printf
-#        or `:`, or it is a whole-line comment. Everything else counts (env, if, time, command, sudo, heredoc
-#        bodies...): over-detects, never misses. A `uses:` action named plan/apply and any job-level
+#        `\`-newline joined, split on newline ; && || ONLY, no other separator is ever added) that is not
+#        TEXT. TEXT is a closed, literal-only form tested on the original segment: after an optional opener
+#        ({ ( then do else) and VAR=value assignments, echo|printf|`:` followed only by plain words,
+#        single-quoted strings, and double-quoted strings with no $, backtick or backslash; or a whole-line
+#        comment. Any other character (& | < > $ a backtick, an unbalanced quote) makes it not text, so
+#        `echo x & terraform ...`, `echo <(terraform ...)`, `echo "..." | bash` and `echo "$(terraform ...)"`
+#        are all capable. Fails closed on every form it does not fully model; the residual below is what a
+#        text reader cannot see. Never widen the text grammar. A `uses:` action named plan/apply and any job-level
 #        reusable-workflow call are capable too, and need the whole workflow to prove dev.
 #      - each capable segment's directory comes from its `-chdir=`, else the step's `working-directory`, else
 #        the job's, else the workflow's `defaults.run.working-directory`; no source = unsafe. It must resolve
@@ -32,10 +36,9 @@
 #      prod's SA trust (#165 §D) requires `gcp-prod` + Andy's reviewer. STATED RESIDUAL (this rule reads
 #      workflow text): a wrapper script that targets prod internally (`./deploy.sh`); a run-time `cd` out
 #      of, or a rewrite of, the named dev directory (`TF_DIR="${TF_DIR%dev}prod"`); a subcommand assembled
-#      from variables (`ACTION: apply` ... `terraform "$ACTION"`); a command fed to a shell as text
-#      (`echo "terraform ... apply" | bash`); a shell function defined in the workflow and called later
-#      (`f() { terraform "$@"; }; f apply`). Defence in depth, same bar as #188: the
-#      obvious and idiomatic forms are caught, the rest is stated, not chased.
+#      from variables (`ACTION: apply` ... `terraform "$ACTION"`); an in-workflow shell function or alias
+#      wrapping terraform (`tf() { terraform "$@"; }` then `tf -chdir=... apply`). Defence in depth, same
+#      bar as #188: the obvious and idiomatic forms are caught, the rest is stated, not chased.
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 set -euo pipefail

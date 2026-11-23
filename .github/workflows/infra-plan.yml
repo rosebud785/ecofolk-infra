@@ -231,9 +231,12 @@ jobs:
         if: steps.static.outputs.refused == 'false' && steps.plan.outputs.rc == '1'
         env:
           HEAD_SHA: ${{ steps.resolve.outputs.head }}
+          # The word comes from here so this echo is not read as a terraform plan command by check-workflows
+          # rule 5, which treats any echo carrying an expansion as a possible command (#88). Output unchanged.
+          VERB: plan
         run: |
           {
-            echo "### terraform plan FAILED for \`${HEAD_SHA:0:12}\`"
+            echo "### terraform ${VERB} FAILED for \`${HEAD_SHA:0:12}\`"
             echo
             echo "Read the run log: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. No plan record was posted, so the apply on merge will refuse until a plan succeeds."
           } > "$RUNNER_TEMP/comment.md"

@@ -313,60 +313,110 @@ def trigger_of(path: str) -> str:
         return "<unparseable workflow>"
 
 
-# Rule 5 of check-workflows.sh (#88): POSITIVE PROOF of a dev target, not a denylist of prod spellings.
-# `tf_target` prints `dev` only if (a) some scalar names environments/dev and (b) EVERY `environments/`
-# occurrence is exactly environments/dev followed by end, `/`, a quote or whitespace. Anything else, a parse
-# failure included, is `unsafe`. Dev only: qa stays out until a reviewed change adds it.
+# ---- Rule 5 of check-workflows.sh (#88): plan/apply only against a PROVEN environments/dev target. ----
+# Positive proof, per plan/apply-capable segment, never a denylist of prod spellings. See check-workflows.sh.
 ENV_OCC = re.compile(r"environments/")
 ENV_DEV = re.compile(r"environments/dev(?=$|[/\"'\s])")
-# `paths:` filters on the trigger select which pushes run the workflow; they are not where a step runs.
-ON_SKIP = ("paths", "paths-ignore")
 ON_KEYS = ("on", "true", "True")
+PATH_FILTERS = ("paths", "paths-ignore")  # on.<event>.paths filters pick which pushes run; not a target
+# A `terraform`/`tofu` word with plan or apply after it, in one (de-quoted) segment.
+TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
+ACTION_PLAN = re.compile(r"(plan|apply)", re.IGNORECASE)
+SEGMENT_SPLIT = re.compile(r"\n|;|&&|\|\||\||\$\(|`")
+ASSIGNMENTS = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*")
+LEAD_OPENERS = re.compile(r"^\s*(?:(?:[{(]|then|do|else)(?:\s+|$))*")
+TEXT_START = re.compile(r"^(?:echo|printf|:)(?![A-Za-z0-9_-])")
+CHDIR = re.compile(r"-chdir=((?:\$\{\{.*?\}\}|\S)+)")
+ENV_REF = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+# [<prefix>/]environments/dev, then end or `/`. A prefix is a fixed relative path: no `..`, no expression.
+DEV_TARGET = re.compile(r"^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*/)*environments/dev(?:/[A-Za-z0-9_./-]*)?$")
 
 
-def _target_scalars(root: yaml.Node, loader: yaml.SafeLoader) -> list[yaml.ScalarNode]:
-    """Every scalar a step could read a directory from: all of the workflow, `on:` included (a dispatch input
-    default or choice can carry the path) except the trigger's own path filters."""
-    out: list[yaml.ScalarNode] = []
-    for k, v in mapping_items(root, loader):
-        if isinstance(k, yaml.ScalarNode):
-            out.append(k)
-        out.extend(scalar_nodes(v, ON_SKIP if key_name(k) in ON_KEYS else ()))
+def _mapping_get(node: yaml.Node | None, loader: yaml.SafeLoader, name: str) -> yaml.Node | None:
+    if node is None:
+        return None
+    hits = find(node, loader, name)
+    return hits[0][1] if hits else None
+
+
+def _literal_env(node: yaml.Node | None, loader: yaml.SafeLoader) -> dict[str, str]:
+    """`env:` entries whose value is a literal scalar (no `$`, so no expression and no expansion)."""
+    env = _mapping_get(node, loader, "env")
+    out: dict[str, str] = {}
+    if isinstance(env, yaml.MappingNode):
+        for k, v in mapping_items(env, loader):
+            if isinstance(k, yaml.ScalarNode) and isinstance(v, yaml.ScalarNode) and "$" not in v.value:
+                out[k.value] = v.value
     return out
 
 
-def tf_target(path: str) -> str:
-    try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-        loader = yaml.SafeLoader(text)
-        try:
-            root = loader.get_single_node()
-            if root is None or not isinstance(root, yaml.MappingNode):
-                return "unsafe"
-            saw_dev = False
-            for sc in _target_scalars(root, loader):
-                for m in ENV_OCC.finditer(sc.value):
-                    if not ENV_DEV.match(sc.value, max(0, m.start())):
-                        return "unsafe"
-                    saw_dev = True
-            return "dev" if saw_dev else "unsafe"
-        finally:
-            loader.dispose()
-    except (yaml.YAMLError, OSError, UnicodeDecodeError, RecursionError):
-        return "unsafe"
+def _default_wd(node: yaml.Node | None, loader: yaml.SafeLoader) -> str | None:
+    d = _mapping_get(_mapping_get(_mapping_get(node, loader, "defaults"), loader, "run"), loader, "working-directory")
+    return d.value if isinstance(d, yaml.ScalarNode) else None
 
 
-TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
-ACTION_PLAN = re.compile(r"(plan|apply)", re.IGNORECASE)
+def _target_ok(source: str | None, envs: list[dict[str, str]]) -> bool:
+    """Does the directory source resolve to [<prefix>/]environments/dev? The ONLY indirection allowed is
+    ${{ env.X }}, $X or ${X} with X a literal in an env map (nearest wins: step, job, workflow). Any other
+    expression, an unresolved variable, or no source at all is unsafe."""
+    if source is None:
+        return False
+
+    def sub(m: re.Match) -> str:
+        name = m.group(1) or m.group(2) or m.group(3)
+        for e in envs:
+            if name in e:
+                return e[name]
+        return m.group(0)
+
+    resolved = ENV_REF.sub(sub, source)
+    if "$" in resolved or "{{" in resolved:
+        return False
+    return bool(DEV_TARGET.match(resolved))
 
 
-def tf_lines(path: str) -> list[int]:
-    """1-based line numbers of every plan/apply-capable line, found on the PARSED scalars (so comments are gone
-    and a `#` in a quoted scalar stays content), with `\\`-newline continuations joined and quote characters
-    removed (`"terraform" "apply"`): (1) a `terraform`/`tofu` command naming plan or apply; (2) a `uses:` action
-    whose name contains plan or apply; (3) a job-level reusable-workflow call (`uses:` a .github/workflows/
-    file), fail-closed whatever the callee is called. An unparseable file reports line 1."""
+def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
+    """(1-based line, segment) for each command segment of a scalar: `\\`-newline joined, shell quote
+    characters removed, split on newline ; && || | $( and backticks. Shell comments are NOT stripped
+    (over-detects, never misses)."""
+    first = sc.start_mark.line + 1 + (1 if sc.style in ("|", ">") else 0)
+    out: list[tuple[int, str]] = []
+    raw = sc.value.split("\n")
+    logical, start = "", None
+    for i, ln in enumerate(raw):
+        if start is None:
+            start = i
+        if ln.endswith("\\") and i < len(raw) - 1:
+            logical += ln[:-1] + " "
+            continue
+        logical += ln
+        for seg in SEGMENT_SPLIT.split(re.sub(r"[\"'\\]", "", logical)):
+            out.append((first + start, seg))
+        logical, start = "", None
+    return out
+
+
+def _capable(seg: str) -> bool:
+    """A segment that can plan or apply: `terraform`/`tofu` ... plan|apply, unless the segment is TEXT: after
+    leading VAR=value assignments it starts with echo, printf or `:`, or it is a whole-line comment (D')."""
+    if not TF_PLAN.search(seg):
+        return False
+    if re.match(r"^\s*#", seg):
+        return False
+    # Grouping/compound-command openers (`{`, `(`, then, do, else) are skipped before the text test, so
+    # `{ echo "terraform plan failed"; }` is text; `{ terraform apply; }` still starts with the command.
+    rest = LEAD_OPENERS.sub("", seg)
+    rest = rest[ASSIGNMENTS.match(rest).end():]
+    return not TEXT_START.match(rest)
+
+
+def tf_violations(path: str) -> list[int]:
+    """Lines of plan/apply-capable segments whose target is not PROVEN dev, per step. [1] on a parse failure.
+    A step's source is the segment's `-chdir=`, then the step's `working-directory`, then the job's, then the
+    workflow's `defaults.run.working-directory`; none = unsafe. A job-level reusable-workflow call and a
+    `uses:` action named plan/apply are capable too, and need the whole workflow to prove dev. Any non-dev
+    `environments/` anywhere outside the path filters (the `on:` inputs included) makes every capable
+    line unsafe."""
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -376,26 +426,54 @@ def tf_lines(path: str) -> list[int]:
             if root is None or not isinstance(root, yaml.MappingNode):
                 return [1]
             hits: set[int] = set()
-            for sc in scalar_nodes(root):
-                first = sc.start_mark.line + 1 + (1 if sc.style in ("|", ">") else 0)
-                logical, start = "", None
-                raw = sc.value.split("\n")
-                for i, ln in enumerate(raw):
-                    if start is None:
-                        start = i
-                    if ln.endswith("\\") and i < len(raw) - 1:
-                        logical += ln[:-1] + " "
-                        continue
-                    logical += ln
-                    if TF_PLAN.search(re.sub(r"[\"']", "", logical)):
-                        hits.add(first + start)
-                    logical, start = "", None
-            for _, v in mapping_items(root, loader):
-                for uses_v in _uses_values(v, loader):
-                    name = uses_v.value.split("@", 1)[0]
-                    line = uses_v.start_mark.line + 1
-                    if ACTION_PLAN.search(name) or ".github/workflows/" in name:
-                        hits.add(line)
+
+            def on_scalars(v: yaml.Node, key: object) -> list[yaml.ScalarNode]:
+                return scalar_nodes(v, PATH_FILTERS if key in ON_KEYS else ())
+
+            all_scalars: list[yaml.ScalarNode] = []
+            for k, v in mapping_items(root, loader):
+                if isinstance(k, yaml.ScalarNode):
+                    all_scalars.append(k)
+                all_scalars.extend(on_scalars(v, key_name(k)))
+            occ = [bool(ENV_DEV.match(s.value, m.start())) for s in all_scalars for m in ENV_OCC.finditer(s.value)]
+            no_foreign_env = all(occ)  # every `environments/` is exactly environments/dev
+            workflow_dev_only = no_foreign_env and bool(occ)
+
+            wf_env = _literal_env(root, loader)
+            wf_wd = _default_wd(root, loader)
+            jobs = _mapping_get(root, loader, "jobs")
+
+            def check_unit(scalars: list[yaml.ScalarNode], envs: list[dict[str, str]], wds: list[str | None]) -> None:
+                source_wd = next((w for w in wds if w is not None), None)
+                for sc in scalars:
+                    for line, seg in _segments(sc):
+                        if not _capable(seg):
+                            continue
+                        m = CHDIR.search(seg)
+                        source = m.group(1) if m else source_wd
+                        if not (no_foreign_env and _target_ok(source, envs)):
+                            hits.add(line)
+
+            if isinstance(jobs, yaml.MappingNode):
+                for _, job in mapping_items(jobs, loader):
+                    job_env, job_wd = _literal_env(job, loader), _default_wd(job, loader)
+                    steps = _mapping_get(job, loader, "steps")
+                    if isinstance(steps, yaml.SequenceNode):
+                        for st in steps.value:
+                            step_wd = _mapping_get(st, loader, "working-directory")
+                            wds = [step_wd.value if isinstance(step_wd, yaml.ScalarNode) else None, job_wd, wf_wd]
+                            check_unit(scalar_nodes(st), [_literal_env(st, loader), job_env, wf_env], wds)
+                    check_unit(scalar_nodes(job, ("steps",)), [job_env, wf_env], [job_wd, wf_wd])
+            skip = ("jobs",)
+            rest = [s for k, v in mapping_items(root, loader) if key_name(k) not in skip for s in on_scalars(v, key_name(k))]
+            check_unit(rest, [wf_env], [wf_wd])
+
+            # Action named plan/apply, and job-level reusable-workflow calls: no directory source of their own,
+            # so the whole workflow must prove dev (some environments/dev, and nothing else under environments/).
+            for uses_v in _uses_values(root, loader):
+                name = uses_v.value.split("@", 1)[0]
+                if (ACTION_PLAN.search(name) or ".github/workflows/" in name) and not workflow_dev_only:
+                    hits.add(uses_v.start_mark.line + 1)
             return sorted(hits)
         finally:
             loader.dispose()
@@ -430,11 +508,8 @@ def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--trigger":
         print(trigger_of(argv[1]))
         return 0
-    if len(argv) == 2 and argv[0] == "--tf-target":
-        print(tf_target(argv[1]))
-        return 0
-    if len(argv) == 2 and argv[0] == "--tf-lines":
-        for n in tf_lines(argv[1]):
+    if len(argv) == 2 and argv[0] == "--tf-violations":
+        for n in tf_violations(argv[1]):
             print(n)
         return 0
     if len(argv) < 2:

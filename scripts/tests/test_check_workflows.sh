@@ -1319,6 +1319,63 @@ jobs:
       - run: terraform -chdir=environments/dev plan
 EOF2
 
+# Per-step dev target + text segments (Architect addenda c7112080858 C and c7112113044 D').
+# stepcase NAME fail|pass STEP_YAML [WORKFLOW_ENV_YAML]  (steps indented 6, env lines indented 2)
+stepcase() {
+  local exp="$2" msg="CI only validates prod"; [ "$2" = pass ] && msg="-"
+  run_case "$1" "$exp" "$msg" "sc_$1.yml" <<EOF3
+on:
+  push:
+    branches: [main]
+${4:+env:
+$4}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+$3
+EOF3
+}
+# N1/N2: a literal dev named elsewhere must not vouch for a step whose directory is an expression.
+stepcase n1_inputs_dir fail '      - run: terraform -chdir=${{ inputs.dir }} apply' '  DEV_DIR: environments/dev'
+stepcase n2_vars_dir fail '      - run: terraform -chdir=${{ vars.TF_DIR }} apply' '  DEV_DIR: environments/dev'
+# N3: a run-time rewrite of a dev path is the stated residual (passes).
+stepcase n3_runtime_rewrite pass '      - run: |
+          TF_DIR="${TF_DIR%dev}prod"
+          terraform -chdir="$TF_DIR" apply' '  TF_DIR: environments/dev'
+# N4: the allowed indirections.
+stepcase n4_env_chdir pass '      - run: terraform -chdir="$TF_DIR" apply' '  TF_DIR: environments/dev'
+stepcase n4b_env_working_directory pass '      - working-directory: ${{ env.TF_DIR }}
+        run: terraform apply' '  TF_DIR: environments/dev'
+stepcase n4c_prefix_checkout pass '      - working-directory: pr/${{ env.TF_DIR }}
+        run: terraform plan' '  TF_DIR: environments/dev'
+stepcase n4d_braced pass '      - run: terraform -chdir=${TF_DIR} plan' '  TF_DIR: environments/dev'
+stepcase n5_env_value_is_expression fail '      - run: terraform -chdir="$TF_DIR" apply' '  TF_DIR: ${{ vars.X }}/environments/dev
+  DEV: environments/dev'
+stepcase n6_dotdot_prefix fail '      - working-directory: ../environments/dev
+        run: terraform apply'
+# E1/E2: text that mentions a command is not a command.
+stepcase e1_validate_or_echo pass '      - run: terraform validate || { echo "::error::terraform plan failed"; exit 1; }'
+stepcase e2_echo_mentions_apply pass '      - run: echo "terraform apply on environments/prod is never run from CI"'
+stepcase e3_whole_line_comment pass '      - run: |
+          # terraform apply is not run here
+          true'
+# C1-C7: wrappers around the command still count.
+stepcase c1_env_prefix fail '      - run: env TF_LOG=INFO terraform -chdir=environments/prod apply'
+stepcase c2_var_assignment fail '      - run: TF_LOG=INFO terraform -chdir=environments/prod apply'
+stepcase c3_true_and fail '      - run: true && terraform -chdir=environments/prod apply'
+stepcase c4_if fail '      - run: if terraform -chdir=environments/prod apply; then echo ok; fi'
+stepcase c5_time_command fail '      - run: time command terraform -chdir=environments/prod apply'
+stepcase c6_command_subst fail '      - run: x=$(terraform -chdir=environments/prod apply)'
+stepcase c7_pipe fail '      - run: terraform -chdir=environments/prod apply | tee out.txt'
+# X1-X5 (ef-qa): an echo/printf/`:` that wraps a running command is still a running command.
+stepcase x1_echo_subst fail '      - run: echo "$(terraform -chdir=environments/prod apply)"'
+stepcase x2_printf_subst fail '      - run: printf "%s" "$(terraform -chdir=environments/prod apply)"'
+stepcase x3_colon_subst fail '      - run: : "$(terraform -chdir=environments/prod apply)"'
+stepcase x4_echo_backtick fail '      - run: echo `terraform -chdir=environments/prod apply`'
+stepcase x5_echo_and fail '      - run: echo x && terraform -chdir=environments/prod apply'
+stepcase d1_dev_still_passes pass '      - run: terraform -chdir=environments/dev plan'
+
 # The live workflows must pass (infra-apply.yml is job-level only and push-triggered).
 live=$(cd "$here/../.." && bash scripts/check-workflows.sh .github/workflows 2>&1) \
   && echo "ok   live_workflows_pass" || { echo "FAIL live_workflows_pass: $live"; failures=$((failures + 1)); }

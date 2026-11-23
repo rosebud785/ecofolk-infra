@@ -10,6 +10,10 @@
 # c7086176386). A file that does not PARSE is a refusal, never a pass.
 #
 # Refuses (each a named failure, `file: message`; the parse tree has no line numbers):
+#   0. the TOP-LEVEL block kinds are an allowlist (Architect c7089836077): terraform, provider, variable, locals, output,
+#      module, resource, data, moved, import, removed. `check` (a `data` block scoped in it is read at PLAN: ef-qa
+#      c7089806892), `ephemeral`, `action`, `list` and any kind added later are refused by name. Resource and data blocks
+#      are judged wherever they are nested as well (belt and braces behind this rule)
 #   1. data "external" / data "http"  (a data source runs a program or a request at plan time)
 #   2. a provider block for external / http / local / null, or for a provider not on the allowlist
 #   3. (R6) resource and data TYPES are an ALLOWLIST: only google_* and archive_* (the prefixes of the allowlisted

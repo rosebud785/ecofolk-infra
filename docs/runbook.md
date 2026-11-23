@@ -851,7 +851,7 @@ hcl/v2, the parser Terraform uses), pinned by sha256 in `scripts/fetch-hcl2json.
 unquoted label (`provider google {`) or a leading `/* … */` cannot hide a construct, and a file that does not parse is a
 refusal. Locally the rules are judged on committed JSON (`scripts/tests/hcl/cache/`), and CI proves that JSON is exactly
 what the pinned binary emits. The refusals: the PR is not open, is from a fork, or does not target `main`; the tree has a `data "external"` /
-`data "http"`, a provider `external` / `http` / `local` / `null`, any resource or data type that does not start with `google_` or `archive_` (an allowlist: the built-in `terraform_remote_state` is refused), a `provisioner`, a module
+`data "http"`, a provider `external` / `http` / `local` / `null`, any resource or data type that does not start with `google_` or `archive_` (an allowlist: the built-in `terraform_remote_state` is refused, wherever the block is nested), any top-level block kind other than `terraform`, `provider`, `variable`, `locals`, `output`, `module`, `resource`, `data`, `moved`, `import` and `removed` (so `check`, `ephemeral` and any future kind are refused by name), a `provisioner`, a module
 `source` that is not a local path, a `*.tf.json`, or a provider outside `PLAN_PROVIDER_ALLOWLIST` (in the workflow, on
 `main`: today `hashicorp/google`, `hashicorp/google-beta`, `hashicorp/archive`, exactly what the lockfiles hold). Also
 refused, because they run at plan time or pick where the credential goes: an `output_path` that is not exactly

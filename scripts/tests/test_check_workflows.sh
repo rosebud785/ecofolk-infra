@@ -703,6 +703,8 @@ run_case main_dispatch_secrets_inherit_guarded_ok pass '-' ok8b.yml <<EOF2
 on: workflow_dispatch
 permissions:
   contents: read
+env:
+  TF_DIR: environments/dev   # rule 5: a reusable-workflow call must come with proof of a dev target
 jobs:
   a:
     if: github.ref == 'refs/heads/main' && github.ref_protected
@@ -1181,7 +1183,9 @@ jobs:
           terraform apply -auto-approve tfplan
 EOF2
 
-run_case prod_not_a_prefix_match_ok pass - prodok3.yml <<EOF2
+# Positive proof of dev (Architect c7112003379): a near-miss of dev is NOT dev. Was an ok fixture under the
+# prod denylist; under the allowlist it fails closed.
+run_case prod_not_dev_prefix_fails fail 'CI only validates prod' prodok3.yml <<EOF2
 on:
   push:
     branches: [main]
@@ -1190,6 +1194,104 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: terraform -chdir=environments/production-like-dev plan
+EOF2
+
+# Known-wrong corpus for the redesign: each of these passed at a4db560a (Architect probes + ef-qa HOLD).
+bypass() { # name, step-yaml (indented under `steps:`)
+  run_case "bypass_$1" fail 'CI only validates prod' "bp_$1.yml" <<EOF3
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+$2
+EOF3
+}
+bypass continuation "      - run: |
+          terraform -chdir=environments/prod \\\\
+            plan -no-color"
+bypass double_slash "      - run: terraform -chdir=environments//prod plan"
+bypass dot_segment "      - run: terraform -chdir=environments/./prod plan"
+bypass quoted_segment "      - run: terraform -chdir=environments/\"prod\" plan"
+bypass glob_segment "      - run: terraform -chdir=environments/p* plan"
+bypass parent_dir_chdir "      - working-directory: environments
+        run: terraform -chdir=prod plan"
+bypass whole_path_from_var "      - run: terraform -chdir=\${{ vars.TF_DIR }} plan"
+bypass quoted_terraform "      - run: \"terraform\" -chdir=environments/prod plan"
+bypass quoted_apply "      - run: terraform -chdir=environments/prod 'apply'"
+bypass quoted_hash_before_apply "      - run: |
+          echo \"x #\" ; terraform -chdir=environments/prod apply"
+bypass not_dev_literal "      - run: terraform plan"
+
+run_case bypass_reusable_caller fail 'CI only validates prod' bp_reuse_caller.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    uses: ./.github/workflows/tf.yml
+    with:
+      dir: environments/prod
+EOF2
+
+run_case bypass_reusable_callee fail 'CI only validates prod' bp_reuse_callee.yml <<EOF2
+on:
+  workflow_call:
+    inputs:
+      dir:
+        type: string
+        required: true
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=\${{ inputs.dir }} apply
+EOF2
+
+run_case bypass_dispatch_input_default fail 'CI only validates prod' bp_dispatch_input.yml <<EOF2
+on:
+  workflow_dispatch:
+    inputs:
+      dir:
+        type: choice
+        default: environments/prod
+        options: [environments/dev, environments/prod]
+env:
+  TF_DIR: environments/dev
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=\$TF_DIR plan
+EOF2
+
+run_case bypass_matrix_env fail 'CI only validates prod' bp_matrix.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    strategy:
+      matrix:
+        env: [dev, prod]
+    runs-on: ubuntu-latest
+    steps:
+      - run: terraform -chdir=environments/\${{ matrix.env }} plan
+EOF2
+
+run_case dev_continuation_ok pass - bp_dev_cont.yml <<EOF2
+on:
+  push:
+    branches: [main]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          terraform -chdir=environments/dev \\\\
+            plan -no-color
 EOF2
 
 # Scalar walk (Architect note on #84): a `#` inside a quoted scalar is content, not a comment, and a prod path

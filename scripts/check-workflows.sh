@@ -11,17 +11,22 @@
 #      push limited to branches: [main], schedule, and workflow_dispatch whose privileged jobs carry
 #      `if: github.ref == 'refs/heads/main' && github.ref_protected` (== is case-insensitive, #82); see check-workflow-permissions.py);
 #   4. has a `uses:` not pinned to a 40-hex SHA (local ./ actions are exempt);
-#   5. could run `plan` or `apply` in environments/prod (ecofolk-infra#88, #12, pipeline design §6.2: CI only
-#      validates prod, it never plans or applies it). A workflow fails, at each plan/apply line, if it both
-#      runs plan/apply (a `terraform`/`tofu` command line naming plan or apply, or a `uses:` action whose
-#      name contains plan or apply) and names a directory that is or could be prod: `environments/prod`,
-#      an `environments/*` glob, or an `environments/$...` path built at run time, anywhere outside `on:`
-#      (check-workflow-permissions.py --names-prod, a walk of the parsed scalars). Fails closed: a workflow
-#      that applies dev must name environments/dev literally, as infra-apply.yml does.
-#      STATED RESIDUAL (not caught): plan/apply reached through a wrapper script or a built command, e.g.
-#      `./deploy.sh` or `terraform "$ACTION"`, where the plan/apply word is not on a workflow line next to
-#      `terraform`/`tofu`, or the prod path is assembled from parts (`environments/pr""od`, a variable
-#      holding only `prod`). The guard reads workflow text, not what a script or runtime expansion does.
+#   5. could plan or apply anything but environments/dev (ecofolk-infra#88, #12, pipeline design §6.2: CI only
+#      validates prod, it never plans or applies it). POSITIVE PROOF, not a prod denylist: a workflow with a
+#      plan/apply-capable line fails, at that line, unless `check-workflow-permissions.py --tf-target` proves
+#      dev: some scalar names `environments/dev`, and EVERY `environments/` occurrence (the trigger's `on:`
+#      inputs included, its `paths:` filters excluded) is exactly `environments/dev` then end, `/`, a quote or
+#      whitespace. Aliases (`environments//prod`, `./`, quotes, globs, `$`), a bare `-chdir=prod`, a path
+#      from a repo var, and a reusable-workflow `with:` input all fail to prove it. Dev only; qa stays out
+#      until a reviewed change adds it. Plan/apply-capable lines (`--tf-lines`) are read from the PARSED
+#      scalars with `\`-newline joined and quotes removed: a `terraform`/`tofu` command naming plan or apply,
+#      a `uses:` action whose name contains plan or apply, and any job-level reusable-workflow call
+#      (fail-closed whatever the callee is called). Shell comments are NOT stripped (over-detects, never misses).
+#      THE PROD BOUNDARY IS THE IDENTITY, NOT THIS RULE: dev trusts pin `gcp-dev` (apply_ok, deploy_ok) and
+#      prod's SA trust (#165 §D) requires `gcp-prod` + Andy's reviewer. STATED RESIDUAL (this rule reads
+#      workflow text): a wrapper script that targets prod internally (`./deploy.sh`), and a command that
+#      leaves the named dev directory at run time (`cd ../prod`). Defence in depth, same bar as #188: the
+#      obvious and idiomatic forms are caught, the rest is stated, not chased.
 # Usage: check-workflows.sh [workflow-dir]   (default .github/workflows)
 # Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 set -euo pipefail
@@ -94,12 +99,14 @@ for f in "${files[@]}"; do
   done < <(printf '%s\n' "$stripped" | grep -nE '^[[:space:]-]*uses:' || true)
 
   # 5. plan/apply that could reach environments/prod (#88)
-  # Whether the workflow names prod is asked of the parser (outside `on:`, whose `paths:` filters are not
-  # directories a step runs in); the plan/apply lines are grepped so each is reported at file:line.
-  if [ "$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/check-workflow-permissions.py" --names-prod "$f")" = prod ]; then
-    while IFS=: read -r n _; do
-      report "$f" "$n" "plan/apply in a workflow that names environments/prod (or a glob/run-time path that can reach it); CI only validates prod (#12)"
-    done < <(printf '%s\n' "$stripped" | grep -nE '(^|[^A-Za-z0-9_-])(terraform|tofu)([[:space:]].*)?[[:space:]](plan|apply)([^A-Za-z0-9_-]|$)|^[[:space:]-]*uses:[^@]*(plan|apply)' || true)
+  # Positive proof of a dev target (--tf-target), then any plan/apply-capable line (--tf-lines, found on
+  # parsed scalars with continuations joined) in a workflow that cannot prove it is reported at file:line.
+  py="$(dirname "${BASH_SOURCE[0]}")/check-workflow-permissions.py"
+  if [ "$(python3 -I "$py" --tf-target "$f")" != dev ]; then
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      report "$f" "$n" "plan/apply-capable line in a workflow that does not prove an environments/dev target; CI only validates prod (#12, #88)"
+    done < <(python3 -I "$py" --tf-lines "$f")
   fi
 done
 

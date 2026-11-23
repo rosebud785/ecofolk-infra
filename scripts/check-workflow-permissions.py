@@ -22,7 +22,8 @@ Rule 3 lives here too: in an UNTRUSTED workflow, ANY `secrets` identifier inside
 
 Usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...
        check-workflow-permissions.py --trigger <file>   # prints `trusted` or the untrusted trigger name
-       check-workflow-permissions.py --names-prod <file>   # prints `prod` or `no` (check-workflows.sh rule 5)
+       check-workflow-permissions.py --tf-target <file>   # prints `dev` or `unsafe` (check-workflows.sh rule 5)
+       check-workflow-permissions.py --tf-lines <file>    # line numbers of plan/apply-capable lines (rule 5)
 Prints `file:line: message` per violation (line = the offending `permissions:` key); exit 1 if any.
 Surface path (CODEOWNERS): weakening this needs ARCHITECT APPROVED.
 """
@@ -312,16 +313,29 @@ def trigger_of(path: str) -> str:
         return "<unparseable workflow>"
 
 
-# Rule 5 of check-workflows.sh (#88, from #84/#12): a directory that is or could be the prod root.
-# environments/prod, an environments/* glob, or an environments/$... path built at run time.
-PROD_DIR = re.compile(r"environments/(prod(?![A-Za-z0-9_-])|\*|\$)")
+# Rule 5 of check-workflows.sh (#88): POSITIVE PROOF of a dev target, not a denylist of prod spellings.
+# `tf_target` prints `dev` only if (a) some scalar names environments/dev and (b) EVERY `environments/`
+# occurrence is exactly environments/dev followed by end, `/`, a quote or whitespace. Anything else, a parse
+# failure included, is `unsafe`. Dev only: qa stays out until a reviewed change adds it.
+ENV_OCC = re.compile(r"environments/")
+ENV_DEV = re.compile(r"environments/dev(?=$|[/\"'\s])")
+# `paths:` filters on the trigger select which pushes run the workflow; they are not where a step runs.
+ON_SKIP = ("paths", "paths-ignore")
+ON_KEYS = ("on", "true", "True")
 
 
-def names_prod(path: str) -> bool:
-    """True if the workflow, outside its `on:` block (path filters such as `environments/**` select which
-    pushes trigger it, not where a step runs), names a directory that is or could be environments/prod.
-    Reads the parsed scalars (scalar_nodes), not a dump of whole values: comments are dropped by the parser and
-    a `#` inside a quoted or block scalar is content. A file that does not parse counts as naming prod."""
+def _target_scalars(root: yaml.Node, loader: yaml.SafeLoader) -> list[yaml.ScalarNode]:
+    """Every scalar a step could read a directory from: all of the workflow, `on:` included (a dispatch input
+    default or choice can carry the path) except the trigger's own path filters."""
+    out: list[yaml.ScalarNode] = []
+    for k, v in mapping_items(root, loader):
+        if isinstance(k, yaml.ScalarNode):
+            out.append(k)
+        out.extend(scalar_nodes(v, ON_SKIP if key_name(k) in ON_KEYS else ()))
+    return out
+
+
+def tf_target(path: str) -> str:
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -329,27 +343,99 @@ def names_prod(path: str) -> bool:
         try:
             root = loader.get_single_node()
             if root is None or not isinstance(root, yaml.MappingNode):
-                return True
-            for k, v in mapping_items(root, loader):
-                if key_name(k) in ("on", "true", "True"):
-                    continue
-                if any(PROD_DIR.search(sc.value) for sc in scalar_nodes(v)) or (
-                    isinstance(k, yaml.ScalarNode) and PROD_DIR.search(k.value)
-                ):
-                    return True
-            return False
+                return "unsafe"
+            saw_dev = False
+            for sc in _target_scalars(root, loader):
+                for m in ENV_OCC.finditer(sc.value):
+                    if not ENV_DEV.match(sc.value, max(0, m.start())):
+                        return "unsafe"
+                    saw_dev = True
+            return "dev" if saw_dev else "unsafe"
         finally:
             loader.dispose()
     except (yaml.YAMLError, OSError, UnicodeDecodeError, RecursionError):
-        return True
+        return "unsafe"
+
+
+TF_PLAN = re.compile(r"(^|[^A-Za-z0-9_-])(terraform|tofu)([^A-Za-z0-9_-].*)?[\s](plan|apply)([^A-Za-z0-9_-]|$)")
+ACTION_PLAN = re.compile(r"(plan|apply)", re.IGNORECASE)
+
+
+def tf_lines(path: str) -> list[int]:
+    """1-based line numbers of every plan/apply-capable line, found on the PARSED scalars (so comments are gone
+    and a `#` in a quoted scalar stays content), with `\\`-newline continuations joined and quote characters
+    removed (`"terraform" "apply"`): (1) a `terraform`/`tofu` command naming plan or apply; (2) a `uses:` action
+    whose name contains plan or apply; (3) a job-level reusable-workflow call (`uses:` a .github/workflows/
+    file), fail-closed whatever the callee is called. An unparseable file reports line 1."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        loader = yaml.SafeLoader(text)
+        try:
+            root = loader.get_single_node()
+            if root is None or not isinstance(root, yaml.MappingNode):
+                return [1]
+            hits: set[int] = set()
+            for sc in scalar_nodes(root):
+                first = sc.start_mark.line + 1 + (1 if sc.style in ("|", ">") else 0)
+                logical, start = "", None
+                raw = sc.value.split("\n")
+                for i, ln in enumerate(raw):
+                    if start is None:
+                        start = i
+                    if ln.endswith("\\") and i < len(raw) - 1:
+                        logical += ln[:-1] + " "
+                        continue
+                    logical += ln
+                    if TF_PLAN.search(re.sub(r"[\"']", "", logical)):
+                        hits.add(first + start)
+                    logical, start = "", None
+            for _, v in mapping_items(root, loader):
+                for uses_v in _uses_values(v, loader):
+                    name = uses_v.value.split("@", 1)[0]
+                    line = uses_v.start_mark.line + 1
+                    if ACTION_PLAN.search(name) or ".github/workflows/" in name:
+                        hits.add(line)
+            return sorted(hits)
+        finally:
+            loader.dispose()
+    except (yaml.YAMLError, OSError, UnicodeDecodeError, RecursionError):
+        return [1]
+
+
+def _uses_values(node: yaml.Node, loader: yaml.SafeLoader) -> list[yaml.ScalarNode]:
+    """Values of every `uses` key anywhere (step actions and job-level reusable-workflow calls)."""
+    out: list[yaml.ScalarNode] = []
+    seen: set[int] = set()
+
+    def walk(n: yaml.Node) -> None:
+        if id(n) in seen:
+            return
+        seen.add(id(n))
+        if isinstance(n, yaml.SequenceNode):
+            for c in n.value:
+                walk(c)
+        elif isinstance(n, yaml.MappingNode):
+            for k, v in mapping_items(n, loader):
+                if key_name(k) == "uses" and isinstance(v, yaml.ScalarNode):
+                    out.append(v)
+                else:
+                    walk(v)
+
+    walk(node)
+    return out
 
 
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--trigger":
         print(trigger_of(argv[1]))
         return 0
-    if len(argv) == 2 and argv[0] == "--names-prod":
-        print("prod" if names_prod(argv[1]) else "no")
+    if len(argv) == 2 and argv[0] == "--tf-target":
+        print(tf_target(argv[1]))
+        return 0
+    if len(argv) == 2 and argv[0] == "--tf-lines":
+        for n in tf_lines(argv[1]):
+            print(n)
         return 0
     if len(argv) < 2:
         print("usage: check-workflow-permissions.py <allowlist,comma-separated> <file>...", file=sys.stderr)

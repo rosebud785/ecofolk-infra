@@ -26,6 +26,11 @@ name: Infra plan (a named PR, dev)
 #      This repo is public. No value, sensitive or not, is ever posted;
 #   5. the job that holds the cloud token never writes to the PR: a second job, with no id-token and no PR code, posts.
 #
+# Static refusal (2) is defence in depth, not the boundary: the boundary is `tf-plan`'s blast radius (3) (Architect design
+# review, infra#162 c7091748530). Data reaching Google's APIs (including another project's logs) at `tf-plan`'s privilege
+# is the accepted residual: no HCL rule can tell our project from one the PR author controls, and the egress is
+# googleapis.com itself.
+#
 # Dev only. Prod is the same mechanism with its own plan SA once environments/prod exists (ecofolk#400's gates).
 #
 # Identifiers are repo VARIABLES (none is a credential): GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_PLAN_SA, TF_STATE_BUCKET

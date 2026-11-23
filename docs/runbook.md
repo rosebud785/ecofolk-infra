@@ -866,6 +866,13 @@ a rule that would refuse today's code fails at review. Such a
 PR gets a comment saying there is no PR-time plan and records `plan-record: <sha> static-refused`; the apply's own plan
 is then the first one, as before.
 
+**The boundary, and the accepted residual** (Architect design review, infra#162 c7091748530). Static refusal is defence in
+depth, not the boundary: the boundary is `tf-plan`'s blast radius, which is why the paste below grants exactly the three
+roles and nothing else, why the dev state must hold no secret values (the Deployer confirms, names only), and why the
+token lives for the job only. Data reaching Google's APIs (including another project's logs) at `tf-plan`'s privilege is
+the accepted residual: no HCL rule can tell our project from one the PR author controls, and the egress is
+`googleapis.com` itself. A newly found form that only reaches that residual is a note, not a block.
+
 **The drift rule.** `infra-apply.yml` still re-plans on merge and applies its own saved plan, but a plan WITH changes
 applies only if `scripts/check-plan-record.sh` finds, for the merged PR: the merge commit's tree equals the PR head's
 tree (use strict "up to date" branch protection, or merge only a PR that is current with `main`), and the latest

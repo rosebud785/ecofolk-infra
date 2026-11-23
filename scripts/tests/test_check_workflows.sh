@@ -1428,6 +1428,46 @@ stepcase u9_action_dotdot fail '      - uses: gruntwork-io/terragrunt-action@'"$
         with:
           tg_dir: environments/dev/../prod'
 stepcase u10_setup_tflint_ok pass '      - uses: terraform-linters/setup-tflint@'"$SHA"
+# ha-qa FAIL c7113200529 / Architect ruling: EVERY with: value is checked; a decoy dev input cannot vouch for the
+# input that carries the real target.
+stepcase m3_decoy_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: ${{ vars.TG_DIR }}
+          tg_comment: environments/dev'
+stepcase m4_decoy_dotdot_in_command fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply --working-dir ../prod
+          tg_dir: environments/dev'
+stepcase m6_decoy_inputs_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: ${{ inputs.target }}
+          note: environments/dev'
+stepcase m9_decoy_absolute_path fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev
+          tg_config: /home/runner/work/x/x/prod/terragrunt.hcl'
+stepcase m10_decoy_dotdot_value fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          dir: environments/dev
+          tg_dir: ../prod'
+stepcase m11_decoy_extra_expression fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev
+          extra: ${{ inputs.x }}'
+stepcase m12_token_input_fails_closed fail '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_dir: environments/dev
+          github_token: ${{ secrets.GITHUB_TOKEN }}'
+stepcase m13_all_literal_or_dev_ok pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: apply
+          tg_dir: environments/dev
+          tg_version: 0.55.0'
+stepcase m14_literal_flag_ok pass '      - uses: gruntwork-io/terragrunt-action@'"$SHA"'
+        with:
+          tg_command: run-all apply -auto-approve
+          tg_dir: environments/dev'
 # Architect c7112778221: any `..` segment anywhere in a target is unsafe, the dev part and its suffix included.
 stepcase dd1_env_dotdot_prod fail '      - run: terraform -chdir="$TF_DIR/../prod" apply' '  TF_DIR: environments/dev'
 stepcase dd2_quoted_dev_then_dotdot fail '      - run: terraform -chdir="environments/dev"/../prod apply'

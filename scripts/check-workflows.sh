@@ -27,9 +27,12 @@
 #      - a `uses:` STEP is capable if its action reference (case-insensitive) contains terraform, tofu,
 #        opentofu, terragrunt, plan or apply, unless it is on the setup-only allowlist (hashicorp/setup-
 #        terraform, opentofu/setup-opentofu, terraform-linters/setup-tflint; adding an entry is a guard-surface
-#        change). Its target is its `with:` values, whatever the inputs are called: at least one must name
-#        environments/dev, and every `environments/` in any of them must be exactly dev (no `..`, no
-#        non-literal expression); otherwise unsafe.
+#        change). Its target is its `with:` values, whatever the inputs are called, and EVERY value is checked:
+#        each must be (a) a dev path under the resolver above, or (b) a plain literal that is not a path or
+#        expression (no `/`, `$`, `{{`, `..`, no leading `~` or `.`: `apply`, `true`, `1.9.8`); anything else
+#        (an expression of any kind, a non-dev or absolute path, `..`) is unsafe, and at least one value
+#        must be (a). A token input on a capable action therefore fails: a real need gets a reviewed
+#        allowlist entry, not a wider (b).
 #      - each capable segment's directory comes from its `-chdir=`, else the step's `working-directory`, else
 #        the job's, else the workflow's `defaults.run.working-directory`; no source = unsafe. It must resolve
 #        to [<prefix>/]environments/dev (then end or `/`; the prefix a fixed relative path, no `..`, no

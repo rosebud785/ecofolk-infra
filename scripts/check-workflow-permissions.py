@@ -406,25 +406,28 @@ ACTION_FAMILY = re.compile(r"terraform|tofu|opentofu|terragrunt|plan|apply", re.
 SETUP_ONLY_ACTIONS = frozenset({"hashicorp/setup-terraform", "opentofu/setup-opentofu", "terraform-linters/setup-tflint"})
 
 
+def _plain_literal(value: str) -> bool:
+    """A literal that is not a path or an expression: no `/`, `$`, `{{`, `..`, no leading `~` or `.`."""
+    return not ("/" in value or "$" in value or "{{" in value or ".." in value or value.startswith(("~", ".")))
+
+
 def _with_proves_dev(with_node: yaml.Node | None, envs: list[dict[str, str]]) -> bool:
-    """A terraform-family action's target is its `with:` values, whatever the inputs are called: at least one
-    value must name environments/dev, and every `environments/` in any value must be exactly dev (no `..`, no
-    non-literal expression in a value that carries one). Otherwise unsafe."""
-    if with_node is None:
+    """A terraform-family action's target is its `with:` values, whatever the inputs are called, and EVERY value
+    is checked (Architect c7113200529 ruling): each must be (a) a dev path under C's resolver, or (b) a plain
+    literal that is not a path or an expression (`apply`, `true`, `1.9.8`, `-auto-approve`). Anything else, an
+    expression of any kind, a non-dev or absolute path, `..`, makes the step unsafe, and at least one value
+    must be (a). A decoy dev input therefore cannot vouch for an input that carries the real target."""
+    if not isinstance(with_node, yaml.MappingNode):
         return False
     saw_dev = False
-    for sc in scalar_nodes(with_node):
-        value = _resolve_env(sc.value, envs)
-        if "environments/" not in value:
-            continue
-        if "$" in value or "{{" in value:
-            return False
-        for m in ENV_OCC.finditer(value):
-            if not _dev_occurrence(value, m.start()):
+    for k, v in with_node.value:
+        for sc in scalar_nodes(v):
+            value = _resolve_env(sc.value, envs)
+            if _target_ok(sc.value, envs):
+                saw_dev = True
+            elif not _plain_literal(value):
                 return False
-            saw_dev = True
     return saw_dev
-
 
 def _segments(sc: yaml.ScalarNode) -> list[tuple[int, str]]:
     """(1-based line, ORIGINAL segment text) for each command segment of a scalar: `\\`-newline joined,
